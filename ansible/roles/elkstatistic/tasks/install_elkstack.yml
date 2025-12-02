@@ -35,30 +35,40 @@
     - "{{ elkstack_csv_logstash_dir }}"
   tags: [elkstatistic, install, directories]
 
-- name: Find ELK Statistics package
+- name: Find ELK Statistics package (dynamic version detection)
   find:
     paths: "{{ elkstack_package.source_dir }}"
-    patterns: "{{ elkstack_package.name }}"
+    patterns: "prd-dmcstats-*.zip"
   register: elkstack_package_files
   tags: [elkstatistic, install, packages]
 
 - name: Fail if ELK Statistics package not found
   fail:
-    msg: "ELK Statistics package not found. Expected: {{ elkstack_package.name }}"
+    msg: "ELK Statistics package not found. Expected pattern: prd-dmcstats-*.zip in {{ elkstack_package.source_dir }}"
   when: elkstack_package_files.matched == 0
+  tags: [elkstatistic, install, packages]
+
+- name: Extract version from package filename
+  set_fact:
+    elkstack_detected_version: "{{ elkstack_package_files.files[0].path | basename | regex_replace('prd-dmcstats-(.+)\\.zip', '\\1') }}"
+  tags: [elkstatistic, install, packages]
+
+- name: Display detected ELK Statistics version
+  debug:
+    msg: "Detected ELK Statistics version: {{ elkstack_detected_version }} from package: {{ elkstack_package_files.files[0].path | basename }}"
   tags: [elkstatistic, install, packages]
 
 - name: Copy ELK Statistics package to target
   copy:
     src: "{{ elkstack_package_files.files[0].path }}"
-    dest: "{{ elkstack_install_dir }}/{{ elkstack_package.name }}"
+    dest: "{{ elkstack_install_dir }}/{{ elkstack_package_files.files[0].path | basename }}"
     mode: '0644'
   become: true
   tags: [elkstatistic, install, packages]
 
 - name: Extract ELK Statistics package
   unarchive:
-    src: "{{ elkstack_install_dir }}/{{ elkstack_package.name }}"
+    src: "{{ elkstack_install_dir }}/{{ elkstack_package_files.files[0].path | basename }}"
     dest: "{{ elkstack_install_dir }}"
     owner: "{{ elkstack_user }}"
     group: "{{ elkstack_group }}"
@@ -66,15 +76,46 @@
   become: true
   tags: [elkstatistic, install, extract]
 
-- name: Create current symbolic link
+- name: Verify extracted version directory exists
+  stat:
+    path: "{{ elkstack_install_dir }}/{{ elkstack_detected_version }}"
+  register: elkstack_version_dir
+  tags: [elkstatistic, install, validation]
+
+- name: Fail if version directory not found after extraction
+  fail:
+    msg: "Version directory {{ elkstack_install_dir }}/{{ elkstack_detected_version }} not found after extraction. Check package contents."
+  when: not elkstack_version_dir.stat.exists
+  tags: [elkstatistic, install, validation]
+
+- name: Remove existing current symlink if it exists
   file:
-    src: "{{ elkstack_install_dir }}/{{ elkstack_version }}"
+    path: "{{ elkstack_install_dir }}/current"
+    state: absent
+  become: true
+  tags: [elkstatistic, install, symlink]
+
+- name: Create current symbolic link to detected version
+  file:
+    src: "{{ elkstack_install_dir }}/{{ elkstack_detected_version }}"
     dest: "{{ elkstack_install_dir }}/current"
     state: link
     owner: "{{ elkstack_user }}"
     group: "{{ elkstack_group }}"
   become: true
   tags: [elkstatistic, install, symlink]
+
+- name: Verify current symlink was created correctly
+  stat:
+    path: "{{ elkstack_install_dir }}/current"
+  register: elkstack_current_link
+  become: true
+  tags: [elkstatistic, install, validation]
+
+- name: Display current symlink status
+  debug:
+    msg: "Current symlink points to: {{ elkstack_current_link.stat.lnk_target if elkstack_current_link.stat.islnk else 'ERROR: Not a symlink' }}"
+  tags: [elkstatistic, install, validation]
 
 - name: Extract CSV export archive
   unarchive:

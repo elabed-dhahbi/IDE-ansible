@@ -2,6 +2,8 @@
 # ELK Statistics Stack Configuration Defaults
 
 # ELK Statistics version
+# Note: Version is now dynamically detected from package filename (prd-dmcstats-*.zip)
+# This variable is kept for backward compatibility but will be overridden by detected version
 elkstack_version: "4.7.2"
 
 # User and group configuration
@@ -72,6 +74,8 @@ elkstack_cron:
   cleanup_time: "0 0 * * *"       # Daily at 00:00
 
 # Package configuration
+# Note: Package name pattern is now dynamic (prd-dmcstats-*.zip)
+# Version is automatically extracted from the found package filename
 elkstack_package:
-  name: "prd-dmcstats-4.7.2.zip"
+  name: "prd-dmcstats-*.zip"  # Wildcard pattern for dynamic version detection
   source_dir: "{{ paths.offline_dir | default('/tmp/offline') }}"
