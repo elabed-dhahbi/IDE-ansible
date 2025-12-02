@@ -1,0 +1,34 @@
+---
+# OpenSearch Dashboards Installation and Configuration
+
+- name: Include system preparation tasks
+  include_tasks: install_system_packages.yml
+  tags: [opensearch_dashboards, system]
+
+- name: Include OpenSearch Dashboards installation tasks
+  include_tasks: install_dashboards.yml
+  tags: [opensearch_dashboards, install]
+
+- name: Include OpenSearch Dashboards user configuration tasks
+  include_tasks: configure_user.yml
+  tags: [opensearch_dashboards, user]
+
+- name: Include OpenSearch Dashboards directory setup tasks
+  include_tasks: configure_directories.yml
+  tags: [opensearch_dashboards, directories]
+
+- name: Include OpenSearch Dashboards configuration tasks
+  include_tasks: configure_dashboards.yml
+  tags: [opensearch_dashboards, config]
+
+- name: Include OpenSearch Dashboards service configuration tasks
+  include_tasks: configure_service.yml
+  tags: [opensearch_dashboards, service]
+
+
+
+
+
+
+
+

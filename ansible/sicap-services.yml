@@ -1,0 +1,131 @@
+---
+# SICAP Dependent Services Installation Playbook
+# This playbook installs services that depend on SLS being up and licensed
+# Run this AFTER SLS is installed and licenses are uploaded
+
+# a) MMG installation (depends on SLS)
+- name: Install and configure MMG
+  hosts: mmg
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - mmg
+  tags:
+    - mmg
+
+# b) MMSOAP installation (depends on SLS)
+- name: Install and configure MMSOAP
+  hosts: mmsoap
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - mmsoap
+  tags:
+    - mmsoap
+
+# c) SMPPC installation (depends on SLS)
+- name: Install and configure SMPPC
+  hosts: smppc
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - smppc
+  tags:
+    - smppc
+
+# d) Verify all services are running
+- name: Verify SICAP services status
+  hosts: all
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  tasks:
+    - name: Check SLS status
+      uri:
+        url: "http://{{ ansible_host }}:50420"
+        method: GET
+        status_code: 200
+      when: inventory_hostname in groups['sls']
+      register: sls_status
+      tags: [verification, sls]
+
+    - name: Display SLS status
+      debug:
+        msg: "SLS is running on {{ ansible_host }}:50420"
+      when: sls_status is defined and sls_status.status == 200
+      tags: [verification, sls]
+
+    - name: Check MMG status
+      uri:
+        url: "http://{{ ansible_host }}:{{ mmg_http_port | default('50410') }}"
+        method: GET
+        status_code: 200
+      when: inventory_hostname in groups['mmg']
+      register: mmg_status
+      tags: [verification, mmg]
+
+    - name: Display MMG status
+      debug:
+        msg: "MMG is running on {{ ansible_host }}:{{ mmg_http_port | default('50410') }}"
+      when: mmg_status is defined and mmg_status.status == 200
+      tags: [verification, mmg]
+
+    - name: Check MMSOAP status
+      uri:
+        url: "http://{{ ansible_host }}:{{ mmsoap_http_port | default('50420') }}"
+        method: GET
+        status_code: 200
+      when: inventory_hostname in groups['mmsoap']
+      register: mmsoap_status
+      tags: [verification, mmsoap]
+
+    - name: Display MMSOAP status
+      debug:
+        msg: "MMSOAP is running on {{ ansible_host }}:{{ mmsoap_http_port | default('50420') }}"
+      when: mmsoap_status is defined and mmsoap_status.status == 200
+      tags: [verification, mmsoap]
+
+    - name: Check SMPPC status
+      uri:
+        url: "http://{{ ansible_host }}:{{ smppc_http_port | default('50430') }}"
+        method: GET
+        status_code: 200
+      when: inventory_hostname in groups['smppc']
+      register: smppc_status
+      tags: [verification, smppc]
+
+    - name: Display SMPPC status
+      debug:
+        msg: "SMPPC is running on {{ ansible_host }}:{{ smppc_http_port | default('50430') }}"
+      when: smppc_status is defined and smppc_status.status == 200
+      tags: [verification, smppc]
+
+    - name: SICAP Services Installation Complete
+      debug:
+        msg: |
+          ================================================
+          SICAP SERVICES INSTALLATION COMPLETE
+          ================================================
+          
+          All dependent services have been installed and configured.
+          Please verify all services are running properly.
+          
+          Service URLs:
+          - SLS: http://{{ groups['sls'][0] | default('localhost') }}:50420
+          - MMG: http://{{ groups['mmg'][0] | default('localhost') }}:50410
+          - MMSOAP: http://{{ groups['mmsoap'][0] | default('localhost') }}:50420
+          - SMPPC: http://{{ groups['smppc'][0] | default('localhost') }}:50430
+      tags: [verification, completion]
+
+
+
+
+
+
+
+
+
+

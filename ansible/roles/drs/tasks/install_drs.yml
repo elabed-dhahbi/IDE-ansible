@@ -1,0 +1,119 @@
+---
+# DRS Installation Tasks
+
+- name: Find DRS RPM package
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns: "SCPdrs-*.rpm"
+  register: drs_packages
+  tags: [drs, install, packages]
+
+- name: Ensure Java 8 archive is available (controller)
+  debug:
+    msg: "Using Java 8 package: {{ package_globs.jdk8_64bit | default('jdk8_64bit not defined') }}"
+  tags: [drs, install, java]
+
+- name: Check if Java 8 is installed at /usr/j2se/current
+  stat:
+    path: /usr/j2se/current
+  register: drs_java_current
+  become: yes
+  tags: [drs, install, java]
+
+- name: Create /usr/j2se directory
+  file:
+    path: /usr/j2se
+    state: directory
+    mode: '0755'
+  become: yes
+  when: not drs_java_current.stat.exists
+  tags: [drs, install, java]
+
+- name: Extract Java 8 to /usr/j2se (if missing)
+  unarchive:
+    src: "{{ package_globs.jdk8_64bit }}"
+    dest: /usr/j2se
+    remote_src: yes
+  become: yes
+  when: not drs_java_current.stat.exists
+  tags: [drs, install, java]
+
+- name: Set permissions on /usr/j2se
+  file:
+    path: /usr/j2se
+    owner: root
+    group: root
+    recurse: yes
+  become: yes
+  when: not drs_java_current.stat.exists
+  tags: [drs, install, java]
+
+- name: Find extracted Java 8 directory
+  find:
+    paths: /usr/j2se
+    file_type: directory
+    patterns:
+      - "jdk*8*"
+      - "openlogic*8*"
+      - "j2se*8*"
+      - "java*8*"
+  register: java_dirs
+  become: yes
+  when: not drs_java_current.stat.exists
+  tags: [drs, install, java]
+
+- name: Display found Java directories
+  debug:
+    msg: "Found Java directories: {{ java_dirs.files | map(attribute='path') | list }}"
+  when: not drs_java_current.stat.exists
+  tags: [drs, install, java, debug]
+
+- name: Create /usr/j2se/current symlink to extracted Java 8
+  file:
+    src: "{{ java_dirs.files[0].path if java_dirs.files | length > 0 else '/usr/j2se/jdk8' }}"
+    dest: /usr/j2se/current
+    state: link
+    force: yes
+  become: yes
+  when: 
+    - not drs_java_current.stat.exists
+    - java_dirs.files | length > 0
+  tags: [drs, install, java]
+
+- name: Verify Java symlink was created
+  stat:
+    path: /usr/j2se/current
+  register: java_link_check
+  become: yes
+  tags: [drs, install, java, debug]
+
+- name: Display Java symlink status
+  debug:
+    msg: "Java symlink exists: {{ java_link_check.stat.exists }}, target: {{ java_link_check.stat.lnk_target if java_link_check.stat.islnk else 'N/A' }}"
+  tags: [drs, install, java, debug]
+
+- name: Display found DRS packages
+  debug:
+    msg: "Found DRS packages: {{ drs_packages.files | map(attribute='path') | list }}"
+  tags: [drs, install, packages]
+
+- name: Install DRS package
+  command: rpm -Uvh --force --nodeps "{{ item.path }}"
+  loop: "{{ drs_packages.files }}"
+  become: yes
+  tags: [drs, install, packages]
+
+- name: Check if DRS is already installed
+  stat:
+    path: "{{ drs_install_dir }}"
+  register: drs_installed
+  tags: [drs, install, check]
+
+- name: Display DRS installation status
+  debug:
+    msg: "DRS installation directory exists: {{ drs_installed.stat.exists }}"
+  tags: [drs, install, check]
+
+
+
+

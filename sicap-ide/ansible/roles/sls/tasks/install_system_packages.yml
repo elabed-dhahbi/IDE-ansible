@@ -1,0 +1,16 @@
+---
+# SLS System Packages Installation Tasks
+
+- name: Install system packages required for SLS
+  yum:
+    name: "{{ sls_system_packages }}"
+    state: present
+  become: yes
+  tags: [sls, install, packages]
+
+- name: Install Development Tools group
+  yum:
+    name: "@Development Tools"
+    state: present
+  become: yes
+  tags: [sls, install, packages]

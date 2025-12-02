@@ -1,0 +1,89 @@
+---
+# SMPPC Service Configuration Tasks
+
+- name: Start SMPPC service using ctl
+  shell: |
+    su - {{ smppc_user }} -c "source {{ smppc_home }}/.profile.smppc && cd {{ smppc_current_dir }} && ctl start all"
+  become: yes
+  tags: [smppc, service, start]
+
+- name: Check if SMPPC service is running
+  shell: |
+    su - {{ smppc_user }} -c "source {{ smppc_home }}/.profile.smppc && cd {{ smppc_current_dir }} && ctl status all"
+  become: yes
+  register: smppc_status_check
+  tags: [smppc, service, status]
+
+- name: Display SMPPC service status
+  debug:
+    msg: "{{ smppc_status_check.stdout_lines }}"
+  tags: [smppc, service, status]
+
+- name: Wait for SMPPC to be ready
+  wait_for:
+    port: "{{ smppc_config.http_port }}"
+    host: "{{ ansible_host }}"
+    delay: 10
+    timeout: 120
+  tags: [smppc, service, wait]
+
+- name: Check SMPPC status for debugging
+  shell: |
+    su - {{ smppc_user }} -c "cd {{ smppc_current_dir }} && ctl status all"
+  register: smppc_status_debug
+  become: yes
+  tags: [smppc, service, debug]
+
+- name: Display SMPPC status for debugging
+  debug:
+    msg: "{{ smppc_status_debug.stdout_lines }}"
+  tags: [smppc, service, debug]
+
+- name: Check SMPPC log files directly
+  shell: |
+    su - {{ smppc_user }} -c "ls -la {{ smppc_logs_dir }}/"
+  register: smppc_log_files
+  become: yes
+  tags: [smppc, service, debug]
+
+- name: Display SMPPC log files
+  debug:
+    msg: "{{ smppc_log_files.stdout_lines }}"
+  tags: [smppc, service, debug]
+
+- name: Check recent SMPPC application log entries
+  shell: |
+    su - {{ smppc_user }} -c "tail -20 {{ smppc_logs_dir }}/application.log 2>/dev/null || echo 'No application.log found'"
+  register: smppc_app_logs
+  become: yes
+  tags: [smppc, service, debug]
+
+- name: Display recent SMPPC application logs
+  debug:
+    msg: "{{ smppc_app_logs.stdout_lines }}"
+  tags: [smppc, service, debug]
+
+- name: Test SMPPC HTTP endpoint
+  uri:
+    url: "http://{{ ansible_host }}:{{ smppc_config.http_port }}/"
+    method: GET
+    status_code: 200
+  register: smppc_http_test
+  tags: [smppc, service, test]
+
+- name: Display SMPPC HTTP test result
+  debug:
+    msg: "SMPPC HTTP endpoint test: {{ 'PASSED' if smppc_http_test.status == 200 else 'FAILED' }}"
+  tags: [smppc, service, test]
+
+- name: Display SMPPC final status
+  debug:
+    msg:
+      - "SMPPC is running on {{ ansible_host }}:{{ smppc_config.http_port }}"
+      - "Node ID: {{ smppc_config.node_id }}"
+      - "SLS Host: {{ smppc_config.sls_host }}:{{ smppc_config.sls_port }}"
+  tags: [smppc, service, info]
+
+
+
+

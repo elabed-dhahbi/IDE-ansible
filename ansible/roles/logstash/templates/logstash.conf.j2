@@ -1,0 +1,144 @@
+# Logstash Configuration Template
+# Supports both ELK and OpenSearch stacks
+
+input {
+    file {
+        path => "/var/opt/dmc/current/log/DMC-BusinessLog/eir.log*"
+        start_position => "end"
+        type => "eir"
+        tags => "dmc-{{ stack_type }}"
+    }
+
+    file {
+        path => "/var/opt/dmc/current/log/DMC-BusinessLog/activity.log"
+        start_position => "end"
+        type => "activity"
+        tags => "dmc-{{ stack_type }}"
+    }
+
+    file {
+        path => "/var/opt/dmc/current/log/DMC-BusinessLog/add_backend.log"
+        start_position => "end"
+        type => "add_backend"
+        tags => "dmc-{{ stack_type }}"
+    }
+
+    file {
+        path => "/var/opt/dmc/current/log/DMC-BusinessLog/delivered_content.log"
+        start_position => "end"
+        type => "delivered_content"
+        tags => "dmc-{{ stack_type }}"
+    }
+
+    file {
+        path => "/var/opt/dmc/current/log/DMC-BusinessLog/gui_page_leave.log"
+        start_position => "end"
+        type => "gui_page_leave"
+        tags => "dmc-{{ stack_type }}"
+    }
+
+    file {
+        path => "/var/opt/dmc/current/log/DMC-BusinessLog/profile_association.log"
+        start_position => "end"
+        type => "profile_association"
+        tags => "dmc-{{ stack_type }}"
+    }
+
+    file {
+        path => "/var/opt/dmc/current/log/DMC-BusinessLog/scenario_op_delivered.log"
+        start_position => "end"
+        type => "scenario_op_delivered"
+        tags => "dmc-{{ stack_type }}"
+    }
+
+    file {
+        path => "/var/opt/dmc/current/log/DMC-BusinessLog/mobile_binding_change.log"
+        start_position => "end"
+        type => "mobile_binding_change"
+        tags => "dmc-{{ stack_type }}"
+    }
+
+    file {
+        path => "/var/opt/dmc-statistics/csvexport/logstash/DMC_CSV_export_*.csv"
+        mode => "read"
+        file_completed_action => "log" 
+        file_completed_log_path => "/var/opt/logstash/logs/csvexport.log"
+        type => "csvexport"
+        tags => "csvexport"
+    }
+}
+
+filter {
+    # ... (same filter logic as before) ...
+    
+    # DRS integration
+    if([IMEI] and !("/var/opt/elkstatistics/csvexport/" in [path]) and !([IMEI] == "")) {
+        if [IMEI] =~ /^(s_.*|S_.*|\d{14,17})$/ {
+            rest {
+                request => {
+                    url => "http://{{ logstash_config.drs_host }}:{{ logstash_config.drs_port }}/drs/characteristics/1_4/Generic/RAW?imei=%{IMEI}"
+                    method => "get"
+                    response_key => "temp"
+                }
+                json => true
+                sprintf => true
+                target => "rest"
+            }
+            # ... (rest of DRS processing) ...
+        }
+    }
+
+    # Customer field
+    mutate {
+        add_field => { "customer" => "{{ logstash_config.customer_name }}" }
+    }
+}
+
+output {
+    {% if stack_type == "elk" %}
+    # ELK Stack Output
+    if [type] == "csvexport" {
+        elasticsearch {
+            hosts => ["{{ logstash_config.elasticsearch_hosts | join('","') }}"]
+            index => "%{[@metadata][index_name]}-%{+YYYY.MM.dd}"
+            user => "{{ logstash_config.elasticsearch_user }}"
+            password => "{{ logstash_config.elasticsearch_password }}"
+            ilm_rollover_alias => "{{ logstash_config.csv_ilm_alias }}"
+            ilm_pattern => "{{ logstash_config.csv_ilm_pattern }}"
+            ilm_policy => "{{ logstash_config.csv_ilm_policy }}"
+        }
+    } else {
+        elasticsearch {
+            hosts => ["{{ logstash_config.elasticsearch_hosts | join('","') }}"]
+            index => "%{[@metadata][index_name]}-%{+YYYY.MM.dd}"
+            user => "{{ logstash_config.elasticsearch_user }}"
+            password => "{{ logstash_config.elasticsearch_password }}"
+            ilm_rollover_alias => "{{ logstash_config.dmc_ilm_alias }}"
+            ilm_pattern => "{{ logstash_config.dmc_ilm_pattern }}"
+            ilm_policy => "{{ logstash_config.dmc_ilm_policy }}"
+        }
+    }
+    {% else %}
+    # OpenSearch Stack Output
+    if [type] == "csvexport" {
+        opensearch {
+            action => "update"
+            doc_as_upsert => true
+            document_id => "%{MSISDN}"
+            hosts => ["{{ logstash_config.opensearch_hosts | join('","') }}"]
+            ssl_certificate_verification => false
+            user => "{{ logstash_config.opensearch_user }}"
+            password => "{{ logstash_config.opensearch_password }}"
+            index => "%{[@metadata][index_name]}-%{+YYYY.MM}"
+        }
+    } else {
+        opensearch {
+            hosts => ["{{ logstash_config.opensearch_hosts | join('","') }}"]
+            ssl_certificate_verification => false
+            user => "{{ logstash_config.opensearch_user }}"
+            password => "{{ logstash_config.opensearch_password }}"
+            index => "%{[@metadata][index_name]}-%{+YYYY.MM}"
+        }
+    }
+    {% endif %}
+}

@@ -1,0 +1,77 @@
+---
+# SLS Service Configuration Tasks
+
+- name: Start SLS service using ctl
+  shell: |
+    su - {{ sls_user }} -c "source {{ sls_home }}/.profile.sls && cd {{ sls_current_dir }} && ctl start all"
+  become: yes
+  tags: [sls, service, start]
+
+- name: Check if SLS service is running
+  shell: |
+    su - {{ sls_user }} -c "source {{ sls_home }}/.profile.sls && cd {{ sls_current_dir }} && ctl status all"
+  become: yes
+  register: sls_status_check
+  tags: [sls, service, status]
+
+- name: Display SLS service status
+  debug:
+    msg: "{{ sls_status_check.stdout_lines }}"
+  tags: [sls, service, status]
+
+- name: Wait for SLS to be ready
+  wait_for:
+    port: "{{ sls_config.http_port }}"
+    host: "{{ ansible_host }}"
+    delay: 10
+    timeout: 120
+  tags: [sls, service, wait]
+
+- name: Check SLS status for debugging
+  shell: |
+    su - {{ sls_user }} -c "cd {{ sls_current_dir }} && ctl status all"
+  register: sls_status_debug
+  become: yes
+  tags: [sls, service, debug]
+
+- name: Display SLS status for debugging
+  debug:
+    msg: "{{ sls_status_debug.stdout_lines }}"
+  tags: [sls, service, debug]
+
+- name: Check SLS log files directly
+  shell: |
+    su - {{ sls_user }} -c "ls -la {{ sls_logs_dir }}/"
+  register: sls_log_files
+  become: yes
+  tags: [sls, service, debug]
+
+- name: Display SLS log files
+  debug:
+    msg: "{{ sls_log_files.stdout_lines }}"
+  tags: [sls, service, debug]
+
+- name: Check recent SLS application log entries
+  shell: |
+    su - {{ sls_user }} -c "tail -20 {{ sls_logs_dir }}/application.log 2>/dev/null || echo 'No application.log found'"
+  register: sls_app_logs
+  become: yes
+  tags: [sls, service, debug]
+
+- name: Display recent SLS application logs
+  debug:
+    msg: "{{ sls_app_logs.stdout_lines }}"
+  tags: [sls, service, debug]
+
+- name: Test SLS HTTP endpoint
+  uri:
+    url: "http://{{ ansible_host }}:{{ sls_config.http_port }}/"
+    method: GET
+    status_code: 200
+  register: sls_http_test
+  tags: [sls, service, test]
+
+- name: Display SLS HTTP test result
+  debug:
+    msg: "SLS HTTP endpoint test: {{ 'PASSED' if sls_http_test.status == 200 else 'FAILED' }}"
+  tags: [sls, service, test]

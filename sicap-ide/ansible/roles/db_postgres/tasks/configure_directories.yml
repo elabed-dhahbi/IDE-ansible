@@ -1,0 +1,99 @@
+---
+# PostgreSQL Directory Configuration Tasks
+# Implements production-ready directory structure based on your notes
+
+- name: Create PostgreSQL data directory structure
+  file:
+    path: "{{ postgresql_config.data_directory }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0750'
+  tags: [postgres, directories, data]
+
+- name: Create PostgreSQL home directory
+  file:
+    path: "{{ postgresql_config.home_directory }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0755'
+  tags: [postgres, directories, home]
+
+- name: Create PostgreSQL tablespaces base directory
+  file:
+    path: "{{ install_paths.postgres_tablespaces_base }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0750'
+  tags: [postgres, directories, tablespaces]
+
+- name: Create tablespace directories for DMC
+  file:
+    path: "{{ install_paths.postgres_tablespaces_base }}/{{ item }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0700'
+  loop:
+    - "{{ postgresql_config.databases.dmc46.tablespaces.data }}"
+    - "{{ postgresql_config.databases.dmc46.tablespaces.index }}"
+  when: postgresql_config.databases.dmc46 is defined
+  tags: [postgres, directories, tablespaces, dmc]
+
+- name: Create tablespace directories for MMG
+  file:
+    path: "{{ install_paths.postgres_tablespaces_base }}/{{ item }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0700'
+  loop:
+    - "{{ postgresql_config.databases.mmg.tablespaces.data }}"
+    - "{{ postgresql_config.databases.mmg.tablespaces.index }}"
+  when: postgresql_config.databases.mmg is defined
+  tags: [postgres, directories, tablespaces, mmg]
+
+- name: Create tablespace directories for MDBA
+  file:
+    path: "{{ install_paths.postgres_tablespaces_base }}/{{ item }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0700'
+  loop:
+    - "{{ postgresql_config.users.mdba.tablespaces.data }}"
+    - "{{ postgresql_config.users.mdba.tablespaces.index }}"
+  when: postgresql_config.users.mdba is defined
+  tags: [postgres, directories, tablespaces, mdba]
+
+# Handle existing PostgreSQL data directory migration
+- name: Check if default PostgreSQL data directory exists
+  stat:
+    path: "/var/lib/pgsql/{{ versions.postgres }}/data"
+  register: default_postgres_data
+  tags: [postgres, directories, migration]
+
+- name: Stop PostgreSQL service before migration
+  systemd:
+    name: "{{ postgresql_config.service_name }}"
+    state: stopped
+  when: default_postgres_data.stat.exists and not postgres_initialized.stat.exists
+  tags: [postgres, directories, migration, service]
+
+- name: Migrate PostgreSQL data directory using rsync
+  shell: |
+    rsync -av /var/lib/pgsql/{{ versions.postgres }}/data/ {{ postgresql_config.data_directory }}/
+  become_user: postgres
+  when: default_postgres_data.stat.exists and not postgres_initialized.stat.exists
+  tags: [postgres, directories, migration, data]
+
+- name: Change PostgreSQL user home directory
+  user:
+    name: postgres
+    home: "{{ postgresql_config.home_directory }}"
+    move_home: yes
+  when: default_postgres_data.stat.exists and not postgres_initialized.stat.exists
+  tags: [postgres, directories, migration, user]
+

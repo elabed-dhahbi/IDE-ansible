@@ -1,0 +1,226 @@
+---
+# System Preparation Tasks
+# Basic system configuration for offline DMC installation
+
+- name: Install essential system monitoring packages
+  yum:
+    name:
+      - procps                    # ps(1), vmstat(8), uptime(1), top(1) - basic stats
+      - util-linux                # dmesg(1), lsblk(1), lscpu(1) - system log, device info
+      - sysstat                   # iostat(1), mpstat(1), pidstat(1), sar(1) - device stats
+      - iproute2                  # ip(8), ss(8), nstat(8), tc(8) - preferred net tools
+      - numactl                   # numastat(8) - NUMA stats
+      - tcpdump                   # tcpdump(8) - Network sniffer
+      - linux-tools-common        # perf(1), turbostat(8) - profiler and PMU stats
+      - ethtool                   # ethtool(8) - net device info
+      - msr-tools                 # rdmsr(8), wrmsr(8) - CPU digging
+    state: present
+  become: yes
+  ignore_errors: yes
+  tags: [common, prep, packages]
+
+- name: Install kernel-specific tools
+  yum:
+    name: "linux-tools-{{ ansible_kernel }}"
+    state: present
+  become: yes
+  ignore_errors: yes
+  tags: [common, prep, packages]
+
+- name: Install BPF tools (if available)
+  yum:
+    name:
+      - bpfcc-tools               # eBPF canned tools
+      - bpftrace                  # eBPF scripting
+    state: present
+  become: yes
+  ignore_errors: yes
+  tags: [common, prep, packages]
+
+- name: Install additional monitoring tools (if available)
+  yum:
+    name:
+      - trace-cmd                 # trace-cmd(1) - Ftrace CLI
+      - nicstat                   # nicstat(1) - net device stats
+      - tiptop                    # tiptop(1) - PMU/PMC top
+      - cpuid                     # cpuid(1) - CPU details
+    state: present
+  become: yes
+  ignore_errors: yes
+  tags: [common, prep, packages]
+
+- name: Check if firewalld package is installed
+  package_facts:
+    manager: auto
+  register: package_facts_result
+  tags: [common, prep]
+
+- name: Stop and disable firewalld
+  systemd:
+    name: firewalld
+    state: stopped
+    enabled: false
+  become: true
+  when: "'firewalld' in ansible_facts.packages"
+  tags: [common, prep, firewall]
+
+- name: Mask firewalld service
+  systemd:
+    name: firewalld
+    masked: true
+  become: true
+  when: "'firewalld' in ansible_facts.packages"
+  tags: [common, prep, firewall]
+
+- name: Set SELinux to permissive mode
+  selinux:
+    policy: targeted
+    state: permissive
+  become: true
+  tags: [common, prep, selinux]
+
+- name: Ensure SELinux is permissive (restart if needed)
+  command: setenforce 0
+  become: true
+  failed_when: false
+  tags: [common, prep, selinux]
+
+- name: Verify SELinux status
+  command: getenforce
+  register: selinux_status
+  changed_when: false
+  tags: [common, prep, selinux]
+
+- name: Display SELinux status
+  debug:
+    msg: "SELinux status: {{ selinux_status.stdout }}"
+  tags: [common, prep, selinux]
+
+- name: Check if swapfile already exists
+  stat:
+    path: /swapfile
+  register: swapfile_stat
+  tags: [common, prep, swap]
+
+- name: Check current swap status
+  shell: swapon --show
+  register: swap_status
+  changed_when: false
+  tags: [common, prep, swap]
+
+- name: Display current swap status
+  debug:
+    msg: "Current swap devices: {{ swap_status.stdout_lines }}"
+  tags: [common, prep, swap]
+
+- name: Create 5GB swap file
+  command: dd if=/dev/zero of=/swapfile bs=1M count=5120
+  become: yes
+  when: not swapfile_stat.stat.exists
+  tags: [common, prep, swap]
+
+- name: Set correct permissions on swap file
+  file:
+    path: /swapfile
+    mode: '0600'
+    owner: root
+    group: root
+  become: yes
+  when: not swapfile_stat.stat.exists
+  tags: [common, prep, swap]
+
+- name: Set up swap file
+  command: mkswap /swapfile
+  become: yes
+  when: not swapfile_stat.stat.exists
+  tags: [common, prep, swap]
+
+- name: Enable swap file
+  command: swapon /swapfile
+  become: yes
+  when: not swapfile_stat.stat.exists
+  tags: [common, prep, swap]
+
+- name: Add swap file to fstab for persistence
+  lineinfile:
+    path: /etc/fstab
+    line: '/swapfile none swap sw 0 0'
+    create: yes
+    backup: yes
+  become: yes
+  when: not swapfile_stat.stat.exists
+  tags: [common, prep, swap]
+
+- name: Verify swap configuration
+  shell: free -h
+  register: memory_status
+  become: yes
+  tags: [common, prep, swap]
+
+- name: Display memory and swap status
+  debug:
+    msg: "{{ memory_status.stdout_lines }}"
+  tags: [common, prep, swap]
+
+# --- Reporting only: identify tools that are not present without failing the play ---
+
+- name: Refresh package facts for reporting
+  package_facts:
+    manager: auto
+  tags: [common, prep, packages]
+
+- name: Define list of expected monitoring packages (RHEL names)
+  set_fact:
+    monitoring_packages:
+      - procps
+      - util-linux
+      - sysstat
+      - iproute
+      - numactl
+      - linux-tools-common
+      - ethtool
+      - msr-tools
+      - bpfcc-tools
+      - bpftrace
+      - trace-cmd
+      - nicstat
+      - tiptop
+      - cpuid
+  tags: [common, prep, packages]
+
+- name: Report packages that are not installed
+  debug:
+    msg: "Package missing: {{ item }}"
+  loop: "{{ monitoring_packages }}"
+  when: item not in ansible_facts.packages
+  changed_when: false
+  failed_when: false
+  tags: [common, prep, packages]
+
+- name: Check for perf-tools-unstable (source tools) directory
+  stat:
+    path: /usr/local/src/perf-tools
+  register: perf_tools_dir
+  tags: [common, prep, packages]
+
+- name: Report missing perf-tools-unstable
+  debug:
+    msg: "Source tool missing: perf-tools-unstable (expected at /usr/local/src/perf-tools)"
+  when: not perf_tools_dir.stat.exists | default(false)
+  changed_when: false
+  failed_when: false
+  tags: [common, prep, packages]
+
+- name: Check for msr-cloud-tools (source tools) directory
+  stat:
+    path: /usr/local/src/msr-cloud-tools
+  register: msr_cloud_tools_dir
+  tags: [common, prep, packages]
+
+- name: Report missing msr-cloud-tools
+  debug:
+    msg: "Source tool missing: msr-cloud-tools (expected at /usr/local/src/msr-cloud-tools)"
+  when: not msr_cloud_tools_dir.stat.exists | default(false)
+  changed_when: false
+  failed_when: false
+  tags: [common, prep, packages]

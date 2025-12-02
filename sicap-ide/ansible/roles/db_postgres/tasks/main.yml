@@ -1,0 +1,20 @@
+---
+# PostgreSQL 15 Installation and Configuration
+# Supports custom data and home directories for production environments
+
+- name: Include PostgreSQL installation tasks
+  include_tasks: install_postgresql.yml
+  tags: [postgres, install]
+
+- name: Include PostgreSQL directory configuration tasks
+  include_tasks: configure_directories.yml
+  tags: [postgres, directories]
+
+- name: Include PostgreSQL database setup tasks
+  include_tasks: setup_databases.yml
+  tags: [postgres, databases]
+
+- name: Include PostgreSQL service configuration tasks
+  include_tasks: configure_service.yml
+  tags: [postgres, service]
+

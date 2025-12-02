@@ -1,0 +1,19 @@
+---
+# MMG Installation Tasks
+
+- name: Install MMG package
+  yum:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ lookup('fileglob', paths.offline_dir + '/' + package_globs.mmg_rpm, errors='ignore') }}"
+  tags: [mmg, install, packages]
+
+- name: Check if MMG is already installed
+  stat:
+    path: "{{ mmg_install_dir }}"
+  register: mmg_installed
+  tags: [mmg, install, check]
+
+
+
+

@@ -1,0 +1,26 @@
+---
+# DRS Installation and Configuration
+
+- name: Include DRS installation tasks
+  include_tasks: install_drs.yml
+  tags: [drs, install]
+
+- name: Include DRS user configuration tasks
+  include_tasks: configure_user.yml
+  tags: [drs, user]
+
+- name: Include DRS directory setup tasks
+  include_tasks: configure_directories.yml
+  tags: [drs, directories]
+
+- name: Include DRS configuration tasks
+  include_tasks: configure_drs.yml
+  tags: [drs, config]
+
+- name: Include DRS service configuration tasks
+  include_tasks: configure_service.yml
+  tags: [drs, service]
+
+
+
+

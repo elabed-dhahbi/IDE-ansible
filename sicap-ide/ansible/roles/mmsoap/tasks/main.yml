@@ -1,0 +1,26 @@
+---
+# MMSOAP Installation and Configuration
+
+- name: Include MMSOAP installation tasks
+  include_tasks: install_mmsoap.yml
+  tags: [mmsoap, install]
+
+- name: Include MMSOAP user configuration tasks
+  include_tasks: configure_user.yml
+  tags: [mmsoap, user]
+
+- name: Include MMSOAP directory setup tasks
+  include_tasks: configure_directories.yml
+  tags: [mmsoap, directories]
+
+- name: Include MMSOAP configuration tasks
+  include_tasks: configure_mmsoap.yml
+  tags: [mmsoap, config]
+
+- name: Include MMSOAP service configuration tasks
+  include_tasks: configure_service.yml
+  tags: [mmsoap, service]
+
+
+
+

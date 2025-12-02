@@ -1,0 +1,107 @@
+---
+# Install Logstash OSS Role
+# Simple playbook to install Logstash OSS independently
+
+- name: Install Logstash OSS
+  hosts: "{{ target_hosts | default('logstash_oss') }}"
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    stack_type: "opensearch"
+    
+  pre_tasks:
+    - name: Display installation information
+      debug:
+        msg: "Installing Logstash OSS 8.19.4"
+        
+    - name: Verify Logstash OSS package is available
+      stat:
+        path: "{{ paths.offline_dir | default('/tmp/offline') }}/{{ package_globs.logstash_oss_rpm }}"
+      register: logstash_oss_package
+      failed_when: not logstash_oss_package.stat.exists
+      
+    - name: Display package information
+      debug:
+        msg: "Logstash OSS package found: {{ logstash_oss_package.stat.path }}"
+        
+  roles:
+    - role: logstash_oss
+      tags: [logstash-oss, install]
+      
+  post_tasks:
+    - name: Verify Logstash OSS service status
+      systemd:
+        name: "{{ logstash_oss_service_name }}"
+        state: started
+        enabled: yes
+      register: service_status
+      
+    - name: Check Logstash OSS configuration
+      command: "{{ logstash_oss_install_dir }}/bin/logstash --config.test_and_exit --path.config={{ logstash_oss_pipeline_dir }}/logstash.conf"
+      become_user: "{{ logstash_oss_user }}"
+      become: true
+      register: config_test
+      
+    - name: Display configuration test results
+      debug:
+        msg: "Configuration test: {{ 'PASSED' if config_test.rc == 0 else 'FAILED' }}"
+        
+    - name: Check installed plugins
+      command: "{{ logstash_oss_install_dir }}/bin/logstash-plugin list --verbose"
+      become_user: "{{ logstash_oss_user }}"
+      become: true
+      register: installed_plugins
+      changed_when: false
+      
+    - name: Display installed plugins
+      debug:
+        msg: "Installed plugins: {{ installed_plugins.stdout_lines }}"
+        
+    - name: Test Logstash OSS HTTP API
+      uri:
+        url: "http://{{ ansible_host }}:{{ logstash_oss_config.http_port }}"
+        method: GET
+        status_code: 200
+      register: api_test
+      retries: 5
+      delay: 10
+      
+    - name: Display API test results
+      debug:
+        msg: "HTTP API test: {{ 'PASSED' if api_test.status == 200 else 'FAILED' }}"
+        
+    - name: Check Logstash OSS logs
+      command: tail -n 20 {{ logstash_oss_logs_dir }}/logstash-oss.log
+      register: log_output
+      failed_when: false
+      
+    - name: Display recent logs
+      debug:
+        msg: "Recent logs: {{ log_output.stdout_lines }}"
+        
+    - name: Installation summary
+      debug:
+        msg: |
+          ================================================
+          LOGSTASH OSS INSTALLATION SUMMARY
+          ================================================
+          
+          Service Status: {{ 'RUNNING' if service_status.changed == false else 'STARTED' }}
+          Configuration: {{ 'VALID' if config_test.rc == 0 else 'INVALID' }}
+          HTTP API: {{ 'ACCESSIBLE' if api_test.status == 200 else 'NOT ACCESSIBLE' }}
+          
+          Logstash OSS Details:
+          - Version: 8.19.4
+          - Service: {{ logstash_oss_service_name }}
+          - User: {{ logstash_oss_user }}
+          - Config: {{ logstash_oss_config_dir }}/logstash.yml
+          - Pipeline: {{ logstash_oss_pipeline_dir }}/logstash.conf
+          - Logs: {{ logstash_oss_logs_dir }}
+          - HTTP API: http://{{ ansible_host }}:{{ logstash_oss_config.http_port }}
+          
+          Next steps:
+          1. Verify all services are running properly
+          2. Check logs for any errors
+          3. Configure OpenSearch connection if needed
+          4. Test with actual log data

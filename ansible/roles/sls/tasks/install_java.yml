@@ -1,0 +1,62 @@
+---
+# SLS Java Installation Tasks
+
+- name: Ensure offline directory exists on target
+  file:
+    path: "{{ paths.offline_dir }}"
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [sls, install, java, packages]
+
+- name: Copy Java 8 32-bit package to target
+  copy:
+    src: "{{ item }}"
+    dest: "{{ paths.offline_dir }}/"
+    mode: '0644'
+  loop: "{{ lookup('fileglob', paths.offline_dir + '/' + package_globs.jdk8_32bit, wantlist=True, errors='ignore') }}"
+  become: yes
+  tags: [sls, install, java, packages]
+
+- name: Find Java 8 32-bit package
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns: "{{ package_globs.jdk8_32bit }}"
+  register: java_package_files
+  tags: [sls, install, java, packages]
+
+- name: Create /usr/j2se directory
+  file:
+    path: "/usr/j2se"
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [sls, install, java, extract]
+
+- name: Extract Java 8 32-bit to /usr/j2se
+  unarchive:
+    src: "{{ item.path }}"
+    dest: "/usr/j2se"
+    remote_src: yes
+  loop: "{{ java_package_files.files }}"
+  become: yes
+  tags: [sls, install, java, extract]
+
+- name: Set Java directory permissions
+  file:
+    path: "/usr/j2se"
+    mode: '0755'
+    recurse: yes
+  become: yes
+  tags: [sls, install, java, permissions]
+
+- name: Verify Java installation
+  command: "/usr/j2se/openlogic-openjdk-8u412-b08-linux-x32/bin/java -version"
+  register: java_version_check
+  become: yes
+  tags: [sls, install, java, verify]
+
+- name: Display Java version
+  debug:
+    msg: "{{ java_version_check.stderr_lines }}"
+  tags: [sls, install, java, verify]

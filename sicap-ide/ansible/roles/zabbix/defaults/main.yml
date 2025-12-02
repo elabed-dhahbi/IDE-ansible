@@ -1,0 +1,66 @@
+---
+# Zabbix Configuration Defaults - Using centralized values from values.yaml
+
+# Zabbix version
+zabbix_version: "{{ zabbix.version | default('7.4.2') }}"
+
+# Zabbix server IP - dynamically resolved from inventory
+zabbix_server_ip: "{{ hostvars[groups['zabbix'][0]]['ansible_host'] if groups['zabbix'] is defined and groups['zabbix'] | length > 0 else '127.0.0.1' }}"
+
+# Zabbix components to install
+zabbix_components: "{{ zabbix.components | default({}) }}"
+
+# User and group configuration
+zabbix_user: "{{ zabbix.user | default('zabbix') }}"
+zabbix_group: "{{ zabbix.group | default('zabbix') }}"
+zabbix_web_user: "{{ zabbix.web_user | default('apache') }}"
+zabbix_web_group: "{{ zabbix.web_group | default('apache') }}"
+
+# Directory paths
+zabbix_install_dir: "{{ zabbix.install_dir | default('/usr/share/zabbix') }}"
+zabbix_conf_dir: "{{ zabbix.conf_dir | default('/etc/zabbix') }}"
+zabbix_log_dir: "{{ zabbix.log_dir | default('/var/log/zabbix') }}"
+zabbix_run_dir: "{{ zabbix.run_dir | default('/run/zabbix') }}"
+zabbix_web_dir: "{{ zabbix.web_dir | default('/usr/share/zabbix') }}"
+zabbix_agent_include_dir: "{{ zabbix_conf_dir }}/zabbix_agentd.d"
+zabbix_agent2_plugins_dir: "{{ zabbix_conf_dir }}/zabbix_agent2.d/plugins.d"
+
+# Service names
+zabbix_services: "{{ zabbix.services | default({}) }}"
+
+# Zabbix server configuration
+zabbix_server: "{{ zabbix.server | default({}) }}"
+zabbix_server.server: "{{ zabbix_server_ip }}"
+zabbix_server.server_active: "{{ zabbix_server_ip }}"
+zabbix_server.hostname: "{{ inventory_hostname }}"
+zabbix_server.db_host: "{{ zabbix_server_ip }}"
+
+# Zabbix agent configuration
+zabbix_agent: "{{ zabbix.agent | default({}) }}"
+zabbix_agent.server: "{{ zabbix_server_ip }}"
+zabbix_agent.server_active: "{{ zabbix_server_ip }}"
+zabbix_agent.hostname: "{{ inventory_hostname }}"
+
+# Zabbix agent2 configuration
+zabbix_agent2: "{{ zabbix.agent2 | default({}) }}"
+zabbix_agent2.server: "{{ zabbix_server_ip }}"
+zabbix_agent2.server_active: "{{ zabbix_server_ip }}"
+zabbix_agent2.hostname: "{{ inventory_hostname }}"
+
+# Zabbix Java Gateway configuration
+zabbix_java_gateway: "{{ zabbix.java_gateway | default({}) }}"
+
+# Zabbix web configuration
+zabbix_web: "{{ zabbix.web | default({}) }}"
+
+# Zabbix database configuration
+zabbix_db: "{{ zabbix.db | default({}) }}"
+
+# SELinux configuration
+zabbix_selinux: "{{ zabbix.selinux | default({}) }}"
+
+# Package configuration
+zabbix_packages: "{{ zabbix.packages | default({}) }}"
+
+# Paths configuration
+paths: "{{ paths | default({}) }}"

@@ -1,0 +1,71 @@
+---
+# SLS Configuration Tasks
+
+- name: Update resin.conf HTTP port
+  lineinfile:
+    path: "{{ sls_current_dir }}/resin/conf/resin.conf"
+    regexp: "^\\s*<port>\\d+</port>"
+    line: "        <port>{{ sls_config.http_port }}</port>"
+    backup: yes
+  become: yes
+  tags: [sls, config, resin]
+
+- name: Update log4j.properties application log path
+  lineinfile:
+    path: "{{ sls_current_dir }}/scc/conf/log4j.properties"
+    regexp: "^log4j\\.appender\\.File\\.file=.*"
+    line: "log4j.appender.File.file={{ sls_config.application_log }}"
+    backup: yes
+  become: yes
+  tags: [sls, config, log4j]
+
+- name: Update log4j.properties alert log path
+  lineinfile:
+    path: "{{ sls_current_dir }}/scc/conf/log4j.properties"
+    regexp: "^log4j\\.appender\\.AlertFile\\.file=.*"
+    line: "log4j.appender.AlertFile.file={{ sls_config.alert_log }}"
+    backup: yes
+  become: yes
+  tags: [sls, config, log4j]
+
+- name: Update platform.properties context URL
+  lineinfile:
+    path: "{{ sls_current_dir }}/scc/conf/platform.properties"
+    regexp: "^platform\\.servlet\\.contextUrl=.*"
+    line: "platform.servlet.contextUrl={{ sls_config.context_url }}"
+    backup: yes
+  become: yes
+  tags: [sls, config, platform]
+
+- name: Verify resin.conf configuration
+  command: grep -A 2 -B 2 "port.*{{ sls_config.http_port }}" "{{ sls_current_dir }}/resin/conf/resin.conf"
+  register: resin_config_check
+  become: yes
+  tags: [sls, config, verify]
+
+- name: Display resin.conf configuration
+  debug:
+    msg: "{{ resin_config_check.stdout_lines }}"
+  tags: [sls, config, verify]
+
+- name: Verify log4j.properties configuration
+  command: grep -E "(File\\.file|AlertFile\\.file)" "{{ sls_current_dir }}/scc/conf/log4j.properties"
+  register: log4j_config_check
+  become: yes
+  tags: [sls, config, verify]
+
+- name: Display log4j.properties configuration
+  debug:
+    msg: "{{ log4j_config_check.stdout_lines }}"
+  tags: [sls, config, verify]
+
+- name: Verify platform.properties configuration
+  command: grep "contextUrl" "{{ sls_current_dir }}/scc/conf/platform.properties"
+  register: platform_config_check
+  become: yes
+  tags: [sls, config, verify]
+
+- name: Display platform.properties configuration
+  debug:
+    msg: "{{ platform_config_check.stdout_lines }}"
+  tags: [sls, config, verify]

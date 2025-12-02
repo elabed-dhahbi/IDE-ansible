@@ -1,0 +1,134 @@
+---
+# OpenSearch Dashboards Configuration Tasks
+
+- name: Configure OpenSearch Dashboards with working configuration
+  copy:
+    content: |
+      server.port: 5601
+      server.host: 0.0.0.0
+      server.basePath: "/dmcdashboards"
+      server.rewriteBasePath: true
+      server.name: "{{ dashboards_config.server_name }}"
+      
+      # Service account for Dashboards backend
+      opensearch.username: {{ dashboards_config.opensearch_username }}
+      opensearch.password: "{{ dashboards_config.opensearch_password }}"
+      
+      # OpenSearch connection
+      opensearch.hosts: ["https://{{ hostvars[groups['opensearch'][0]]['ansible_host'] }}:9200"]
+      opensearch.ssl.verificationMode: none
+      
+      # Headers
+      opensearch.requestHeadersWhitelist: [authorization, securitytenant]
+      
+      # Security & multitenancy
+      opensearch_security.multitenancy.enabled: true
+      opensearch_security.multitenancy.tenants.preferred: [tenant-1, Private, Global]
+      opensearch_security.readonly_mode.roles: [kibana_read_only]
+      opensearch_security.cookie.secure: false
+      
+      # Data path
+      path.data: /var/opt/opensearch-dashboards/data
+      
+      # Logging
+      logging:
+        dest: /var/opt/opensearch-dashboards/logs/dashboards.log
+    dest: "{{ dashboards_config_dir }}/opensearch_dashboards.yml"
+    owner: "{{ dashboards_user }}"
+    group: "{{ dashboards_group }}"
+    mode: '0644'
+    backup: yes
+  become: yes
+  tags: [opensearch_dashboards, config, main]
+
+- name: Restart OpenSearch Dashboards to apply configuration changes
+  systemd:
+    name: "{{ dashboards_service_name }}"
+    state: restarted
+    daemon_reload: yes
+  become: yes
+  tags: [opensearch_dashboards, config, restart]
+
+- name: Test OpenSearch connection from Dashboards host
+  uri:
+    url: "http://{{ hostvars[groups['opensearch'][0]]['ansible_host'] if groups['opensearch'] is defined and groups['opensearch'] | length > 0 else 'localhost' }}:9200"
+    method: GET
+    user: "{{ dashboards_config.opensearch_username }}"
+    password: "{{ dashboards_config.opensearch_password }}"
+    force_basic_auth: yes
+    status_code: 200
+  register: opensearch_health
+  retries: 30
+  delay: 10
+  until: opensearch_health.status == 200
+  become: yes
+  tags: [opensearch_dashboards, config, health]
+
+- name: Restart OpenSearch Dashboards service
+  systemd:
+    name: "{{ dashboards_service_name }}"
+    state: restarted
+    daemon_reload: yes
+  become: yes
+  tags: [opensearch_dashboards, config, service]
+
+- name: Wait for OpenSearch Dashboards to be ready
+  uri:
+    url: "http://{{ ansible_host }}:{{ dashboards_config.server_port }}{{ dashboards_config.server_base_path }}"
+    method: GET
+    status_code: 200
+  register: dashboards_health
+  retries: 30
+  delay: 10
+  until: dashboards_health.status == 200
+  become: yes
+  tags: [opensearch_dashboards, config, health]
+
+- name: Configure Logstash OSS data source for OpenSearch Dashboards
+  copy:
+    content: |
+      # Logstash OSS Configuration for OpenSearch Dashboards
+      # This configuration ensures compatibility with Logstash OSS 8.19.4
+      
+      # Index patterns for Logstash OSS data
+      opensearch.indexPatterns:
+        - "dmc-logs-*"
+        - "csvexport-*"
+        - "logstash-*"
+      
+      # Logstash OSS specific settings
+      opensearch.logstash:
+        enabled: true
+        version: "8.19.4"
+        type: "oss"
+        
+      # Data source configuration
+      opensearch.dataSources:
+        logstash_oss:
+          type: "logstash"
+          name: "Logstash OSS"
+          description: "Logstash OSS data source for OpenSearch stack"
+          indexPattern: "logstash-*"
+          timeField: "@timestamp"
+          
+      # Index management for Logstash OSS indices
+      opensearch.indexManagement:
+        logstash_oss:
+          indices:
+            - "dmc-logs-*"
+            - "csvexport-*"
+          ilm:
+            enabled: true
+            policy: "logstash-oss-policy"
+    dest: "{{ dashboards_config_dir }}/logstash_oss_config.yml"
+    owner: "{{ dashboards_user }}"
+    group: "{{ dashboards_group }}"
+    mode: '0644'
+    backup: yes
+  become: yes
+  tags: [opensearch_dashboards, config, logstash_oss]
+
+- name: Display OpenSearch Dashboards status
+  debug:
+    msg: "OpenSearch Dashboards is ready at http://{{ ansible_host }}:{{ dashboards_config.server_port }}{{ dashboards_config.server_base_path }}"
+  tags: [opensearch_dashboards, config, health]

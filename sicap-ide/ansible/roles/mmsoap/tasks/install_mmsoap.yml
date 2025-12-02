@@ -1,0 +1,19 @@
+---
+# MMSOAP Installation Tasks
+
+- name: Install MMSOAP package
+  yum:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ lookup('fileglob', paths.offline_dir + '/' + package_globs.mmsoap_rpm, errors='ignore') }}"
+  tags: [mmsoap, install, packages]
+
+- name: Check if MMSOAP is already installed
+  stat:
+    path: "{{ mmsoap_install_dir }}"
+  register: mmsoap_installed
+  tags: [mmsoap, install, check]
+
+
+
+

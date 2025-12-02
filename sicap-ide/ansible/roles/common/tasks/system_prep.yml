@@ -1,0 +1,50 @@
+---
+# System Preparation Tasks
+# Basic system configuration for offline DMC installation
+
+- name: Check if firewalld package is installed
+  package_facts:
+    manager: auto
+  register: package_facts_result
+  tags: [common, prep]
+
+- name: Stop and disable firewalld
+  systemd:
+    name: firewalld
+    state: stopped
+    enabled: false
+  become: true
+  when: "'firewalld' in ansible_facts.packages"
+  tags: [common, prep, firewall]
+
+- name: Mask firewalld service
+  systemd:
+    name: firewalld
+    masked: true
+  become: true
+  when: "'firewalld' in ansible_facts.packages"
+  tags: [common, prep, firewall]
+
+- name: Set SELinux to permissive mode
+  selinux:
+    policy: targeted
+    state: permissive
+  become: true
+  tags: [common, prep, selinux]
+
+- name: Ensure SELinux is permissive (restart if needed)
+  command: setenforce 0
+  become: true
+  failed_when: false
+  tags: [common, prep, selinux]
+
+- name: Verify SELinux status
+  command: getenforce
+  register: selinux_status
+  changed_when: false
+  tags: [common, prep, selinux]
+
+- name: Display SELinux status
+  debug:
+    msg: "SELinux status: {{ selinux_status.stdout }}"
+  tags: [common, prep, selinux]

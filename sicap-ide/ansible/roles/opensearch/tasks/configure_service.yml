@@ -1,0 +1,62 @@
+---
+# OpenSearch Service Configuration Tasks
+
+- name: Restart OpenSearch service
+  systemd:
+    name: "{{ opensearch_service_name }}"
+    state: restarted
+  become: yes
+  tags: [opensearch, service, restart]
+
+- name: Wait for OpenSearch to be ready
+  wait_for:
+    port: "{{ opensearch_config.http_port }}"
+    host: "{{ ansible_host }}"
+    delay: 10
+    timeout: 120
+  tags: [opensearch, service, wait]
+
+- name: Test OpenSearch connection
+  uri:
+    url: "https://{{ ansible_host }}:{{ opensearch_config.http_port }}"
+    method: GET
+    user: "admin"
+    password: "{{ opensearch_config.admin_password }}"
+    status_code: 200
+    validate_certs: false
+  register: opensearch_test
+  tags: [opensearch, service, test]
+
+- name: Display OpenSearch test result
+  debug:
+    msg: "OpenSearch connection test: {{ 'PASSED' if opensearch_test.status == 200 else 'FAILED' }}"
+  tags: [opensearch, service, test]
+
+- name: Check OpenSearch cluster health
+  uri:
+    url: "https://{{ ansible_host }}:{{ opensearch_config.http_port }}/_cluster/health?pretty"
+    method: GET
+    user: "admin"
+    password: "{{ opensearch_config.admin_password }}"
+    status_code: 200
+    validate_certs: false
+  register: opensearch_health
+  tags: [opensearch, service, health]
+
+- name: Display OpenSearch cluster health
+  debug:
+    msg: "{{ opensearch_health.json }}"
+  tags: [opensearch, service, health]
+
+- name: Display OpenSearch final status
+  debug:
+    msg:
+      - "OpenSearch is running on {{ ansible_host }}:{{ opensearch_config.http_port }}"
+      - "Cluster: {{ opensearch_config.cluster_name }}"
+      - "Node: {{ opensearch_config.node_name }}"
+      - "Admin password: {{ opensearch_config.admin_password }}"
+  tags: [opensearch, service, info]
+
+
+
+

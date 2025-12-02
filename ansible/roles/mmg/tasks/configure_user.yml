@@ -1,0 +1,22 @@
+---
+# MMG User Configuration Tasks
+# Note: MMG user and group are created by the RPM package
+
+- name: Verify MMG user exists (created by RPM)
+  getent:
+    database: passwd
+    key: "{{ mmg_user }}"
+  register: mmg_user_check
+  tags: [mmg, user, verify]
+
+- name: Display MMG user status
+  debug:
+    msg: "MMG user {{ mmg_user }} exists: {{ mmg_user_check.ansible_facts.getent_passwd[mmg_user] is defined }}"
+  tags: [mmg, user, verify]
+
+- name: Set MMG user password
+  user:
+    name: "{{ mmg_user }}"
+    password: "{{ mmg_user_password | password_hash('sha512') }}"
+  become: yes
+  tags: [mmg, user, password]

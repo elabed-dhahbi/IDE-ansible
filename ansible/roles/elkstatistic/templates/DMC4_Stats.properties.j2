@@ -1,0 +1,313 @@
+spring.batch.job.enabled=false
+hibernate.show_sql=false
+hibernate.format_sql=false
+logging.level.*=OFF
+logging.file=/tmp/dmc4stats.log
+
+#######################################################################
+# Provisionning Db CONTEXT
+#######################################################################
+provisioningDb_Host={{ elkstack_db.postgres_host }}
+provisioningDb_Port={{ elkstack_db.postgres_port }}
+provisioningDb_Database={{ elkstack_db.postgres_database }}
+provisioningDb_Schema={{ elkstack_db.postgres_dmc_schema }}
+provisioningDb_Login={{ elkstack_db.postgres_dmc_user }}
+provisioningDb_Password={{ elkstack_db.postgres_dmc_password }}
+provisioningDb_ConnectionUrl=jdbc:postgresql://{{ elkstack_db.postgres_host }}:{{ elkstack_db.postgres_port }}/{{ elkstack_db.postgres_database }}?currentSchema={{ elkstack_db.postgres_dmc_schema }}
+
+#######################################################################
+# Reporting Db CONTEXT
+#######################################################################
+reportingDb_Host={{ elkstack_db.postgres_host }}
+reportingDb_Port={{ elkstack_db.postgres_port }}
+reportingDb_Database={{ elkstack_db.postgres_database }}
+reportingDb_Schema={{ elkstack_db.postgres_mdba_schema }}
+reportingDb_Login={{ elkstack_db.postgres_mdba_user }}
+reportingDb_Password={{ elkstack_db.postgres_mdba_password }}
+reportingDb_ConnectionUrl=jdbc:postgresql://{{ elkstack_db.postgres_host }}:{{ elkstack_db.postgres_port }}/{{ elkstack_db.postgres_database }}?currentSchema={{ elkstack_db.postgres_mdba_schema }}
+reportingDb_YearsKeepFactsData={{ elkstack_csv.years_keep_facts_data }}
+
+#######################################################################
+# Db CONTEXT Common
+#######################################################################
+db_DriverClass=org.postgresql.Driver
+db_Dialect=org.hibernate.dialect.PostgreSQLDialect
+
+#######################################################################
+# Provisionning Ftp CONTEXT
+#######################################################################
+provisioningFtp_ConnectionType=SFTP
+provisioningFtp_host_node1={{ elkstack_ftp.host }}
+provisioningFtp_log_dir={{ elkstack_ftp.log_dir }}
+provisioningFtp_port={{ elkstack_ftp.port }}
+provisioningFtp_user={{ elkstack_ftp.user }}
+provisioningFtp_password={{ elkstack_ftp.password }}
+
+#######################################################################
+# ElasticSearch/OpenSearch Configuration
+#######################################################################
+searchEngineSourceHost={{ elkstack_elasticsearch.host }}
+searchEngineSourcePort={{ elkstack_elasticsearch.port }}
+searchEngineUsername=username
+searchEnginePassword=password
+
+#######################################################################
+# CSV Extract Db CONTEXT
+#######################################################################
+csvExtract_DeltaExportEnabled=false
+
+##EMAIL Configuration Section##
+csvExtract_EmailEnabled=false
+csvExtract_EmailUsesSmtpAuthentication=true
+csvExtract_EmailAuthenticationPassword=f64f0e421e1271
+csvExtract_EmailAuthenticationUsername=32357779b201121b4
+csvExtract_EmailSmtpAddress=localhost
+csvExtract_EmailSmtpPort=25
+csvExtract_EmailSender="user@email.com"
+csvExtract_EmailRecipients="user@email.fr"
+csvExtract_EmailSubject="Test extract DB + Email"
+csvExtract_EmailMessage="Super message"
+
+##ARCHIVE Configuration Section##
+csvExtract_ZipEnabled=false
+
+##LOCAL Configuration Section##
+save_directory={{ elkstack_csv_dir }}
+
+csvExtract_CommitIntervalCSv=1000
+csvExtract_CommitIntervalDB=10000
+csvExtract_ReaderPageSize=1000
+csvExtract_listSeparator=,
+csvExtract_fieldSeparator=;
+csvExtract_jobName=launch_csv_export.sh
+csvExtract_fieldSeparatorReplacer=/
+
+csvExtract_MaxError=-1
+
+#######################################################################
+# DRS Access
+#######################################################################
+csvExtract_drs_url={{ elkstack_drs.base_url }}/common/1_4/generic/information
+csvExtract_drs_filter=marketing,IMEIRanges
+
+#######################################################################
+# MAIN Report
+#######################################################################
+csvExtract_ExportAllUsers=false
+csvExtract_ExportActiveUsers=true
+csvExtract_ExportInactiveUsers=false
+csvExtract_ShowHeaders=true
+csvExtract_FindHighestBand=false
+csvExtract_BearerBandMapping={}
+csvExtract_Unknown=Unknown
+csvExtract_dateFormat=yyyyMMdd
+csvExctract_SplitFileByProvider=false
+csvExctract_DisplayCircle=true
+
+# Exported columns
+csvExtract_column_1={msisdn}
+csvExtract_column_1_name=MSISDN
+
+csvExtract_column_2={imsi}
+csvExtract_column_2_name=IMSI
+
+csvExtract_column_3={imei}
+csvExtract_column_3_name=IMEI
+
+csvExtract_column_4={detectionDate:yyyyMMdd-HHmmss}
+csvExtract_column_4_name=DETECTION_DATE
+
+csvExtract_column_5={drs>brand}
+csvExtract_column_5_name=Brand
+
+csvExtract_column_6={drs>model}
+csvExtract_column_6_name=Model
+
+csvExtract_column_7={drs>marketing_characteristics>bearer>2G}
+csvExtract_column_7_name=2G
+
+csvExtract_column_8={drs>marketing_characteristics>bearer>3G}
+csvExtract_column_8_name=3G
+
+csvExtract_column_9={drs>marketing_characteristics>bearer>4G}
+csvExtract_column_9_name=4G
+
+csvExtract_column_10={drs>marketing_characteristics>bearer>5G}
+csvExtract_column_10_name=5G
+
+csvExtract_column_11={drs>marketing_characteristics>bearer>supportedBearers}
+csvExtract_column_11_name=SupportedBearer
+
+csvExtract_column_12={drs>marketing_characteristics>bearer>lteBands}
+csvExtract_column_12_name=LTEbands
+
+csvExtract_column_13={drs>marketing_characteristics>bluetooth}
+csvExtract_column_13_name=Bluetooth
+
+csvExtract_column_14={drs>marketing_characteristics>eapsim}
+csvExtract_column_14_name=EAPSIM
+
+csvExtract_column_15={drs>marketing_characteristics>email}
+csvExtract_column_15_name=Email
+
+csvExtract_column_16={drs>marketing_characteristics>gps}
+csvExtract_column_16_name=GPS
+
+csvExtract_column_17={drs>marketing_characteristics>IMEIBands}
+csvExtract_column_17_name=IMEIbands
+
+csvExtract_column_18={drs>marketing_characteristics>mms}
+csvExtract_column_18_name=MMS
+
+csvExtract_column_19={drs>marketing_characteristics>multiSIM}
+csvExtract_column_19_name=multiSIM
+
+csvExtract_column_20={drs>marketing_characteristics>nfc}
+csvExtract_column_20_name=NFC
+
+csvExtract_column_21={drs>marketing_characteristics>os>name}
+csvExtract_column_21_name=OSName
+
+csvExtract_column_22={drs>marketing_characteristics>os>vendor}
+csvExtract_column_22_name=OSVendor
+
+csvExtract_column_23={drs>marketing_characteristics>os>version}
+csvExtract_column_23_name=OSVersion
+
+csvExtract_column_24={drs>marketing_characteristics>ota}
+csvExtract_column_24_name=OTA
+
+csvExtract_column_25={drs>marketing_characteristics>otaCapability>DATA_GPRS}
+csvExtract_column_25_name=DATA_GPRS
+
+csvExtract_column_26={drs>marketing_characteristics>otaCapability>MMS_GPRS}
+csvExtract_column_26_name=MMS_GPRS
+
+csvExtract_column_27={drs>marketing_characteristics>otaCapability>WAP_GPRS}
+csvExtract_column_27_name=WAP_GPRS
+
+csvExtract_column_28={drs>marketing_characteristics>otaCapability>WAP_PUSH}
+csvExtract_column_28_name=WAP_PUSH
+
+csvExtract_column_29={drs>marketing_characteristics>type>deviceType}
+csvExtract_column_29_name=DeviceType
+
+csvExtract_column_30={drs>marketing_characteristics>voLTE}
+csvExtract_column_30_name=VoLTE
+
+csvExtract_column_31={drs>marketing_characteristics>wap>version}
+csvExtract_column_31_name=WAPVersion
+
+csvExtract_column_32={drs>marketing_characteristics>wifi}
+csvExtract_column_32_name=WIFI
+
+csvExtract_column_33={providerId}
+csvExtract_column_33_name=PROVIDERID
+
+csvExtract_column_34={providerName}
+csvExtract_column_34_name=PROVIDERNAME
+
+csvExtract_column_35={drs>marketing_characteristics>SIMType}
+csvExtract_column_35_name=SIMType
+
+csvExtract_column_36={active}
+csvExtract_column_36_true=ACTIVE
+csvExtract_column_36_false=INACTIVE
+csvExtract_column_36_name=STATUS
+csvExtract_column_36_inUnknownExport=true
+
+csvExtract_column_37={drs>marketing_characteristics>bearer>gprs}
+csvExtract_column_37_name=GPRS
+
+csvExtract_column_38={highestBand}
+csvExtract_column_38_name=HighestBand
+
+#######################################################################
+# DEVICE REPORT
+#######################################################################
+csvExtract_ExportDeviceBaseInformation=false
+csvExtract_DeviceBaseInformation_ShowHeader=true
+csvExtract_DeviceBaseInformation_FieldSeparator=|
+csvExtract_DeviceBaseInformation_ShowBrand=true
+csvExtract_DeviceBaseInformation_ShowModel=true
+csvExtract_DeviceBaseInformation_ShowTerminal=true
+csvExtract_DeviceBaseInformation_ShowWapGprs=true
+csvExtract_DeviceBaseInformation_ShowMmsGprs=true
+csvExtract_DeviceBaseInformation_ShowDataGprs=true
+csvExtract_DeviceBaseInformation_ShowWapPush=true
+
+#######################################################################
+# TAC REPORT
+#######################################################################
+csvExtract_ExportCountByTacUnresolved=false
+
+#######################################################################
+# IMEI Unknown REPORT
+#######################################################################
+csvExtract_ExportImeiUnknown=false
+
+#######################################################################
+# IMEI History REPORT
+#######################################################################
+csvExtract_ImeiHistory_enabled=false
+csvExtract_ImeiHistory_dateFormat=yyyyMMdd-HHmm
+csvExtract_ImeiHistory_filename=ytd_finance.csv
+csvExtract_ImeiHistory_removeUnknownIMSI=true
+csvExtract_ImeiHistory_removeS_IMEIs=true
+
+#######################################################################
+# Export From DMC4 detection file (recovered from FTP)
+#######################################################################
+csvExtract_DetectionFile_input_directoy={{ elkstack_install_dir }}/csvexport/detection_input
+csvExtract_DetectionFile_removeUnknownIMSI=true
+csvExtract_DetectionFile_removeS_IMEIs=true
+csvExtract_DetectionFile_daily_enabled=false
+csvExtract_DetectionFile_daily_outputfile=IMSI_IMEI_MSISDN_{date}.csv
+csvExtract_DetectionFile_monthly_enabled=false
+csvExtract_DetectionFile_monthly_outputfile=IMSI_IMEI_MSISDN_{date}.csv
+csvExtract_DetectionFile_displayShortIMEIs=true
+
+#######################################################################
+# EIR AGGREGATION
+#######################################################################
+eir_Aggregation=false
+
+#######################################################################
+# EIR DMC4 Common configuration
+#######################################################################
+eir.default.origin.id=302/PLMN/004900
+ceir.output.dir=/tmp/ceir/output
+
+# EIR log FTP connection
+eirLog.files.regex=eir.log.\\d{8}
+eirLog.ftp.connection.type=SFTP
+eirLog.ftp.port=22
+eirLog.ftp.user=jboss
+eirLog.ftp.password=jboss
+eirLog.ftp.remote.dir=/tmp/ceir/
+eirLog.ftp.server.address={{ elkstack_ftp.host }}
+
+ceir.input.dir=/tmp/ceir/input
+
+#######################################################################
+# EIR and CEIR concatenation
+#######################################################################
+ceir_eir_concatenation_enabled=false
+
+#######################################################################
+# EIR outgoing data
+#######################################################################
+eir_outgoing_report_enabled=false
+eir.outgoing.data.destination.dir=/tmp/ceir/upload
+eir.outgoing.data.ftp.connection.type=SFTP
+eir.outgoing.data.ftp.port=22
+eir.outgoing.data.ftp.user=jboss
+eir.outgoing.data.ftp.password=jboss
+eir.outgoing.data.ftp.server.address={{ elkstack_ftp.host }}
+eir.outgoing.data.files.regex=CAW\\d+.UPD
+eir.outgoing.data.report.name=CAW00278.UPD
+eir.outgoing.data.mail.from=dmc4@sicap.com
+eir.outgoing.data.mail.to=abouchelit@norsys.fr
+eir.outgoing.data.mail.subject=EIR DATA OUTGOING
+eir.outgoing.data.mail.body.success=Upload was successful
+eir.outgoing.data.mail.body.error=Failed to send EIR outgoing data to GSMA

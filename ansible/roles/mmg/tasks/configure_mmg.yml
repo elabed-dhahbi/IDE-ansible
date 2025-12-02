@@ -1,0 +1,56 @@
+---
+# MMG Configuration Tasks
+
+- name: Run MMG sample rename script
+  shell: "{{ mmg_home }}/samplerename.sh"
+  become_user: "{{ mmg_user }}"
+  become: yes
+  tags: [mmg, config, sample]
+
+- name: Update SQL pool configuration for PostgreSQL
+  lineinfile:
+    path: "{{ mmg_config_dir }}/sqlpool.properties"
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    backup: yes
+  loop:
+    - { regexp: "^sqlpool\\.pool\\.MAIN\\.properties\\.user=.*", line: "sqlpool.pool.MAIN.properties.user={{ mmg_config.database.user }}" }
+    - { regexp: "^sqlpool\\.pool\\.MAIN\\.properties\\.password=.*", line: "sqlpool.pool.MAIN.properties.password={{ mmg_config.database.password }}" }
+    - { regexp: "^sqlpool\\.pool\\.MAIN\\.properties\\.url=.*", line: "sqlpool.pool.MAIN.properties.url=jdbc:postgresql://{{ mmg_config.database.host }}:{{ mmg_config.database.port }}/{{ mmg_config.database.name }}" }
+  become: yes
+  tags: [mmg, config, database]
+
+- name: Update platform configuration
+  lineinfile:
+    path: "{{ mmg_config_dir }}/platform.properties"
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    backup: yes
+  loop:
+    - { regexp: "^platform\\.node\\.id=.*", line: "platform.node.id={{ mmg_config.node_id }}" }
+    - { regexp: "^platform\\.server\\.host=.*", line: "platform.server.host={{ mmg_config.http_host }}" }
+    - { regexp: "^platform\\.server\\.port=.*", line: "platform.server.port={{ mmg_config.http_port }}" }
+  become: yes
+  tags: [mmg, config, platform]
+
+- name: Verify MMG configuration files were created
+  stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ mmg_config_dir }}/corba.properties"
+    - "{{ mmg_config_dir }}/domains.properties"
+    - "{{ mmg_config_dir }}/log4j.properties"
+    - "{{ mmg_config_dir }}/platform.properties"
+    - "{{ mmg_config_dir }}/sqlpool.properties"
+  register: mmg_config_files
+  tags: [mmg, config, verify]
+
+- name: Display MMG configuration files status
+  debug:
+    msg: "Configuration file {{ item.item }} exists: {{ item.stat.exists }}"
+  loop: "{{ mmg_config_files.results }}"
+  tags: [mmg, config, verify]
+
+
+
+

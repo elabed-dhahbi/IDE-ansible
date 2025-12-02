@@ -1,0 +1,273 @@
+---
+# DRS Service Configuration Tasks
+# Note: DRS service is managed by SICAP control system, not systemd directly
+
+- name: Check if .profile.sicap exists for DRS user
+  stat:
+    path: "/opt/drs/home/.profile.sicap"
+  register: drs_profile_sicap
+  tags: [drs, service, java]
+
+- name: Update JAVA_HOME in .profile.sicap (if exists)
+  shell: |
+    # Remove any existing JAVA_HOME lines that point to /usr/j2se/current
+    sed -i '/export JAVA_HOME=\${JAVA_HOME:-\\/usr\\/j2se\\/current}/d' /opt/drs/home/.profile.sicap
+    # Update the main JAVA_HOME line to point to /usr/j2se/current
+    sed -i 's|JAVA_HOME=\${JAVA_HOME:-/usr/java}|JAVA_HOME=\${JAVA_HOME:-/usr/j2se/current}|' /opt/drs/home/.profile.sicap
+  become: yes
+  when: drs_profile_sicap.stat.exists
+  tags: [drs, service, java]
+
+- name: Verify Java binary exists at symlink location
+  stat:
+    path: /usr/j2se/current/bin/java
+  register: java_binary_exists
+  tags: [drs, service, java, debug]
+
+- name: Display Java binary status
+  debug:
+    msg: "Java binary exists at /usr/j2se/current/bin/java: {{ java_binary_exists.stat.exists }}"
+  tags: [drs, service, java, debug]
+
+- name: Configure Java 8 environment for DRS user in .profile using sed
+  shell: |
+    PROFILE="/opt/drs/home/.profile"
+    # Remove any existing Java configuration
+    sed -i '/^export JAVA_HOME=.*$/d' "$PROFILE"
+    sed -i '/^export PATH=.*JAVA_HOME.*$/d' "$PROFILE"
+    # Append Java configuration at the end using sed
+    sed -i '$ a export JAVA_HOME=/usr/j2se/current' "$PROFILE"
+    sed -i '$ a export PATH=$JAVA_HOME/bin:$PATH' "$PROFILE"
+  become: yes
+  args:
+    executable: /bin/bash
+  changed_when: true
+  tags: [drs, service]
+
+- name: Verify DRS Java configuration
+  shell: |
+    grep -E "(JAVA_HOME|PATH.*JAVA)" /opt/drs/home/.profile
+  become: yes
+  register: drs_java_config
+  tags: [drs, service, java]
+
+- name: Display DRS Java configuration
+  debug:
+    msg: "DRS Java configuration: {{ drs_java_config.stdout_lines }}"
+  tags: [drs, service, java]
+
+
+- name: Final verification - check if Java config exists
+  shell: |
+    grep -E "(JAVA_HOME|PATH.*JAVA)" "/opt/drs/home/.profile" || echo "NOT FOUND"
+  become: yes
+  register: final_java_check
+  tags: [drs, service, java, debug]
+
+- name: Display final Java configuration check
+  debug:
+    msg: "Java configuration in .profile: {{ final_java_check.stdout_lines }}"
+  tags: [drs, service, java, debug]
+
+- name: Verify Java configuration was added
+  shell: |
+    tail -10 /opt/drs/home/.profile
+  become: yes
+  register: profile_tail
+  tags: [drs, service, java, debug]
+
+- name: Display end of .profile file
+  debug:
+    msg: "Last 10 lines of .profile: {{ profile_tail.stdout_lines }}"
+  tags: [drs, service, java, debug]
+
+- name: Check if Java lines exist in .profile
+  shell: |
+    grep -E "(JAVA_HOME|PATH.*JAVA)" /opt/drs/home/.profile || echo "Java configuration not found"
+  become: yes
+  register: java_config_check
+  tags: [drs, service, java, debug]
+
+- name: Display Java configuration check
+  debug:
+    msg: "Java configuration in .profile: {{ java_config_check.stdout_lines }}"
+  tags: [drs, service, java, debug]
+
+- name: Verify final .profile content
+  shell: |
+    grep -E "(JAVA_HOME|PATH)" /opt/drs/home/.profile
+  become: yes
+  register: final_profile_check
+  tags: [drs, service, java, debug]
+
+- name: Display final .profile Java configuration
+  debug:
+    msg: "Final .profile Java config: {{ final_profile_check.stdout_lines }}"
+  tags: [drs, service, java, debug]
+
+- name: Verify DRS Java configuration
+  shell: |
+    grep -E "(JAVA_HOME|PATH.*JAVA)" /opt/drs/home/.profile
+  become: yes
+  register: drs_java_config
+  tags: [drs, service, java]
+
+- name: Display DRS Java configuration
+  debug:
+    msg: "DRS Java configuration: {{ drs_java_config.stdout_lines }}"
+  tags: [drs, service, java]
+
+- name: Verify Java symlink exists and points to valid Java
+  stat:
+    path: /usr/j2se/current
+  register: java_symlink_check
+  tags: [drs, service, java, debug]
+
+- name: Check if Java binary exists at symlink location
+  stat:
+    path: /usr/j2se/current/bin/java
+  register: java_binary_check
+  when: java_symlink_check.stat.exists
+  tags: [drs, service, java, debug]
+
+- name: Display Java symlink and binary status
+  debug:
+    msg: |
+      Java symlink exists: {{ java_symlink_check.stat.exists }}
+      Java symlink target: {{ java_symlink_check.stat.lnk_target if java_symlink_check.stat.islnk else 'N/A' }}
+      Java binary exists: {{ java_binary_check.stat.exists if java_binary_check is defined else 'N/A' }}
+  tags: [drs, service, java, debug]
+
+- name: Test Java environment for DRS user (using full path)
+  shell: |
+    # First try with full path
+    if [ -f /usr/j2se/current/bin/java ]; then
+      /usr/j2se/current/bin/java -version 2>&1
+    else
+      echo "ERROR: Java binary not found at /usr/j2se/current/bin/java"
+      echo "Checking symlink..."
+      if [ -L /usr/j2se/current ]; then
+        echo "Symlink exists and points to: $(readlink -f /usr/j2se/current)"
+        echo "Checking if Java exists at symlink target..."
+        if [ -f "$(readlink -f /usr/j2se/current)/bin/java" ]; then
+          echo "Java found at: $(readlink -f /usr/j2se/current)/bin/java"
+          "$(readlink -f /usr/j2se/current)/bin/java" -version 2>&1
+        else
+          echo "Java binary not found at symlink target"
+          exit 1
+        fi
+      else
+        echo "Symlink /usr/j2se/current does not exist"
+        exit 1
+      fi
+    fi
+  become_user: "{{ drs_user }}"
+  register: drs_java_test
+  failed_when: false
+  changed_when: false
+  tags: [drs, service, java]
+
+- name: Test Java via PATH (after sourcing profile)
+  shell: |
+    source /opt/drs/home/.profile && java -version 2>&1
+  become_user: "{{ drs_user }}"
+  register: drs_java_path_test
+  failed_when: false
+  changed_when: false
+  tags: [drs, service, java]
+
+- name: Display DRS Java test results
+  debug:
+    msg: |
+      Java test (full path) stdout: {{ drs_java_test.stdout_lines if drs_java_test.stdout_lines else [] }}
+      Java test (full path) stderr: {{ drs_java_test.stderr_lines if drs_java_test.stderr_lines else [] }}
+      Java test (full path) rc: {{ drs_java_test.rc }}
+      Java test (via PATH) stdout: {{ drs_java_path_test.stdout_lines if drs_java_path_test.stdout_lines else [] }}
+      Java test (via PATH) stderr: {{ drs_java_path_test.stderr_lines if drs_java_path_test.stderr_lines else [] }}
+      Java test (via PATH) rc: {{ drs_java_path_test.rc }}
+  tags: [drs, service, java]
+
+- name: Fail if both Java tests failed
+  fail:
+    msg: |
+      Java verification failed. 
+      Full path test: {{ drs_java_test.stderr_lines | default(drs_java_test.stdout_lines) | join(', ') }}
+      PATH test: {{ drs_java_path_test.stderr_lines | default(drs_java_path_test.stdout_lines) | join(', ') }}
+      Please ensure Java 8 is installed at /usr/j2se/current and PATH is configured correctly in /opt/drs/home/.profile
+  when: drs_java_test.rc != 0 and drs_java_path_test.rc != 0
+  tags: [drs, service, java]
+
+- name: Check if DRS service is already running
+  shell: |
+    su - {{ drs_user }} -c "source ~/.profile && ctl status all"
+  become: yes
+  register: drs_status_check
+  failed_when: false
+  tags: [drs, service, check]
+
+- name: Check DRS startup script and Java path
+  shell: |
+    su - {{ drs_user }} -c "source ~/.profile && echo 'JAVA_HOME: ' \$JAVA_HOME && echo 'PATH: ' \$PATH && which java || echo 'java not in PATH'"
+  become: yes
+  register: drs_env_check
+  tags: [drs, service, debug]
+
+- name: Display DRS environment check
+  debug:
+    msg: "{{ drs_env_check.stdout_lines }}"
+  tags: [drs, service, debug]
+
+- name: Start DRS service using SICAP control (if not running)
+  shell: |
+    su - {{ drs_user }} -c "source ~/.profile && export JAVA_HOME=/usr/j2se/current && export PATH=\$JAVA_HOME/bin:\$PATH && ctl start all"
+  become: yes
+  when: "'running' not in drs_status_check.stdout"
+  ignore_errors: true
+  tags: [drs, service, start]
+
+- name: Display DRS service status
+  debug:
+    msg: "DRS service status: {{ drs_status_check.stdout_lines }}"
+  tags: [drs, service, status]
+
+- name: Tail DRS logs on startup failure
+  shell: |
+    tail -n 200 {{ drs_logs_dir }}/{{ drs_version }}/drs.log || true
+  become: yes
+  when: "'running' not in drs_status_check.stdout"
+  register: drs_startup_logs
+  tags: [drs, service, debug]
+
+- name: Show DRS startup logs
+  debug:
+    msg: "DRS startup logs (last 200 lines): {{ drs_startup_logs.stdout_lines | default([]) }}"
+  when: drs_startup_logs is defined
+  tags: [drs, service, debug]
+
+- name: Wait for DRS to be ready
+  wait_for:
+    port: "{{ drs_http_port }}"
+    host: "{{ ansible_host }}"
+    delay: 10
+    timeout: 120
+  tags: [drs, service, wait]
+
+- name: Display DRS status
+  debug:
+    msg:
+      - "DRS service is running using SICAP control system"
+      - "DRS should be accessible on {{ ansible_host }}:{{ drs_http_port }}"
+      - "Service status: {{ drs_status_check.stdout_lines }}"
+  tags: [drs, service, info]
+
+- name: Display DRS service information
+  debug:
+    msg: |
+      DRS service has been started using SICAP control system.
+      To manage DRS service, use: su - {{ drs_user }} -c "ctl start/stop/status all"
+      DRS should be accessible at: http://{{ ansible_host }}:{{ drs_http_port }}
+  tags: [drs, service, info]
+
+
+
+

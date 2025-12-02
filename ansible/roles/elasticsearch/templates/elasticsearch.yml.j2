@@ -1,0 +1,24 @@
+cluster.name: {{ elasticsearch_config.cluster_name }}
+node.name: {{ elasticsearch_config.node_name }}
+path.data: {{ elasticsearch_data_dir }}
+path.logs: {{ elasticsearch_logs_dir }}
+bootstrap.memory_lock: {{ elasticsearch_system.memory_lock | lower }}
+network.host: {{ elasticsearch_config.network_host }}
+http.port: {{ elasticsearch_config.http_port }}
+
+{% if elasticsearch_config.discovery_type == "single-node" %}
+discovery.type: single-node
+{% else %}
+discovery.seed_hosts: {{ elasticsearch_config.discovery_seed_hosts | to_json }}
+cluster.initial_master_nodes: {{ elasticsearch_config.cluster_initial_master_nodes | to_json }}
+cluster.routing.allocation.enable: "{{ elasticsearch_config.cluster_routing_allocation_enable }}"
+{% endif %}
+
+xpack.security.enabled: {{ elasticsearch_config.xpack_security_enabled | lower }}
+{% if elasticsearch_config.xpack_security_enabled %}
+xpack.security.transport.ssl.enabled: {{ elasticsearch_config.xpack_security_transport_ssl_enabled | lower }}
+xpack.security.transport.ssl.verification_mode: {{ elasticsearch_config.xpack_security_transport_ssl_verification_mode }}
+xpack.security.transport.ssl.keystore.path: {{ elasticsearch_config.xpack_security_transport_ssl_keystore_path }}
+xpack.security.transport.ssl.truststore.path: {{ elasticsearch_config.xpack_security_transport_ssl_truststore_path }}
+{% endif %}
+

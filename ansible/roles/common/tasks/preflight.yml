@@ -1,0 +1,52 @@
+---
+# Preflight System Preparation
+# Basic system preparation for DMC installation
+
+- name: Display system information
+  debug:
+    msg:
+      - "System: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+      - "Architecture: {{ ansible_architecture }}"
+      - "Memory: {{ ansible_memtotal_mb / 1024 | round(1) }}GB"
+      - "CPU Cores: {{ ansible_processor_vcpus }}"
+      - "Available Disk: {{ ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_available') | first | int / 1024 / 1024 / 1024 | round(1) }}GB"
+  tags: [common, preflight, info]
+
+- name: Check if firewalld package is installed
+  package_facts:
+    manager: auto
+  register: package_facts_result
+  tags: [common, preflight]
+
+- name: Stop and disable firewalld
+  systemd:
+    name: firewalld
+    state: stopped
+    enabled: false
+  become: true
+  when: "'firewalld' in ansible_facts.packages"
+  tags: [common, preflight, firewall]
+
+- name: Set SELinux to permissive mode
+  selinux:
+    policy: targeted
+    state: permissive
+  become: true
+  tags: [common, preflight, selinux]
+
+- name: Ensure SELinux is permissive (restart if needed)
+  command: setenforce 0
+  become: true
+  failed_when: false
+  tags: [common, preflight, selinux]
+
+- name: Verify SELinux status
+  command: getenforce
+  register: selinux_status
+  changed_when: false
+  tags: [common, preflight, selinux]
+
+- name: Display SELinux status
+  debug:
+    msg: "SELinux status: {{ selinux_status.stdout }}"
+  tags: [common, preflight, selinux]

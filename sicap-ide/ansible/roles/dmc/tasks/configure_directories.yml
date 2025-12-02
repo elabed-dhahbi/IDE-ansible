@@ -1,0 +1,4 @@
+---
+# DMC Directory Configuration Tasks
+
+# Let RPM handle directory creation - only ensure they exist if needed

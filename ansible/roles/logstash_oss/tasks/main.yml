@@ -1,0 +1,31 @@
+---
+# Logstash OSS Main Tasks
+# Installs and configures Logstash OSS for OpenSearch stack
+
+- name: Include Logstash OSS installation tasks
+  include_tasks: install_logstash_oss.yml
+  tags: [logstash_oss, install]
+
+- name: Include Logstash OSS user configuration tasks
+  include_tasks: configure_user.yml
+  tags: [logstash_oss, user]
+
+- name: Include Logstash OSS directory configuration tasks
+  include_tasks: configure_directories.yml
+  tags: [logstash_oss, directories]
+
+- name: Include Logstash OSS main configuration tasks
+  include_tasks: configure_logstash_oss.yml
+  tags: [logstash_oss, config]
+
+- name: Include Logstash OSS plugin installation tasks
+  include_tasks: install_plugins.yml
+  tags: [logstash_oss, plugins]
+
+- name: Include Logstash OSS service configuration tasks
+  include_tasks: configure_service.yml
+  tags: [logstash_oss, service]
+
+- name: Include Logstash OSS pipeline configuration tasks
+  include_tasks: configure_pipeline.yml
+  tags: [logstash_oss, pipeline]

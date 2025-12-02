@@ -1,0 +1,28 @@
+---
+# MMSOAP Service Configuration Tasks
+
+- name: Start and enable MMSOAP service
+  systemd:
+    name: "{{ mmsoap_service_name }}"
+    state: started
+    enabled: yes
+  tags: [mmsoap, service, start]
+
+- name: Wait for MMSOAP to be ready
+  wait_for:
+    port: "{{ mmsoap_config.http_port }}"
+    host: "{{ ansible_host }}"
+    delay: 10
+    timeout: 120
+  tags: [mmsoap, service, wait]
+
+- name: Display MMSOAP status
+  debug:
+    msg:
+      - "MMSOAP is running on {{ ansible_host }}:{{ mmsoap_config.http_port }}"
+      - "Node ID: {{ mmsoap_config.node_id }}"
+  tags: [mmsoap, service, info]
+
+
+
+

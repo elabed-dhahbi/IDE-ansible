@@ -1,0 +1,28 @@
+---
+# ELK Statistics Cron Setup Tasks
+
+- name: Add CSV export cron job
+  cron:
+    name: "ELK Statistics CSV Export"
+    minute: "{{ elkstack_cron.csv_export_time.split()[0] }}"
+    hour: "{{ elkstack_cron.csv_export_time.split()[1] }}"
+    day: "{{ elkstack_cron.csv_export_time.split()[2] }}"
+    month: "{{ elkstack_cron.csv_export_time.split()[3] }}"
+    weekday: "{{ elkstack_cron.csv_export_time.split()[4] if elkstack_cron.csv_export_time.split()|length > 4 else '*' }}"
+    job: "bash -c '{{ elkstack_install_dir }}/current/csv_export/launcher/{{ system_config.customer_name | default('sicap') }}_launch_csv_export.sh' >> {{ elkstack_logs_dir }}/{{ system_config.customer_name | default('sicap') }}_launch_csv_export.log"
+    user: "{{ elkstack_user }}"
+  become: true
+  tags: [elkstatistic, cron, csv_export]
+
+- name: Add file cleanup cron job
+  cron:
+    name: "ELK Statistics File Cleanup"
+    minute: "{{ elkstack_cron.cleanup_time.split()[0] }}"
+    hour: "{{ elkstack_cron.cleanup_time.split()[1] }}"
+    day: "{{ elkstack_cron.cleanup_time.split()[2] }}"
+    month: "{{ elkstack_cron.cleanup_time.split()[3] }}"
+    weekday: "{{ elkstack_cron.cleanup_time.split()[4] if elkstack_cron.cleanup_time.split()|length > 4 else '*' }}"
+    job: "bash -c '{{ elkstack_install_dir }}/current/csv_export/launcher/launch_file_cleanup.sh {{ elkstack_install_dir }}/current/conf/DMC4_Stats.properties' >> {{ elkstack_logs_dir }}/{{ system_config.customer_name | default('sicap') }}_launch_file_cleanup.log"
+    user: "{{ elkstack_user }}"
+  become: true
+  tags: [elkstatistic, cron, cleanup]

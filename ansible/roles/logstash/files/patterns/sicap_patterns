@@ -1,0 +1,6 @@
+EMAIL_ADDRESS [-0-9a-zA-Z.+-_]+@[-0-9a-zA-Z.+-_]+\.[a-zA-Z]{2,4}
+TIMESTAMP_DMC %{MONTHNUM}/%{MONTHDAY}/%{YEAR} %{HOUR}:%{MINUTE}:%{SECOND}
+SESSION_ID %{WORD}-%{WORD}-%{WORD}-%{WORD}-%{WORD}
+
+
+

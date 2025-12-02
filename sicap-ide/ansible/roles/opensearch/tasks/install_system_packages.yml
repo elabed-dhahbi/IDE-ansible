@@ -1,0 +1,112 @@
+---
+# OpenSearch System Package Installation
+
+- name: Ensure offline directory exists on target
+  file:
+    path: "{{ paths.offline_dir }}"
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [opensearch, system, packages]
+
+- name: Check if perl-Digest-SHA is already installed
+  command: rpm -q perl-Digest-SHA
+  register: perl_digest_sha_check
+  failed_when: false
+  changed_when: false
+  become: yes
+  tags: [opensearch, system, packages]
+
+- name: Find perl-Digest-SHA package in local offline directory
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns: "perl-Digest-SHA*.rpm"
+  register: perl_digest_sha_package_local
+  delegate_to: localhost
+  when: perl_digest_sha_check.rc != 0
+  tags: [opensearch, system, packages]
+
+- name: Copy perl-Digest-SHA package to target
+  copy:
+    src: "{{ item.path }}"
+    dest: "{{ paths.offline_dir }}/"
+    mode: '0644'
+  loop: "{{ perl_digest_sha_package_local.files }}"
+  when: 
+    - perl_digest_sha_check.rc != 0
+    - perl_digest_sha_package_local.files | length > 0
+  become: yes
+  tags: [opensearch, system, packages]
+
+- name: Install perl-Digest-SHA from offline directory
+  command: rpm -Uvh --force "{{ paths.offline_dir }}/{{ item | basename }}"
+  loop: "{{ perl_digest_sha_package_local.files | map(attribute='path') | list }}"
+  when: 
+    - perl_digest_sha_check.rc != 0
+    - perl_digest_sha_package_local.files | length > 0
+  become: yes
+  tags: [opensearch, system, packages]
+
+- name: Install other required system packages for OpenSearch
+  yum:
+    name:
+      - wget
+      - gnupg
+    state: present
+  become: yes
+  tags: [opensearch, system, packages]
+
+- name: Configure system limits for OpenSearch
+  lineinfile:
+    path: /etc/security/limits.conf
+    line: "{{ opensearch_user }} - nofile {{ opensearch_jvm.max_file_descriptors }}"
+    create: yes
+  become: yes
+  tags: [opensearch, system, limits]
+
+- name: Configure virtual memory settings
+  sysctl:
+    name: vm.max_map_count
+    value: "{{ opensearch_jvm.max_map_count }}"
+    state: present
+    reload: yes
+  become: yes
+  tags: [opensearch, system, sysctl]
+
+- name: Make vm.max_map_count setting persistent
+  lineinfile:
+    path: /etc/sysctl.conf
+    line: "vm.max_map_count = {{ opensearch_jvm.max_map_count }}"
+    create: yes
+  become: yes
+  tags: [opensearch, system, sysctl]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

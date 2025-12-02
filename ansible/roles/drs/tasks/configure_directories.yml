@@ -1,0 +1,75 @@
+---
+# DRS Directory Configuration Tasks
+
+- name: Create DRS data directory
+  file:
+    path: "{{ drs_data_dir }}"
+    state: directory
+    owner: "{{ drs_user }}"
+    group: "{{ drs_group }}"
+    mode: '0755'
+  become: yes
+  tags: [drs, directories, data]
+
+- name: Create DRS DRB file directory
+  file:
+    path: "{{ drs_drb_file_dir }}"
+    state: directory
+    owner: "{{ drs_user }}"
+    group: "{{ drs_group }}"
+    mode: '0755'
+  become: yes
+  tags: [drs, directories, drb]
+
+- name: Create DRS resources directory
+  file:
+    path: "{{ drs_resources_dir }}"
+    state: directory
+    owner: "{{ drs_user }}"
+    group: "{{ drs_group }}"
+    mode: '0755'
+  become: yes
+  tags: [drs, directories, resources]
+
+- name: Create DRS resources tmp directory
+  file:
+    path: "{{ drs_resources_tmp_dir }}"
+    state: directory
+    owner: "{{ drs_user }}"
+    group: "{{ drs_group }}"
+    mode: '0755'
+  become: yes
+  tags: [drs, directories, resources]
+
+- name: Create DRS scripts directory
+  file:
+    path: "{{ drs_scripts_dir }}"
+    state: directory
+    owner: "{{ drs_user }}"
+    group: "{{ drs_group }}"
+    mode: '0755'
+  become: yes
+  tags: [drs, directories, scripts]
+
+- name: Create DRS logs directory
+  file:
+    path: "{{ drs_logs_dir }}"
+    state: directory
+    owner: "{{ drs_user }}"
+    group: "{{ drs_group }}"
+    mode: '0755'
+  become: yes
+  tags: [drs, directories, logs]
+
+- name: Change ownership of DRS install directory
+  file:
+    path: "{{ drs_install_dir }}"
+    owner: "{{ drs_user }}"
+    group: "{{ drs_group }}"
+    recurse: yes
+  become: yes
+  tags: [drs, directories, ownership]
+
+
+
+

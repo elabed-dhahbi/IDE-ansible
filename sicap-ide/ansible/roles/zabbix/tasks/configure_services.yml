@@ -1,0 +1,53 @@
+---
+# Zabbix Service Configuration Tasks
+# Simple service management only
+
+# Server services (only on Zabbix server host)
+- name: Start and enable Zabbix server
+  systemd:
+    name: "zabbix-server"
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+  when: inventory_hostname in groups['zabbix']
+  tags: [zabbix, service, server]
+
+- name: Start and enable Apache
+  systemd:
+    name: "httpd"
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+  when: inventory_hostname in groups['zabbix']
+  tags: [zabbix, service, apache]
+
+- name: Start and enable PHP-FPM
+  systemd:
+    name: "php-fpm"
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+  when: inventory_hostname in groups['zabbix']
+  tags: [zabbix, service, php_fpm]
+
+# Agent services (on all hosts, including Zabbix server)
+- name: Start and enable Zabbix agent2
+  systemd:
+    name: "zabbix-agent2"
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+  tags: [zabbix, service, agent2]
+
+- name: Start and enable Zabbix Java Gateway
+  systemd:
+    name: "zabbix-java-gateway"
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+  tags: [zabbix, service, java_gateway]

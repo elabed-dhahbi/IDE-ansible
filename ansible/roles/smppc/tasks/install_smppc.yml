@@ -1,0 +1,63 @@
+---
+# SMPPC Installation Tasks
+
+- name: Ensure offline directory exists on target
+  file:
+    path: "{{ paths.offline_dir }}"
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [smppc, install, packages]
+
+- name: Get SMPPC files using fileglob
+  set_fact:
+    smppc_files: "{{ lookup('fileglob', paths.offline_dir + '/' + package_globs.smppc_rpm, wantlist=True, errors='ignore') }}"
+  tags: [smppc, install, debug]
+
+- name: Copy SMPPC package to target
+  copy:
+    src: "{{ item }}"
+    dest: "{{ paths.offline_dir }}/"
+    mode: '0644'
+  loop: "{{ smppc_files }}"
+  become: yes
+  tags: [smppc, install, packages]
+
+- name: Display SMPPC files found
+  debug:
+    msg: "SMPPC files found: {{ smppc_files }}"
+  tags: [smppc, install, debug]
+
+- name: Fix ownership of SMPPC RPM files
+  file:
+    path: "{{ paths.offline_dir }}/{{ item | basename }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ smppc_files }}"
+  become: yes
+  tags: [smppc, install, fix_permissions]
+
+- name: Install SMPPC package
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ smppc_files }}"
+  become: yes
+  tags: [smppc, install, packages]
+
+- name: Check if SMPPC is already installed
+  stat:
+    path: "{{ smppc_home }}"
+  register: smppc_installed
+  tags: [smppc, install, check]
+
+- name: Display SMPPC installation status
+  debug:
+    msg: "SMPPC installation directory {{ smppc_home }} exists: {{ smppc_installed.stat.exists }}"
+  tags: [smppc, install, check]
+
+
+
+

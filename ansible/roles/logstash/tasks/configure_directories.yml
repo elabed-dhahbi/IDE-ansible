@@ -1,0 +1,105 @@
+---
+# Logstash Directory Configuration Tasks
+
+- name: Create logstash data directory
+  file:
+    path: "{{ logstash_data_dir }}"
+    state: directory
+    owner: "{{ logstash_user }}"
+    group: "{{ logstash_group }}"
+    mode: '0755'
+  become: yes
+  tags: [logstash, directories, data]
+
+- name: Create logstash logs directory
+  file:
+    path: "{{ logstash_logs_dir }}"
+    state: directory
+    owner: "{{ logstash_user }}"
+    group: "{{ logstash_group }}"
+    mode: '0755'
+  become: yes
+  tags: [logstash, directories, logs]
+
+- name: Create logstash patterns directory
+  file:
+    path: "{{ logstash_patterns_dir }}"
+    state: directory
+    owner: "{{ logstash_user }}"
+    group: "{{ logstash_group }}"
+    mode: '0755'
+  become: yes
+  tags: [logstash, directories, patterns]
+
+- name: Copy custom grok patterns
+  copy:
+    src: "{{ item }}"
+    dest: "{{ logstash_patterns_dir }}/"
+    owner: "{{ logstash_user }}"
+    group: "{{ logstash_group }}"
+    mode: '0644'
+  loop:
+    - "patterns/sicap_patterns"
+  become: yes
+  tags: [logstash, directories, patterns]
+
+- name: Change ownership of logstash install directory
+  file:
+    path: "{{ logstash_install_dir }}"
+    owner: "{{ logstash_user }}"
+    group: "{{ logstash_group }}"
+    recurse: yes
+  become: yes
+  tags: [logstash, directories, ownership]
+
+- name: Change ownership of logstash config directory
+  file:
+    path: "{{ logstash_config_dir }}"
+    owner: "{{ logstash_user }}"
+    group: "{{ logstash_group }}"
+    recurse: yes
+  become: yes
+  tags: [logstash, directories, config-ownership]
+
+- name: Create symbolic links in logstash home
+  file:
+    src: "{{ item.src }}"
+    dest: "{{ logstash_home }}/{{ item.dest }}"
+    state: link
+    owner: "{{ logstash_user }}"
+    group: "{{ logstash_group }}"
+  loop:
+    - { src: "{{ logstash_install_dir }}", dest: "ls_home" }
+    - { src: "{{ logstash_install_dir }}/bin", dest: "bin" }
+    - { src: "{{ logstash_logs_dir }}", dest: "logs" }
+    - { src: "{{ logstash_data_dir }}", dest: "data" }
+  become: yes
+  tags: [logstash, directories, symlinks]
+
+- name: Create sysconfig symlink if file exists
+  file:
+    src: "/etc/sysconfig/logstash"
+    dest: "{{ logstash_home }}/sys_conf"
+    state: link
+    owner: "{{ logstash_user }}"
+    group: "{{ logstash_group }}"
+  when: ansible_facts.stat is defined and ansible_facts.stat.exists
+  become: yes
+  tags: [logstash, directories, symlinks]
+
+- name: Remove existing conf directory if it exists
+  file:
+    path: "{{ logstash_home }}/conf"
+    state: absent
+  become: yes
+  tags: [logstash, directories, conf]
+
+- name: Create conf symlink
+  file:
+    src: "{{ logstash_config_dir }}"
+    dest: "{{ logstash_home }}/conf"
+    state: link
+    owner: "{{ logstash_user }}"
+    group: "{{ logstash_group }}"
+  become: yes
+  tags: [logstash, directories, conf-symlink]

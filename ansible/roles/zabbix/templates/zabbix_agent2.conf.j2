@@ -1,0 +1,21 @@
+PidFile=/run/zabbix/zabbix_agent2.pid
+
+LogFile=/var/log/zabbix/zabbix_agent2.log
+
+LogFileSize=0
+
+Server={{ hostvars[groups['zabbix'][0]]['ansible_host'] if groups['zabbix'] is defined and groups['zabbix'] | length > 0 else '127.0.0.1' }}
+
+ServerActive={{ hostvars[groups['zabbix'][0]]['ansible_host'] if groups['zabbix'] is defined and groups['zabbix'] | length > 0 else '127.0.0.1' }}
+
+Hostname={{ inventory_hostname }}
+
+Include=/etc/zabbix/zabbix_agent2.d/*.conf
+
+PluginSocket=/run/zabbix/agent.plugin.sock
+
+ControlSocket=/run/zabbix/agent.sock
+
+Include=/etc/zabbix/zabbix_agent2.d/plugins.d/*.conf
+
+

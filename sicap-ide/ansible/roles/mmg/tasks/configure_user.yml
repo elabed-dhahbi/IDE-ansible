@@ -1,0 +1,22 @@
+---
+# MMG User Configuration Tasks
+
+- name: Create MMG user
+  user:
+    name: "{{ mmg_user }}"
+    system: yes
+    shell: /bin/bash
+    home: "{{ mmg_home }}"
+    create_home: yes
+  tags: [mmg, user, create]
+
+- name: Add MMG user to wheel group
+  user:
+    name: "{{ mmg_user }}"
+    groups: wheel
+    append: yes
+  tags: [mmg, user, groups]
+
+
+
+

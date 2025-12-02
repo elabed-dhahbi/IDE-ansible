@@ -1,0 +1,47 @@
+---
+- name: restart haproxy
+  systemd:
+    name: haproxy
+    state: restarted
+    daemon_reload: yes
+  become: yes
+
+- name: restart rsyslog
+  systemd:
+    name: rsyslog
+    state: restarted
+    daemon_reload: yes
+  become: yes
+
+- name: reload haproxy
+  systemd:
+    name: haproxy
+    state: reloaded
+    daemon_reload: yes
+  become: yes
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

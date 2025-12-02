@@ -1,0 +1,66 @@
+---
+# Zabbix Agents and Java Gateway Installation Only
+# This file installs only agents and Java Gateway, no server components
+
+- name: Check if Zabbix dependencies are already installed
+  command: rpm -q {{ item | regex_replace('\.rpm$', '') | regex_replace('-[0-9].*-.*\.el[0-9].*$', '') }}
+  loop: "{{ zabbix.packages.dependencies }}"
+  register: zabbix_deps_check
+  failed_when: false
+  become: true
+  tags: [zabbix, install, dependencies]
+
+- name: Install Zabbix dependencies in correct order
+  shell: |
+    cd /tmp/offline
+    {% for group in zabbix.dependency_install_order %}
+    # Install {{ group.name }}
+    {% for package in group.packages %}
+    rpm -Uvh --force --nodeps {{ package }}
+    {% endfor %}
+    {% endfor %}
+  when: zabbix_deps_check.results | selectattr('rc', 'ne', 0) | list | length > 0
+  become: true
+  tags: [zabbix, install, dependencies]
+
+- name: Check if Zabbix agent2 packages are already installed
+  command: rpm -q {{ item | regex_replace('\.rpm$', '') | regex_replace('-[0-9].*-.*\.el[0-9].*$', '') }}
+  loop: "{{ zabbix.packages.agent2 }}"
+  register: zabbix_agent2_check
+  failed_when: false
+  become: true
+  when: zabbix.components.agent2 | default(false)
+  tags: [zabbix, install, agent2]
+
+- name: Install Zabbix agent2 packages
+  command: rpm -Uvh --force /tmp/offline/{{ item }}
+  loop: "{{ zabbix.packages.agent2 }}"
+  when: 
+    - zabbix.components.agent2 | default(false)
+    - zabbix_agent2_check.results | selectattr('rc', 'ne', 0) | list | length > 0
+  become: true
+  tags: [zabbix, install, agent2]
+
+- name: Check if Zabbix Java Gateway packages are already installed
+  command: rpm -q {{ item | regex_replace('\.rpm$', '') | regex_replace('-[0-9].*-.*\.el[0-9].*$', '') }}
+  loop: "{{ zabbix.packages.java_gateway }}"
+  register: zabbix_java_gateway_check
+  failed_when: false
+  become: true
+  when: zabbix.components.java_gateway | default(false)
+  tags: [zabbix, install, java_gateway]
+
+- name: Install Zabbix Java Gateway packages
+  command: rpm -Uvh --force /tmp/offline/{{ item }}
+  loop: "{{ zabbix.packages.java_gateway }}"
+  when: 
+    - zabbix.components.java_gateway | default(false)
+    - zabbix_java_gateway_check.results | selectattr('rc', 'ne', 0) | list | length > 0
+  become: true
+  tags: [zabbix, install, java_gateway]
+
+- name: Install SELinux policy
+  command: rpm -Uvh --force /tmp/offline/{{ zabbix.selinux.policy_package }}
+  when: zabbix.selinux.enabled | default(true)
+  become: true
+  tags: [zabbix, install, selinux]

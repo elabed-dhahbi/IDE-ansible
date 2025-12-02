@@ -1,0 +1,73 @@
+---
+# Zabbix Agent and Java Gateway Service Configuration Only
+# This file starts only agent and Java Gateway services, no server services
+
+# Agent services (on all hosts, including Zabbix server)
+- name: Check if zabbix-agent2 is installed
+  command: rpm -q zabbix-agent2
+  register: zabbix_agent2_check
+  failed_when: false
+  changed_when: false
+  become: true
+  tags: [zabbix, service, agent2]
+
+- name: Check if zabbix-agent is installed
+  command: rpm -q zabbix-agent
+  register: zabbix_agent_check
+  failed_when: false
+  changed_when: false
+  become: true
+  tags: [zabbix, service, agent]
+
+- name: Start and enable Zabbix agent2 (if installed)
+  systemd:
+    name: "zabbix-agent2"
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+  when: zabbix_agent2_check.rc == 0
+  ignore_errors: true
+  tags: [zabbix, service, agent2]
+
+- name: Start and enable Zabbix agent (if agent2 is not installed)
+  systemd:
+    name: "zabbix-agent"
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+  when:
+    - zabbix_agent2_check.rc != 0
+    - zabbix_agent_check.rc == 0
+  ignore_errors: true
+  tags: [zabbix, service, agent]
+
+- name: Check if zabbix-java-gateway package is installed
+  command: rpm -q zabbix-java-gateway
+  register: zabbix_java_gateway_check
+  failed_when: false
+  changed_when: false
+  become: true
+  tags: [zabbix, service, java_gateway]
+
+- name: Check if zabbix-java-gateway service file exists
+  stat:
+    path: /usr/lib/systemd/system/zabbix-java-gateway.service
+  register: zabbix_java_gateway_service_file
+  become: true
+  when: zabbix_java_gateway_check.rc == 0
+  tags: [zabbix, service, java_gateway]
+
+- name: Start and enable Zabbix Java Gateway
+  systemd:
+    name: "zabbix-java-gateway"
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+  when:
+    - zabbix_java_gateway_check.rc == 0
+    - zabbix_java_gateway_service_file.stat.exists | default(false)
+  ignore_errors: true
+  tags: [zabbix, service, java_gateway]

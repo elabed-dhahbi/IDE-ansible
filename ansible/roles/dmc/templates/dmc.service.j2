@@ -1,0 +1,22 @@
+[Unit]
+Description=DMC Service
+After=network.target postgresql.service elasticsearch.service
+
+[Service]
+Type=forking
+User={{ dmc_user }}
+Group={{ dmc_group }}
+WorkingDirectory={{ dmc_install_dir }}
+ExecStart={{ dmc_install_dir }}/bin/dmc.sh start
+ExecStop={{ dmc_install_dir }}/bin/dmc.sh stop
+ExecReload={{ dmc_install_dir }}/bin/dmc.sh restart
+PIDFile={{ dmc_data_dir }}/dmc.pid
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+
+
+
+

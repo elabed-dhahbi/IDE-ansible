@@ -1,0 +1,54 @@
+---
+# OpenSearch Directory Configuration Tasks
+
+- name: Create OpenSearch data and logs directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    mode: '0755'
+  loop:
+    - "/var/opt/opensearch"
+    - "/var/opt/opensearch/data"
+    - "/var/opt/opensearch/logs"
+    - "{{ opensearch_backup_dir }}"
+  become: yes
+  tags: [opensearch, directories, create]
+
+- name: Create symbolic links in OpenSearch home
+  file:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    state: link
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+  loop:
+    - { src: "/usr/share/opensearch", dest: "/opt/opensearch/ops_home" }
+    - { src: "/usr/share/opensearch/bin", dest: "/opt/opensearch/bin" }
+    - { src: "/etc/sysconfig/opensearch", dest: "/opt/opensearch/sys_conf" }
+    - { src: "/usr/share/opensearch/jdk", dest: "/opt/opensearch/jdk" }
+    - { src: "/usr/share/opensearch/jdk/lib", dest: "/opt/opensearch/lib" }
+    - { src: "/var/opt/opensearch/logs", dest: "/opt/opensearch/logs" }
+    - { src: "/var/opt/opensearch/data", dest: "/opt/opensearch/data" }
+    - { src: "/etc/opensearch", dest: "/opt/opensearch/conf" }
+    - { src: "/usr/share/opensearch/plugins", dest: "/opt/opensearch/plugins" }
+  become: yes
+  tags: [opensearch, directories, symlinks]
+
+- name: Change ownership of OpenSearch directories
+  file:
+    path: "{{ item }}"
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    recurse: yes
+  loop:
+    - "/etc/opensearch"
+    - "/usr/share/opensearch"
+  become: yes
+  tags: [opensearch, directories, ownership]
+
+
+
+
+

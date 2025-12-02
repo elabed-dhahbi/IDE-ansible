@@ -1,0 +1,51 @@
+---
+# DRS Service Configuration Tasks
+# Note: DRS service is managed by SICAP control system, not systemd directly
+
+- name: Check if DRS service is already running
+  shell: |
+    su - {{ drs_user }} -c "ctl status"
+  become: yes
+  register: drs_status_check
+  failed_when: false
+  tags: [drs, service, check]
+
+- name: Start DRS service using SICAP control (if not running)
+  shell: |
+    su - {{ drs_user }} -c "ctl start all"
+  become: yes
+  when: "'running' not in drs_status_check.stdout"
+  tags: [drs, service, start]
+
+- name: Display DRS service status
+  debug:
+    msg: "DRS service status: {{ drs_status_check.stdout_lines }}"
+  tags: [drs, service, status]
+
+- name: Wait for DRS to be ready
+  wait_for:
+    port: "{{ drs_http_port }}"
+    host: "{{ ansible_host }}"
+    delay: 10
+    timeout: 120
+  tags: [drs, service, wait]
+
+- name: Display DRS status
+  debug:
+    msg:
+      - "DRS service is running using SICAP control system"
+      - "DRS should be accessible on {{ ansible_host }}:{{ drs_http_port }}"
+      - "Service status: {{ drs_status_check.stdout_lines }}"
+  tags: [drs, service, info]
+
+- name: Display DRS service information
+  debug:
+    msg: |
+      DRS service has been started using SICAP control system.
+      To manage DRS service, use: su - {{ drs_user }} -c "ctl start/stop/status all"
+      DRS should be accessible at: http://{{ ansible_host }}:{{ drs_http_port }}
+  tags: [drs, service, info]
+
+
+
+

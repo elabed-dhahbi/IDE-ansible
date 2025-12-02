@@ -1,0 +1,90 @@
+---
+# PostgreSQL Directory Configuration Tasks
+# Implements production-ready directory structure based on your notes
+
+- name: Create PostgreSQL data directory structure
+  file:
+    path: "{{ postgresql_config.data_directory }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0750'
+  become: yes
+  tags: [postgres, directories, data]
+
+- name: Create PostgreSQL home directory
+  file:
+    path: "{{ postgresql_config.home_directory }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0755'
+  become: yes
+  tags: [postgres, directories, home]
+
+- name: Create PostgreSQL tablespaces base directory
+  file:
+    path: "{{ install_paths.postgres_tablespaces_base }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0750'
+    recurse: yes
+  become: yes
+  tags: [postgres, directories, tablespaces]
+
+- name: Ensure parent directory permissions for tablespaces
+  file:
+    path: "{{ install_paths.postgres_tablespaces_base | dirname }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0755'
+    recurse: yes
+  become: yes
+  tags: [postgres, directories, tablespaces]
+
+- name: Create tablespace directories for DMC
+  file:
+    path: "{{ install_paths.postgres_tablespaces_base }}/{{ item }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0700'
+  loop:
+    - "{{ postgresql_config.databases.dmc46.tablespaces.data }}"
+    - "{{ postgresql_config.databases.dmc46.tablespaces.index }}"
+  when: postgresql_config.databases.dmc46 is defined
+  become: yes
+  tags: [postgres, directories, tablespaces, dmc]
+
+- name: Create tablespace directories for MMG
+  file:
+    path: "{{ install_paths.postgres_tablespaces_base }}/{{ item }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0700'
+  loop:
+    - "{{ postgresql_config.databases.mmg.tablespaces.data }}"
+    - "{{ postgresql_config.databases.mmg.tablespaces.index }}"
+  when: postgresql_config.databases.mmg is defined
+  become: yes
+  tags: [postgres, directories, tablespaces, mmg]
+
+- name: Create tablespace directories for MDBA
+  file:
+    path: "{{ install_paths.postgres_tablespaces_base }}/{{ item }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0700'
+  loop:
+    - "{{ postgresql_config.users.mdba.tablespaces.data }}"
+    - "{{ postgresql_config.users.mdba.tablespaces.index }}"
+  when: postgresql_config.users.mdba is defined
+  become: yes
+  tags: [postgres, directories, tablespaces, mdba]
+
+# Migration section completely removed - PostgreSQL is already running and working
+# No migration needed since PostgreSQL is already properly configured and this service

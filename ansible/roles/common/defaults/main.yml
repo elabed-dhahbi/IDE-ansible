@@ -1,0 +1,79 @@
+---
+# Common Role Default Variables
+# Preflight checks and system preparation
+
+# System requirements
+system_requirements:
+  min_memory_gb: 4
+  min_disk_gb: 20
+  min_cpu_cores: 2
+
+# Package verification
+package_verification:
+  enabled: true
+  fail_on_missing: true
+
+# System preparation
+system_prep:
+  update_packages: true
+  install_epel: true
+  install_development_tools: true
+  configure_firewall: true
+
+# Required packages for all systems
+common_packages:
+  - wget
+  - curl
+  - unzip
+  - tar
+  - rsync
+  - net-tools
+  - telnet
+  - nc
+  - vim
+  - htop
+  - iotop
+  - lsof
+  - strace
+  - tcpdump
+
+# Development tools
+dev_packages:
+  - gcc
+  - gcc-c++
+  - make
+  - cmake
+  - git
+  - python3
+  - python3-pip
+  - python3-devel
+
+# Firewall configuration
+firewall_rules:
+  - port: "{{ service_ports.postgres }}"
+    protocol: tcp
+    state: enabled
+  - port: "{{ service_ports.elasticsearch }}"
+    protocol: tcp
+    state: enabled
+  - port: "{{ service_ports.kibana }}"
+    protocol: tcp
+    state: enabled
+  - port: "{{ service_ports.dmc_http }}"
+    protocol: tcp
+    state: enabled
+  - port: "{{ service_ports.mmg_http }}"
+    protocol: tcp
+    state: enabled
+  - port: "{{ service_ports.mmsoap_http }}"
+    protocol: tcp
+    state: enabled
+  - port: "{{ service_ports.smppc_http }}"
+    protocol: tcp
+    state: enabled
+  - port: "{{ service_ports.sls_http }}"
+    protocol: tcp
+    state: enabled
+  - port: "{{ service_ports.drs_http }}"
+    protocol: tcp
+    state: enabled

@@ -1,0 +1,33 @@
+#!/bin/sh
+date
+
+# Executing csv_export_run.sh
+echo "Executing csv_export_run.sh"
+cd {{ elkstack_install_dir }}/current/csv_export/launcher
+./csv_export_run.sh {{ elkstack_install_dir }}/current/conf/DMC4_Stats.properties > /dev/null 2>&1
+date
+echo "Execution Complete"
+echo "Waiting for postprocessing and copy to logstash…"
+sleep 120
+
+date
+cd {{ elkstack_csv_dir }}
+
+DATE=$(date '+%Y%m%d')
+
+FILENAME_1="$DATE"_active_1.csv
+mv $FILENAME_1 DMC_CSV_export_"$DATE".csv
+
+FILENAME=`ls -1 DMC_CSV_export_"$DATE".csv`
+
+echo "Today's report received from DMC server" $FILENAME
+
+echo "Copy $FILENAME to {{ elkstack_csv_logstash_dir }}/"
+cp $FILENAME {{ elkstack_csv_logstash_dir }}/
+
+gzip `ls -1 {{ elkstack_csv_dir }} | grep $FILENAME`
+
+echo "delete older than 10 day reports"
+find {{ elkstack_csv_dir }} -type f -name "DMC_CSV_export*"  -mtime +10 -exec rm {} \;
+date
+echo

@@ -1,0 +1,89 @@
+---
+# Java Installation Tasks
+
+- name: Ensure Java installation directory exists
+  file:
+    path: "{{ java_home }}"
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [dmc, java, install]
+
+- name: Find Java 1.8.0_92 package
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns: "1_8_0_92-jdk.tar.gz"
+  register: java_package_files
+  tags: [dmc, java, install]
+
+- name: Display Java package files found
+  debug:
+    msg: "Java package files found: {{ java_package_files.files | map(attribute='path') | list }}"
+  tags: [dmc, java, debug]
+
+- name: Extract JDK8 package
+  unarchive:
+    src: "{{ item.path }}"
+    dest: "/usr/j2se"
+    remote_src: yes
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ java_package_files.files }}"
+  become: yes
+  tags: [dmc, java, install]
+
+- name: Remove existing current directory if it exists
+  file:
+    path: "/usr/j2se/current"
+    state: absent
+  become: yes
+  tags: [dmc, java, cleanup]
+
+- name: Find extracted Java directory
+  find:
+    paths: "/usr/j2se"
+    patterns: "1_8_0_92-jdk"
+    file_type: directory
+  register: java_directories
+  become: yes
+  tags: [dmc, java, install]
+
+- name: Create Java symlink
+  file:
+    src: "{{ java_directories.files[0].path }}"
+    dest: "/usr/j2se/current"
+    state: link
+    force: yes
+  become: yes
+  tags: [dmc, java, symlink]
+
+- name: Set Java directory permissions
+  file:
+    path: "/usr/j2se"
+    mode: '0755'
+    recurse: yes
+  become: yes
+  tags: [dmc, java, permissions]
+
+- name: Verify Java installation
+  command: "/usr/j2se/current/bin/java -version"
+  register: java_version
+  become: yes
+  tags: [dmc, java, verify]
+
+- name: Display Java version
+  debug:
+    msg: "{{ java_version.stdout_lines }}"
+  tags: [dmc, java, verify]
+
+- name: Set JAVA_HOME environment variable in .profile.sicap
+  lineinfile:
+    path: "{{ dmc_home }}/.profile.sicap"
+    regexp: '^export JAVA_HOME='
+    line: 'export JAVA_HOME=${JAVA_HOME:-/usr/j2se/current}'
+    backup: yes
+  become: yes
+  tags: [dmc, java, environment]
+
+

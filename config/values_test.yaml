@@ -1,0 +1,54 @@
+# DMC4.6.18 Configuration Values - Test Version
+# Copy this file to values.yaml and customize for your environment
+
+# Directory paths for offline packages and installations
+paths:
+  offline_dir: /tmp/offline  # Base directory containing offline RPM packages
+
+  # PostgreSQL directories (production-ready configuration)
+  postgres_data_dir: /data/pgsql  # PostgreSQL data directory (default: /var/lib/pgsql)
+  postgres_home_dir: /home/postgres  # PostgreSQL user home directory (default: /var/lib/pgsql)
+  postgres_tablespaces_dir: /data/postgres  # Directory for PostgreSQL tablespaces
+
+# System configuration flags
+flags:
+  selinux: permissive          # SELinux mode: enforcing|permissive|disabled
+  firewalld: disabled          # Firewall service: enabled|disabled
+  es_single_node: true         # Elasticsearch single node mode
+  dmc_hugepages_enabled: true  # Enable hugepages for DMC
+  dmc_hugepages_pages: 5120    # Number of hugepages (5120 = ~10GB)
+
+# Component versions - update these as needed
+versions:
+  dmc: "4.6.33"
+  mmg: "4.6.21"
+  mmsoap: "5.6.1"
+  smppc: "5.4.9"
+  sls: "2.0.3"
+  postgres: "15"
+  elasticsearch: "7.17.25"
+  kibana: "7.17.25"
+  logstash: "7.17.25"
+  jdk8: "8u412"
+
+# Package glob patterns for offline installation
+# These patterns are resolved under paths.offline_dir
+package_globs:
+  # SCP (Sicap) application packages
+  dmc_rpm: "SCPdmc-{{ versions.dmc }}*.rpm"
+  mmg_rpm: "SCPmmg-{{ versions.mmg }}*.rpm"
+  mmsoap_rpm: "SCPmmsoap-{{ versions.mmsoap }}*.rpm"
+  smppc_rpm: "SCPsmppc-{{ versions.smppc }}*.rpm"
+  sls_rpm: "SCPsls-{{ versions.sls }}*.rpm"
+  drs_rpm: "SCPdrs-*.rpm"
+
+  # Third-party application packages
+  es_rpm: "elasticsearch-{{ versions.elasticsearch }}*.rpm"
+  kibana_rpm: "kibana-{{ versions.kibana }}*.rpm"
+  logstash_rpm: "logstash-{{ versions.logstash }}*.rpm"
+  pgdg_repo_rpm: "pgdg-redhat-repo-latest.noarch.rpm"
+  jdk8_tgz: "openlogic-openjdk-{{ versions.jdk8 }}*linux*.tar.gz"
+
+
+
+

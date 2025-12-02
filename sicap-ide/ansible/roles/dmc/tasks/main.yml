@@ -1,0 +1,32 @@
+---
+# DMC Installation and Configuration
+
+- name: Include system configuration tasks
+  include_tasks: configure_system.yml
+  tags: [dmc, system]
+
+- name: Include DMC installation tasks
+  include_tasks: install_dmc.yml
+  tags: [dmc, install]
+
+- name: Include Java installation tasks
+  include_tasks: install_java.yml
+  tags: [dmc, java]
+
+# Let RPM handle directory creation - only configure what's needed
+
+# Let RPM handle user creation completely - no user tasks
+
+- name: Include DMC configuration tasks
+  include_tasks: configure_dmc.yml
+  tags: [dmc, config]
+
+- name: Include database setup tasks
+  include_tasks: setup_database.yml
+  tags: [dmc, database]
+
+- name: Include DMC service configuration tasks
+  include_tasks: configure_service.yml
+  tags: [dmc, service]
+
+

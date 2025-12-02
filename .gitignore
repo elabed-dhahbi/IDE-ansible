@@ -1,0 +1,46 @@
+# Ansible
+*.retry
+.ansible/
+ansible.log
+*.log
+
+# Backup files
+*.bak
+*.backup
+*.tar
+*.tar.gz
+*.tar.bz2
+*.zip
+
+# Temporary files
+*.tmp
+*.swp
+*~
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+venv/
+env/
+
+# Config backups
+config/*.bak
+config/*.backup
+
+# Test files
+test_offline/
+*.test
+
+# Sensitive data (if any)
+*.key
+*.pem
+secrets/
+.env
+

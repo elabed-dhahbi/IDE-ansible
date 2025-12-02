@@ -1,0 +1,57 @@
+# Logstash OSS Configuration for OpenSearch Stack
+
+# Network availability
+http.host: "{{ logstash_oss_config.http_host }}"
+http.port: {{ logstash_oss_config.http_port }}
+
+# Disable ECS compatibility
+pipeline.ecs_compatibility: {{ logstash_oss_config.pipeline_ecs_compatibility }}
+
+# Disable SSL for HTTP calls
+api.ssl.enabled: {{ logstash_oss_config.api_ssl_enabled }}
+
+# Set the correct path to the configuration file
+path.config: "{{ logstash_oss_config.path_config }}"
+
+# Name for the node
+node.name: "{{ logstash_oss_config.node_name }}"
+
+# Set log level
+log.level: "{{ logstash_oss_config.log_level }}"
+
+# Change data path
+path.data: "{{ logstash_oss_config.path_data }}"
+
+# Change log path
+path.logs: "{{ logstash_oss_config.path_logs }}"
+
+# Separation of logs per pipeline
+pipeline.separate_logs: {{ logstash_oss_config.pipeline_separate_logs }}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

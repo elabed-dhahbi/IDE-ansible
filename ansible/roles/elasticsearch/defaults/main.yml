@@ -1,0 +1,52 @@
+---
+# Elasticsearch Role Default Variables
+
+# Elasticsearch version (inherited from main configuration)
+elasticsearch_version: "{{ versions.elasticsearch }}"
+
+# Service configuration
+elasticsearch_service_name: "elasticsearch"
+elasticsearch_user: "elasticsearch"
+elasticsearch_group: "elasticsearch"
+
+# Directory configuration
+elasticsearch_home: "/opt/elasticsearch"
+elasticsearch_install_dir: "/usr/share/elasticsearch"
+elasticsearch_config_dir: "/etc/elasticsearch"
+elasticsearch_data_dir: "/var/opt/elasticsearch/data"
+elasticsearch_logs_dir: "/var/opt/elasticsearch/logs"
+
+# Elasticsearch configuration
+elasticsearch_config:
+  cluster_name: "es_dmc"
+  node_name: "{{ ansible_hostname }}"
+  network_host: "0.0.0.0"
+  http_port: "{{ service_ports.elasticsearch }}"
+  discovery_type: "single-node"  # For single node setup
+  # For cluster setup, uncomment these:
+  # discovery_seed_hosts: ["{{ service_ips.elasticsearch }}"]
+  # cluster_initial_master_nodes: ["{{ ansible_hostname }}"]
+  # cluster_routing_allocation_enable: "primaries"
+  
+  # Security configuration - disabled for simplicity
+  xpack_security_enabled: true
+  xpack_security_transport_ssl_enabled: true
+  xpack_security_transport_ssl_verification_mode: "certificate"
+  xpack_security_transport_ssl_keystore_path: "/etc/elasticsearch/elastic-certificates.p12"
+  xpack_security_transport_ssl_truststore_path: "/etc/elasticsearch/elastic-certificates.p12"
+
+# JVM configuration
+# Note: elasticsearch_jvm.heap_size is defined in values.yaml
+elasticsearch_jvm_settings:
+  heap_dump_path: "/var/opt/elasticsearch/data"
+  error_file: "/var/opt/elasticsearch/logs"
+
+# System configuration
+elasticsearch_system:
+  memory_lock: true
+  nofile_limit: 65535
+  memlock_limit: "infinity"
+
+# Package configuration
+elasticsearch_package: "{{ package_globs.es_rpm }}"
+

@@ -1,0 +1,317 @@
+---
+# Zabbix Agents and Java Gateway Installation Only
+# This file installs only agents and Java Gateway, no server components
+
+- name: Check if createrepo_c is installed
+  command: rpm -q createrepo_c
+  register: createrepo_c_check
+  failed_when: false
+  changed_when: false
+  become: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Install createrepo_c package (RHEL 9 uses createrepo_c, not createrepo)
+  dnf:
+    name: createrepo_c
+    state: present
+  become: yes
+  when: createrepo_c_check.rc != 0
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Clean existing repodata directory if it exists
+  file:
+    path: "{{ paths.offline_dir }}/.repodata"
+    state: absent
+  become: yes
+  tags: [zabbix, install, repository]
+
+- name: Create local YUM repository from offline packages
+  command: createrepo_c {{ paths.offline_dir }}
+  become: yes
+  when: createrepo_c_check.rc == 0
+  ignore_errors: yes
+  tags: [zabbix, install, repository]
+
+- name: Create local repository configuration
+  copy:
+    content: |
+      [offline-repo]
+      name=Offline Repository
+      baseurl=file://{{ paths.offline_dir }}
+      enabled=1
+      gpgcheck=0
+    dest: /etc/yum.repos.d/offline.repo
+    mode: '0644'
+  become: yes
+  tags: [zabbix, install, repository]
+
+- name: Clean YUM cache
+  command: yum clean all
+  become: yes
+  tags: [zabbix, install, repository]
+
+- name: Remove any existing Zabbix packages to avoid conflicts
+  dnf:
+    name:
+      - zabbix-agent
+      - zabbix-agent2
+      - zabbix-java-gateway
+      - zabbix-selinux-policy
+    state: absent
+    autoremove: yes
+  become: true
+  ignore_errors: yes
+  tags: [zabbix, install, cleanup]
+
+- name: Check if zabbix-agent2 package exists in offline directory
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "zabbix-agent2-*.el9.x86_64.rpm"
+      - "zabbix-agent2-*.rpm"
+  register: zabbix_agent2_package_check
+  delegate_to: localhost
+  tags: [zabbix, install, dependencies]
+
+- name: Check if zabbix-agent package exists in offline directory
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "zabbix-agent-*.el9.x86_64.rpm"
+      - "zabbix-agent-*.rpm"
+  register: zabbix_agent_package_check
+  delegate_to: localhost
+  tags: [zabbix, install, dependencies]
+
+- name: Copy zabbix-agent2 package to target if found (exclude plugins)
+  copy:
+    src: "{{ item.path }}"
+    dest: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    mode: '0644'
+  loop: "{{ zabbix_agent2_package_check.files | rejectattr('path', 'match', '.*plugin.*') | list }}"
+  become: yes
+  when: zabbix_agent2_package_check.files | length > 0
+  tags: [zabbix, install, dependencies]
+
+- name: Install Zabbix agent2 and dependencies (if agent2 is available) - try repository first
+  dnf:
+    name:
+      - zabbix-agent2
+      - zabbix-agent2-plugin-postgresql
+      - zabbix-agent2-plugin-mongodb
+      - zabbix-agent2-plugin-mssql
+      - zabbix-selinux-policy
+      - fping
+    state: present
+    enablerepo: offline-repo
+    disablerepo: epel,epel-modular
+    disable_gpg_check: yes
+  become: true
+  when: zabbix_agent2_package_check.files | length > 0
+  ignore_errors: yes
+  register: agent2_install_result
+  tags: [zabbix, install, dependencies]
+
+- name: Install zabbix-agent2 directly from RPM if repository installation failed
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ zabbix_agent2_package_check.files | rejectattr('path', 'match', '.*plugin.*') | list }}"
+  become: true
+  when:
+    - zabbix_agent2_package_check.files | length > 0
+    - agent2_install_result is defined
+    - agent2_install_result.rc != 0
+  ignore_errors: yes
+  register: agent2_direct_install
+  tags: [zabbix, install, dependencies]
+
+- name: Verify zabbix-agent2 is installed
+  command: rpm -q zabbix-agent2
+  register: zabbix_agent2_installed_check
+  failed_when: false
+  changed_when: false
+  become: true
+  when: zabbix_agent2_package_check.files | length > 0
+  tags: [zabbix, install, dependencies]
+
+- name: Install zabbix-agent2 plugins directly from RPM if agent2 was installed
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ zabbix_agent2_package_check.files | selectattr('path', 'match', '.*plugin.*') | list }}"
+  become: true
+  when:
+    - zabbix_agent2_package_check.files | length > 0
+    - zabbix_agent2_installed_check.rc == 0
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Install zabbix-selinux-policy and fping if not already installed
+  dnf:
+    name:
+      - zabbix-selinux-policy
+      - fping
+    state: present
+    enablerepo: offline-repo
+    disablerepo: epel,epel-modular
+    disable_gpg_check: yes
+  become: true
+  when: zabbix_agent2_package_check.files | length > 0
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Install Zabbix agent (fallback if agent2 is not available)
+  dnf:
+    name:
+      - zabbix-agent
+      - zabbix-selinux-policy
+      - fping
+    state: present
+    enablerepo: offline-repo
+    disablerepo: epel,epel-modular
+    disable_gpg_check: yes
+  become: true
+  when: 
+    - zabbix_agent2_package_check.files | length == 0
+    - zabbix_agent_package_check.files | length > 0
+  ignore_errors: yes
+  register: agent_install_result
+  tags: [zabbix, install, dependencies]
+
+- name: Install zabbix-agent directly from RPM if repository installation failed
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ zabbix_agent_package_check.files }}"
+  become: true
+  when:
+    - zabbix_agent2_package_check.files | length == 0
+    - zabbix_agent_package_check.files | length > 0
+    - agent_install_result is defined
+    - agent_install_result.rc != 0
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Warn if no agent package is available
+  debug:
+    msg: |
+      WARNING: Neither zabbix-agent2 nor zabbix-agent package found in {{ paths.offline_dir }}.
+      Please ensure at least one agent package is available.
+  when:
+    - zabbix_agent2_package_check.files | length == 0
+    - zabbix_agent_package_check.files | length == 0
+  tags: [zabbix, install, dependencies]
+
+- name: Find Java dependency packages in offline directory
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "lksctp-tools-*.x86_64.rpm"
+      - "javapackages-filesystem-*.noarch.rpm"
+      - "copy-jdk-configs-*.noarch.rpm"
+      - "tzdata-java-*.noarch.rpm"
+      - "java-17-openjdk-headless-*.x86_64.rpm"
+  register: java_deps_packages
+  delegate_to: localhost
+  when: inventory_hostname in groups['zabbix'] | default([])
+  tags: [zabbix, install, java_gateway]
+
+- name: Copy Java dependency packages to target if found
+  copy:
+    src: "{{ item.path }}"
+    dest: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    mode: '0644'
+  loop: "{{ java_deps_packages.files }}"
+  become: yes
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - java_deps_packages.files | length > 0
+  tags: [zabbix, install, java_gateway]
+
+- name: Install Java dependencies first (required by java-17-openjdk-headless)
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ java_deps_packages.files | selectattr('path', 'match', '.*(lksctp-tools|javapackages-filesystem|copy-jdk-configs|tzdata-java).*') | list }}"
+  become: yes
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - java_deps_packages.files | length > 0
+  ignore_errors: yes
+  tags: [zabbix, install, java_gateway]
+
+- name: Install java-17-openjdk-headless (required by zabbix-java-gateway)
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ java_deps_packages.files | selectattr('path', 'match', '.*java-17-openjdk-headless.*') | list }}"
+  become: yes
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - java_deps_packages.files | length > 0
+  ignore_errors: yes
+  tags: [zabbix, install, java_gateway]
+
+- name: Install Zabbix Java Gateway (only on Zabbix servers) - try repository first
+  dnf:
+    name:
+      - zabbix-java-gateway
+    state: present
+    enablerepo: offline-repo
+    disablerepo: epel,epel-modular
+    disable_gpg_check: yes
+  become: true
+  when: inventory_hostname in groups['zabbix'] | default([])
+  ignore_errors: yes
+  register: java_gateway_install_result
+  tags: [zabbix, install, java_gateway]
+
+- name: Find zabbix-java-gateway package in offline directory
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "zabbix-java-gateway-*.el9.x86_64.rpm"
+      - "zabbix-java-gateway-*.rpm"
+  register: zabbix_java_gateway_package
+  delegate_to: localhost
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - java_gateway_install_result is defined
+    - java_gateway_install_result.rc != 0
+  tags: [zabbix, install, java_gateway]
+
+- name: Copy zabbix-java-gateway package to target if found
+  copy:
+    src: "{{ item.path }}"
+    dest: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    mode: '0644'
+  loop: "{{ zabbix_java_gateway_package.files }}"
+  become: yes
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - java_gateway_install_result is defined
+    - java_gateway_install_result.rc != 0
+    - zabbix_java_gateway_package.files | length > 0
+  tags: [zabbix, install, java_gateway]
+
+- name: Install zabbix-java-gateway directly from RPM if repository installation failed
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ zabbix_java_gateway_package.files }}"
+  become: yes
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - java_gateway_install_result is defined
+    - java_gateway_install_result.rc != 0
+    - zabbix_java_gateway_package.files | length > 0
+  ignore_errors: yes
+  tags: [zabbix, install, java_gateway]

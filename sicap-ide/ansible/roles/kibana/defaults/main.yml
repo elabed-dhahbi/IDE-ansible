@@ -1,0 +1,74 @@
+---
+# Kibana Configuration Defaults
+
+# Kibana version
+kibana_version: "{{ versions.kibana }}"
+
+# Service configuration
+kibana_service_name: "kibana"
+kibana_user: "kibana"
+kibana_group: "kibana"
+
+# Directory paths
+kibana_install_dir: "/usr/share/kibana"
+kibana_config_dir: "/etc/kibana"
+kibana_home: "/opt/kibana"
+kibana_data_dir: "/var/opt/kibana/data"
+kibana_logs_dir: "/var/opt/kibana/logs"
+
+# Kibana encryption key (32 characters for xpack.encryptedSavedObjects.encryptionKey)
+kibana_encryption_key: "encryption_key.sicapgfjhggfggfgf"
+
+# Kibana configuration
+kibana_config:
+  # Server configuration
+  server_host: "0.0.0.0"
+  server_port: "{{ service_ports.kibana }}"
+  server_name: "{{ ansible_hostname }}"
+  server_base_path: "/dmckibana"
+  server_public_base_url: "http://{{ ansible_host }}:{{ service_ports.kibana }}/dmckibana"
+  server_rewrite_base_path: true
+  
+  # Elasticsearch configuration
+  elasticsearch_hosts: "{{ groups['elasticsearch'] | map('extract', hostvars, 'ansible_host') | map('regex_replace', '^(.*)$', 'http://\\1:9200') | list }}"
+  elasticsearch_username: "elastic"
+  elasticsearch_password: "{{ system_config.service_passwords.elasticsearch | default('elastic') }}"
+  
+  # Security configuration
+  xpack_security_enabled: true
+  xpack_encryption_key: "{{ kibana_encryption_key }}"
+  xpack_encrypted_saved_objects_encryption_key: "{{ kibana_encryption_key }}"
+  xpack_reporting_encryption_key: "{{ kibana_encryption_key }}"
+  xpack_security_session_idle_timeout: "1h"
+  xpack_security_session_lifespan: "30d"
+  
+  # Logging configuration
+  logging_appenders:
+    file:
+      type: file
+      fileName: "{{ kibana_logs_dir }}/kibana.log"
+      layout:
+        type: json
+  logging_loggers:
+    - name: http.server.response
+      appenders:
+        - file
+      level: error
+    - name: http.server.response
+      appenders:
+        - file
+      level: error
+    - name: http.server.response
+      appenders:
+        - file
+      level: error
+
+# System configuration
+kibana_system:
+  memory_lock: true
+  nofile_limit: 65535
+  memlock_limit: "infinity"
+
+# Package configuration
+package_globs:
+  kibana_rpm: "kibana-{{ versions.kibana }}*.rpm"

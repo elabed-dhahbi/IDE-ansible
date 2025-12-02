@@ -1,0 +1,104 @@
+---
+# Kibana Directory Configuration Tasks
+
+- name: Create kibana data directory
+  file:
+    path: "{{ kibana_data_dir }}"
+    state: directory
+    owner: "{{ kibana_user }}"
+    group: "{{ kibana_group }}"
+    mode: '0755'
+  become: yes
+  tags: [kibana, directories, data]
+
+- name: Create kibana logs directory
+  file:
+    path: "{{ kibana_logs_dir }}"
+    state: directory
+    owner: "{{ kibana_user }}"
+    group: "{{ kibana_group }}"
+    mode: '0755'
+  become: yes
+  tags: [kibana, directories, logs]
+
+- name: Create system kibana logs directory
+  file:
+    path: "/var/log/kibana"
+    state: directory
+    owner: "{{ kibana_user }}"
+    group: "{{ kibana_group }}"
+    mode: '0755'
+  become: yes
+  tags: [kibana, directories, system-logs]
+
+- name: Create kibana runtime directory
+  file:
+    path: "/run/kibana"
+    state: directory
+    owner: "{{ kibana_user }}"
+    group: "{{ kibana_group }}"
+    mode: '0755'
+  become: yes
+  tags: [kibana, directories, runtime]
+
+- name: Change ownership of kibana install directory
+  file:
+    path: "{{ kibana_install_dir }}"
+    owner: "{{ kibana_user }}"
+    group: "{{ kibana_group }}"
+    recurse: yes
+  become: yes
+  tags: [kibana, directories, ownership]
+
+- name: Change ownership of kibana config directory
+  file:
+    path: "{{ kibana_config_dir }}"
+    owner: "{{ kibana_user }}"
+    group: "{{ kibana_group }}"
+    recurse: yes
+  become: yes
+  tags: [kibana, directories, config-ownership]
+
+- name: Create symbolic links in kibana home
+  file:
+    src: "{{ item.src }}"
+    dest: "{{ kibana_home }}/{{ item.dest }}"
+    state: link
+    owner: "{{ kibana_user }}"
+    group: "{{ kibana_group }}"
+  loop:
+    - { src: "{{ kibana_install_dir }}", dest: "kb_home" }
+    - { src: "{{ kibana_install_dir }}/bin", dest: "bin" }
+    - { src: "/etc/sysconfig/kibana", dest: "sys_conf" }
+    - { src: "{{ kibana_logs_dir }}", dest: "logs" }
+    - { src: "{{ kibana_data_dir }}", dest: "data" }
+  become: yes
+  tags: [kibana, directories, symlinks]
+
+- name: Create sysconfig symlink if file exists
+  file:
+    src: "/etc/sysconfig/kibana"
+    dest: "{{ kibana_home }}/sys_conf"
+    state: link
+    owner: "{{ kibana_user }}"
+    group: "{{ kibana_group }}"
+  when: ansible_facts.stat is defined and ansible_facts.stat.exists
+  become: yes
+  tags: [kibana, directories, symlinks]
+
+- name: Remove existing conf directory if it exists
+  file:
+    path: "{{ kibana_home }}/conf"
+    state: absent
+  become: yes
+  tags: [kibana, directories, conf]
+
+- name: Create conf symlink
+  file:
+    src: "{{ kibana_config_dir }}"
+    dest: "{{ kibana_home }}/conf"
+    state: link
+    owner: "{{ kibana_user }}"
+    group: "{{ kibana_group }}"
+  become: yes
+  tags: [kibana, directories, conf-symlink]

@@ -1,0 +1,188 @@
+---
+# MMG Service Configuration Tasks
+
+- name: Check if Java 8 is installed
+  stat:
+    path: "/usr/j2se"
+  register: java8_check
+  tags: [mmg, service, java]
+
+- name: Display Java 8 installation status
+  debug:
+    msg: "Java 8 directory /usr/j2se exists: {{ java8_check.stat.exists }}"
+  tags: [mmg, service, java]
+
+- name: Check current .profile.sicap content
+  shell: "cat {{ mmg_home }}/.profile.sicap"
+  become_user: "{{ mmg_user }}"
+  become: yes
+  register: profile_content
+  tags: [mmg, service, debug]
+
+- name: Display .profile.sicap content
+  debug:
+    msg: "{{ profile_content.stdout_lines }}"
+  tags: [mmg, service, debug]
+
+- name: Update MMG profile with Java 8 configuration
+  lineinfile:
+    path: "{{ mmg_home }}/.profile"
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    backup: yes
+  loop:
+    - { regexp: "^export JAVA_HOME=.*", line: "export JAVA_HOME=/usr/j2se/openlogic-openjdk-8u412-b08-linux-x32" }
+    - { regexp: "^export PATH=.*JAVA_HOME.*", line: "export PATH=$JAVA_HOME/bin:$PATH" }
+  become: yes
+  when: java8_check.stat.exists
+  tags: [mmg, service, java]
+
+- name: Check if Java 8 is actually installed
+  shell: "ls -la /usr/j2se"
+  become_user: "{{ mmg_user }}"
+  become: yes
+  register: java8_files
+  tags: [mmg, service, java]
+
+- name: Display Java 8 installation files
+  debug:
+    msg: "{{ java8_files.stdout_lines }}"
+  tags: [mmg, service, java]
+
+- name: Check Java 8 version directly
+  shell: "/usr/j2se/openlogic-openjdk-8u412-b08-linux-x32/bin/java -version"
+  become_user: "{{ mmg_user }}"
+  become: yes
+  register: java8_direct_version
+  tags: [mmg, service, java]
+
+- name: Display Java 8 direct version
+  debug:
+    msg: "{{ java8_direct_version.stderr_lines }}"
+  tags: [mmg, service, java]
+
+- name: Force source profile and check Java version
+  shell: "source {{ mmg_home }}/.profile && java -version"
+  become_user: "{{ mmg_user }}"
+  become: yes
+  register: java_version_check
+  when: java8_check.stat.exists
+  tags: [mmg, service, java]
+
+- name: Display Java version from profile
+  debug:
+    msg: "{{ java_version_check.stdout_lines }}"
+  when: java8_check.stat.exists
+  tags: [mmg, service, java]
+
+- name: Update MMG environment configuration
+  lineinfile:
+    path: "{{ mmg_current_dir }}/bin/mmgenv"
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    backup: yes
+  loop:
+    - { regexp: "^JAVA_HEAP_SIZE=.*", line: "JAVA_HEAP_SIZE=2048" }
+    - { regexp: "^STARTED_TIMEOUT=.*", line: "STARTED_TIMEOUT=300" }
+  become: yes
+  tags: [mmg, service, env]
+
+- name: Find ctl script location
+  find:
+    paths: "{{ mmg_install_dir }}"
+    name: "ctl"
+    file_type: file
+  register: ctl_script
+  tags: [mmg, service, find]
+
+- name: Display ctl script location
+  debug:
+    msg: "Found ctl script at: {{ ctl_script.matched }}"
+  tags: [mmg, service, find]
+
+- name: List all files in MMG home directory
+  find:
+    paths: "{{ mmg_home }}"
+    file_type: file
+  register: mmg_home_files
+  tags: [mmg, service, debug]
+
+- name: Display MMG home directory contents
+  debug:
+    msg: "Files in {{ mmg_home }}: {{ mmg_home_files.files | map(attribute='path') | list }}"
+  tags: [mmg, service, debug]
+
+- name: Search for ctl script in entire MMG installation
+  find:
+    paths: "{{ mmg_install_dir }}"
+    name: "ctl"
+    file_type: file
+  register: ctl_script_full
+  tags: [mmg, service, find]
+
+- name: Display all ctl scripts found
+  debug:
+    msg: "All ctl scripts found: {{ ctl_script_full.matched | map(attribute='path') | list }}"
+  tags: [mmg, service, find]
+
+- name: Start MMG service using SICAP ctl
+  shell: "{{ item }}/ctl start all"
+  become_user: "{{ mmg_user }}"
+  become: yes
+  args:
+    chdir: "{{ item }}"
+  loop: "{{ ctl_script_full.matched | map(attribute='path') | list }}"
+  when: ctl_script_full.matched | length > 0
+  tags: [mmg, service, start]
+
+- name: Check MMG service status
+  shell: "{{ item }}/ctl status all"
+  become_user: "{{ mmg_user }}"
+  become: yes
+  args:
+    chdir: "{{ item }}"
+  loop: "{{ ctl_script_full.matched | map(attribute='path') | list }}"
+  register: mmg_status
+  when: ctl_script_full.matched | length > 0
+  tags: [mmg, service, status]
+
+- name: Display MMG service status
+  debug:
+    msg: "{{ mmg_status.stdout_lines if (mmg_status is defined and mmg_status.stdout_lines is defined) else 'Service status not available - ctl script not found' }}"
+  tags: [mmg, service, info]
+
+- name: Try to start MMG service manually (fallback)
+  shell: "cd {{ mmg_current_dir }} && ./bin/mmg start"
+  become_user: "{{ mmg_user }}"
+  become: yes
+  when: ctl_script_full.matched is defined and ctl_script_full.matched | length == 0
+  register: manual_start_result
+  tags: [mmg, service, manual_start]
+
+- name: Display manual start result
+  debug:
+    msg: "Manual start result: {{ manual_start_result.stdout_lines if manual_start_result.stdout_lines is defined else manual_start_result }}"
+  when: ctl_script_full.matched | length == 0
+  tags: [mmg, service, manual_start]
+
+- name: Recreate MMG user with plain text password
+  postgresql_user:
+    name: "{{ mmg_config.database.user }}"
+    password: "{{ mmg_config.database.password }}"
+    encrypted: no
+    state: present
+  become_user: postgres
+  become: yes
+  tags: [mmg, service, postgres]
+
+- name: Wait for MMG to be ready
+  wait_for:
+    port: "{{ mmg_config.http_port }}"
+    host: "{{ ansible_host }}"
+    delay: 10
+    timeout: 120
+  tags: [mmg, service, wait]
+
+
+
+

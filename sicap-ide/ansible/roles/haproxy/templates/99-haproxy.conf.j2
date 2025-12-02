@@ -1,0 +1,33 @@
+$AddUnixListenSocket {{ haproxy_chroot_dir }}/dev/log
+
+# Send HAProxy messages to a dedicated logfile
+:programname, startswith, "haproxy" {
+  /var/log/haproxy.log
+  stop
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

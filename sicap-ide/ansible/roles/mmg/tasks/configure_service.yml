@@ -1,0 +1,29 @@
+---
+# MMG Service Configuration Tasks
+
+- name: Start and enable MMG service
+  systemd:
+    name: "{{ mmg_service_name }}"
+    state: started
+    enabled: yes
+  tags: [mmg, service, start]
+
+- name: Wait for MMG to be ready
+  wait_for:
+    port: "{{ mmg_config.http_port }}"
+    host: "{{ ansible_host }}"
+    delay: 10
+    timeout: 120
+  tags: [mmg, service, wait]
+
+- name: Display MMG status
+  debug:
+    msg:
+      - "MMG is running on {{ ansible_host }}:{{ mmg_config.http_port }}"
+      - "Node ID: {{ mmg_config.node_id }}"
+      - "Database: {{ mmg_config.database.host }}:{{ mmg_config.database.port }}/{{ mmg_config.database.name }}"
+  tags: [mmg, service, info]
+
+
+
+

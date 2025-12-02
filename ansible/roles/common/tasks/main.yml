@@ -1,0 +1,17 @@
+---
+# Common Role Main Tasks
+# Preflight checks and system preparation
+
+- name: Include preflight checks
+  include_tasks: preflight.yml
+  tags: [common, preflight]
+
+- name: Include system preparation
+  include_tasks: system_prep.yml
+  tags: [common, prep]
+
+# Package verification disabled for offline environment
+# - name: Include package verification
+#   include_tasks: package_verification.yml
+#   when: package_verification.enabled | default(false)
+#   tags: [common, packages]

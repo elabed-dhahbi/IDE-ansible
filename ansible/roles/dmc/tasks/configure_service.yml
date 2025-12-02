@@ -1,0 +1,115 @@
+---
+# DMC Service Configuration Tasks
+
+- name: Install ksh (required for ctl script)
+  yum:
+    name: ksh
+    state: present
+  become: yes
+  tags: [dmc, service, packages]
+
+- name: Update DMC systemd service file
+  copy:
+    content: |
+      [Unit]
+      Description=dmc
+      After=syslog.target
+      After=network.target
+
+      [Service]
+      Type=forking
+      Restart=on-failure
+      PIDFile=/var/run/dmc.pid
+      KillMode=control-group
+      ExecStart=/etc/init.d/dmc start
+      ExecStartPost=/bin/sh -c 'umask 022; pgrep -G dmc java > /var/run/dmc.pid'
+      ExecStop=/etc/init.d/dmc stop
+      RestartSec=10s
+      User=root
+      Group=root
+
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/dmc.service
+    owner: root
+    group: root
+    mode: '0644'
+  become: yes
+  tags: [dmc, service, systemd]
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+  become: yes
+  tags: [dmc, service, systemd]
+
+- name: Enable DMC systemd service
+  systemd:
+    name: dmc
+    enabled: yes
+    state: started
+  become: yes
+  tags: [dmc, service, systemd]
+
+- name: Start DMC service using ctl
+  shell: |
+    su - {{ dmc_user }} -c "source {{ dmc_home }}/.profile && cd {{ dmc_current_dir }} && ctl start all"
+  become: yes
+  tags: [dmc, service, start]
+
+- name: Check if DMC service is running
+  shell: |
+    su - {{ dmc_user }} -c "source {{ dmc_home }}/.profile && cd {{ dmc_current_dir }} && ctl status all"
+  become: yes
+  register: dmc_status_check
+  tags: [dmc, service, status]
+
+- name: Display DMC service status
+  debug:
+    msg: "{{ dmc_status_check.stdout_lines }}"
+  tags: [dmc, service, status]
+
+- name: Wait for DMC to be ready
+  wait_for:
+    port: "{{ dmc_http_port }}"
+    host: "{{ ansible_host }}"
+    delay: 30
+    timeout: 300
+  tags: [dmc, service, wait]
+
+- name: Check DMC logs for errors
+  shell: |
+    su - {{ dmc_user }} -c "source {{ dmc_home }}/.profile && cd {{ dmc_current_dir }} && ctl status all"
+  register: dmc_logs
+  become: yes
+  tags: [dmc, service, debug]
+
+- name: Display DMC logs
+  debug:
+    msg: "{{ dmc_logs.stdout_lines }}"
+  tags: [dmc, service, debug]
+
+- name: Test DMC HTTP endpoint
+  uri:
+    url: "http://{{ ansible_host }}:{{ dmc_http_port }}/"
+    method: GET
+    status_code: 200
+  register: dmc_http_test
+  tags: [dmc, service, test]
+
+- name: Display DMC HTTP test result
+  debug:
+    msg: "DMC HTTP endpoint test: {{ 'PASSED' if dmc_http_test.status == 200 else 'FAILED' }}"
+  tags: [dmc, service, test]
+
+- name: Display DMC service information
+  debug:
+    msg:
+      - "DMC is running on {{ ansible_host }}:{{ dmc_http_port }}"
+      - "Node ID: {{ dmc_node_id }}"
+      - "Database: {{ dmc_database_host }}:{{ dmc_database_port }}/{{ dmc_database_name }}"
+      - "Provider ID: {{ actual_provider_id | default(dmc_provider_id) }}"
+  tags: [dmc, service, info]
+
+
+

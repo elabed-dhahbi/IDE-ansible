@@ -1,0 +1,27 @@
+---
+# Logstash Main Tasks
+# Installs and configures Logstash for DMC log processing
+
+- name: Include Logstash installation tasks
+  include_tasks: install_logstash.yml
+  tags: [logstash, install]
+
+- name: Include Logstash user configuration tasks
+  include_tasks: configure_user.yml
+  tags: [logstash, user]
+
+- name: Include Logstash directory configuration tasks
+  include_tasks: configure_directories.yml
+  tags: [logstash, directories]
+
+- name: Include Logstash main configuration tasks
+  include_tasks: configure_logstash.yml
+  tags: [logstash, config]
+
+- name: Include Logstash plugin installation tasks
+  include_tasks: install_plugins.yml
+  tags: [logstash, plugins]
+
+- name: Include Logstash service configuration tasks
+  include_tasks: configure_service.yml
+  tags: [logstash, service]

@@ -1,0 +1,28 @@
+---
+# MMG Installation and Configuration
+
+- name: Include MMG installation tasks
+  include_tasks: install_mmg.yml
+  tags: [mmg, install]
+
+# User configuration - need to set password
+- name: Include MMG user configuration tasks
+  include_tasks: configure_user.yml
+  tags: [mmg, user]
+
+# Directory configuration is handled by RPM package
+# - name: Include MMG directory setup tasks
+#   include_tasks: configure_directories.yml
+#   tags: [mmg, directories]
+
+- name: Include MMG configuration tasks
+  include_tasks: configure_mmg.yml
+  tags: [mmg, config]
+
+- name: Include MMG service configuration tasks
+  include_tasks: configure_service.yml
+  tags: [mmg, service]
+
+
+
+

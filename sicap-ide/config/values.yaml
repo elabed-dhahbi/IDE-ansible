@@ -1,0 +1,331 @@
+# DMC4.6.18 Configuration Values
+# Copy this file to values.yaml and customize for your environment
+
+# Directory paths for offline packages and installations
+paths:
+  offline_dir: /tmp/offline  # Base directory containing offline RPM packages
+
+  # PostgreSQL directories (production-ready configuration)
+  postgres_data_dir: /data/pgsql  # PostgreSQL data directory (default: /var/lib/pgsql)
+  postgres_home_dir: /home/postgres  # PostgreSQL user home directory (default: /var/lib/pgsql)
+  postgres_tablespaces_dir: /data/postgres  # Directory for PostgreSQL tablespaces
+
+# System configuration flags
+flags:
+  selinux: permissive          # SELinux mode: enforcing|permissive|disabled
+  firewalld: disabled          # Firewall service: enabled|disabled
+  es_single_node: true         # Elasticsearch single node mode
+  dmc_hugepages_enabled: true  # Enable hugepages for DMC
+  dmc_hugepages_pages: 5120    # Number of hugepages (5120 = ~10GB)
+
+# Service passwords
+service_passwords:
+  postgres: "postgres"         # PostgreSQL postgres user password
+  elasticsearch: "elastic"     # Elasticsearch elastic user password
+  opensearch: "Ops@#s1cap#"    # OpenSearch admin password
+  sls: "sls"                   # SLS user password
+
+# Database configuration - centralized for all roles
+database_config:
+  # Main DMC database
+  dmc_database: "dmc46"
+  dmc_schema: "dmc4"
+  dmc_user: "dmc4"
+  dmc_password: "dmc4"
+  # DMC tablespace configuration
+  tablespace_data: "dmc4tab"
+  tablespace_index: "dmc4idx"
+  tablespace_lob: "dmc4tab"
+  
+  # MDBA schema for ELK statistics
+  mdba_schema: "mdba"
+  mdba_user: "mdba"
+  mdba_password: "mdba"
+  
+  # MMG database
+  mmg_database: "mmg"
+  mmg_schema: "mmg"
+  mmg_user: "mmg"
+  mmg_password: "mmg"
+  
+  # Database connection settings
+  postgres_port: 5432
+  postgres_admin_user: "postgres"
+  postgres_admin_password: "postgres"
+
+# PostgreSQL configuration for db_postgres role
+postgresql_config:
+  data_directory: "{{ paths.postgres_data_dir }}/{{ versions.postgres }}/data"
+  home_directory: "{{ paths.postgres_home_dir }}"
+  service_name: "postgresql-{{ versions.postgres }}"
+  systemd_service_file: "/usr/lib/systemd/system/postgresql-{{ versions.postgres }}.service"
+  databases:
+    dmc46:
+      name: "dmc46"
+      owner: "dmc4"
+      schema: "dmc4"
+      tablespaces:
+        data: "dmc4tab"
+        index: "dmc4idx"
+    mmg:
+      name: "mmg"
+      owner: "mmg"
+      schema: "mmg"
+      tablespaces:
+        data: "mmg_data"
+        index: "mmg_index"
+  users:
+    dmc4:
+      name: "dmc4"
+      password: "dmc4"
+    mmg:
+      name: "mmg"
+      password: "mmg"
+    mdba:
+      name: "mdba"
+      password: "mdba"
+      schema: "mdba"
+      tablespaces:
+        data: "mdba_data"
+        index: "mdba_index"
+
+# Installation paths
+install_paths:
+  postgres_tablespaces_base: "{{ paths.postgres_tablespaces_dir }}"
+
+# Service ports
+service_ports:
+  postgres: 5432
+  elasticsearch: 9200
+  kibana: 5601
+
+# Customer configuration
+customer_name: "sicapdmc46"    # Customer name for log processing
+
+# iOS Enabler configuration
+ios_enabler:
+  enabled: false  # Set to true to enable iOS enabler configuration
+  public_ip: "YOUR_PUBLIC_IP_HERE"  # Replace with your actual public IP address
+  local_ip: "{{ ansible_host }}"  # Will be overridden in DMC defaults based on group
+  mmg_host: "{{ hostvars[groups['mmg'][0]]['ansible_host'] if groups['mmg'] is defined and groups['mmg'] | length > 0 else 'localhost' }}"
+  mmg_port: 50434
+  mmg_username: "dmc"
+  mmg_password: "ZG1j"  # Base64 encoded 'dmc'
+  node_id_dmc1: "iosenabler01"
+  node_id_dmc2: "iosenabler02"
+  connector_port: 50452
+  scep_port: 50455
+  challenge_port: 50400
+
+# Component versions - update these as needed
+versions:
+  dmc: "4.6.33"
+  mmg: "4.6.21"
+  mmsoap: "5.6.1"
+  smppc: "5.4.9"
+  sls: "2.0.3"
+  drs: "1.7.0"
+  postgres: "15"
+  elasticsearch: "7.17.25"
+  kibana: "7.17.25"
+  logstash: "7.17.25"
+  logstash_oss: "8.19.4"
+  opensearch: "3.2.0"
+  jdk8: "8u412"
+
+# DMC Java memory configuration
+dmc_java:
+  xms: "8192m"           # Initial heap size
+  xmx: "8192m"           # Maximum heap size
+  perm_size: "512m"      # Initial permanent generation size
+  max_perm_size: "512m"  # Maximum permanent generation size
+
+# Package glob patterns for offline installation
+# These patterns are resolved under paths.offline_dir
+package_globs:
+  # PostgreSQL repository
+  pgdg_repo_rpm: "pgdg-redhat-repo-latest.noarch.rpm"
+  
+  # SCP (Sicap) application packages
+  dmc_rpm: "SCPdmc-{{ versions.dmc }}.tar.gz"
+  mmg_rpm: "SCPmmg-{{ versions.mmg }}*.rpm"
+  mmsoap_rpm: "SCPmmsoap-{{ versions.mmsoap }}*.rpm"
+  smppc_rpm: "SCPsmppc-{{ versions.smppc }}*.rpm"
+  sls_rpm: "SCPsls-{{ versions.sls }}*.tar.gz"
+  drs_rpm: "SCPdrs-{{ versions.drs }}*.rpm"
+
+  # Third-party application packages
+  es_rpm: "elasticsearch-{{ versions.elasticsearch }}*.rpm"
+  kibana_rpm: "kibana-{{ versions.kibana }}*.rpm"
+  logstash_rpm: "logstash-{{ versions.logstash }}*.rpm"
+  logstash_oss_rpm: "logstash-oss-{{ versions.logstash_oss }}-x86_64.rpm"
+  logstash_filter_rest: "logstash-filter-rest-*.zip"
+  opensearch_rpm: "opensearch-{{ versions.opensearch }}*.rpm"
+  opensearch_dashboards_rpm: "opensearch-dashboards-{{ versions.opensearch }}*.rpm"
+  pgdg_repo_rpm: "pgdg-redhat-repo-latest.noarch.rpm"
+  jdk8_tgz: "openlogic-openjdk-{{ versions.jdk8 }}*linux*.tar.gz"
+  jdk8_32bit: "openlogic-openjdk-{{ versions.jdk8 }}*linux*.tar.gz"
+  jdk8_64bit: "1_8_0_92-jdk.tar.gz"
+
+# Zabbix configuration
+zabbix:
+  version: "7.4.2"
+  components:
+    server: true
+    agent2: true
+    java_gateway: true
+    web: true
+  
+  # User and group configuration
+  user: "zabbix"
+  group: "zabbix"
+  web_user: "apache"
+  web_group: "apache"
+  
+  # Directory paths
+  install_dir: "/usr/share/zabbix"
+  conf_dir: "/etc/zabbix"
+  log_dir: "/var/log/zabbix"
+  run_dir: "/run/zabbix"
+  web_dir: "/usr/share/zabbix"
+  
+  # Service names
+  services:
+    server: "zabbix-server"
+    agent: "zabbix-agent"
+    agent2: "zabbix-agent2"
+    java_gateway: "zabbix-java-gateway"
+    httpd: "httpd"
+    php_fpm: "php-fpm"
+  
+  # Only tunable configuration - everything else derived from inventory
+  server:
+    # Performance tuning
+    start_java_pollers: 25
+    timeout: 4
+    log_slow_queries: 3000
+    stats_allowed_ip: "127.0.0.1"
+    enable_global_scripts: 0
+  
+  web:
+    # PHP tuning
+    php_timezone: "Europe/Berlin"
+    php_max_execution_time: 300
+    php_memory_limit: "128M"
+    php_post_max_size: "16M"
+    php_upload_max_filesize: "2M"
+    php_max_input_time: 300
+    php_always_populate_raw_post_data: -1
+  
+  # Java Gateway configuration
+  java_gateway:
+    start_pollers: 5
+    timeout: 3
+    listen_port: 10052
+    pid_file: "/var/run/zabbix/zabbix_java_gateway.pid"
+  
+  # SELinux configuration
+  selinux:
+    enabled: true
+    policy_package: "zabbix-selinux-policy-7.4.3-release1.el9.x86_64.rpm"
+  
+  # Package configuration
+  packages:
+    server:
+      - "zabbix-server-pgsql-7.4.3-release1.el9.x86_64.rpm"
+      - "zabbix-sql-scripts-7.4.3-release1.el9.noarch.rpm"
+      - "zabbix-selinux-policy-7.4.3-release1.el9.x86_64.rpm"
+    agent:
+      - "zabbix-agent2-7.4.3-release1.el9.x86_64.rpm"
+    agent2:
+      - "zabbix-agent2-7.4.3-release1.el9.x86_64.rpm"
+      - "zabbix-agent2-plugin-postgresql-7.4.3-release1.el9.x86_64.rpm"
+      - "zabbix-agent2-plugin-mongodb-7.4.3-release1.el9.x86_64.rpm"
+      - "zabbix-agent2-plugin-mssql-7.4.3-release1.el9.x86_64.rpm"
+    java_gateway:
+      - "zabbix-java-gateway"
+    web:
+      - "zabbix-web-7.4.3-release1.el9.noarch.rpm"
+      - "zabbix-web-deps-7.4.3-release1.el9.noarch.rpm"
+      - "zabbix-web-pgsql-7.4.3-release1.el9.noarch.rpm"
+      - "zabbix-apache-conf-7.4.3-release1.el9.noarch.rpm"
+    dependencies:
+      - "httpd-2.4.62-4.el9_6.4.x86_64.rpm"
+      - "httpd-core-2.4.62-4.el9_6.4.x86_64.rpm"
+      - "java-17-openjdk-headless-17.0.16.0.8-2.el9.x86_64.rpm"
+      - "tzdata-java-2025b-1.el9.noarch.rpm"
+      - "httpd-tools-2.4.62-4.el9_6.4.x86_64.rpm"
+      - "httpd-filesystem-2.4.62-4.el9_6.4.noarch.rpm"
+      - "mod_http2-2.0.26-4.el9_6.1.x86_64.rpm"
+      - "mod_lua-2.4.62-4.el9_6.4.x86_64.rpm"
+      - "php-fpm-8.0.30-3.el9_6.x86_64.rpm"
+      - "php-common-8.0.30-3.el9_6.x86_64.rpm"
+      - "php-bcmath-8.0.30-3.el9_6.x86_64.rpm"
+      - "php-gd-8.0.30-3.el9_6.x86_64.rpm"
+      - "php-ldap-8.0.30-3.el9_6.x86_64.rpm"
+      - "php-mbstring-8.0.30-3.el9_6.x86_64.rpm"
+      - "php-mysqlnd-8.0.30-3.el9_6.x86_64.rpm"
+      - "php-pdo-8.0.30-3.el9_6.x86_64.rpm"
+      - "php-pgsql-8.0.30-3.el9_6.x86_64.rpm"
+      - "php-xml-8.0.30-3.el9_6.x86_64.rpm"
+      - "js-jquery-3.6.0-1.el9.noarch.rpm"
+      - "rocky-logos-httpd-90.16-1.el9.noarch.rpm"
+      - "web-assets-filesystem-5-15.el9.noarch.rpm"
+      - "apr-1.7.0-12.el9_3.x86_64.rpm"
+      - "apr-util-1.6.1-23.el9.x86_64.rpm"
+      - "apr-util-bdb-1.6.1-23.el9.x86_64.rpm"
+      - "apr-util-openssl-1.6.1-23.el9.x86_64.rpm"
+      - "libssh2-1.11.0-1.el9.x86_64.rpm"
+      - "unixODBC-2.3.9-4.el9.x86_64.rpm"
+      - "net-snmp-libs-5.9.1-17.el9.x86_64.rpm"
+      - "OpenIPMI-libs-2.0.36-1.el9.x86_64.rpm"
+      - "fping-5.2-1.el9.x86_64.rpm"
+  
+  # Dependency installation order to handle circular dependencies
+  dependency_install_order:
+    - name: "PostgreSQL client library"
+      packages:
+        - "postgresql15-libs-15.8-1.el9_3.x86_64.rpm"
+    - name: "Base APR packages"
+      packages:
+        - "apr-1.7.0-12.el9_3.x86_64.rpm"
+        - "apr-util-1.6.1-23.el9.x86_64.rpm"
+        - "apr-util-bdb-1.6.1-23.el9.x86_64.rpm"
+        - "apr-util-openssl-1.6.1-23.el9.x86_64.rpm"
+    - name: "HTTPD packages"
+      packages:
+        - "httpd-core-2.4.62-4.el9_6.4.x86_64.rpm"
+        - "httpd-tools-2.4.62-4.el9_6.4.x86_64.rpm"
+        - "httpd-filesystem-2.4.62-4.el9_6.4.noarch.rpm"
+        - "httpd-2.4.62-4.el9_6.4.x86_64.rpm"
+    - name: "HTTPD modules"
+      packages:
+        - "mod_http2-2.0.26-4.el9_6.1.x86_64.rpm"
+        - "mod_lua-2.4.62-4.el9_6.4.x86_64.rpm"
+    - name: "PHP packages"
+      packages:
+        - "php-common-8.0.30-3.el9_6.x86_64.rpm"
+        - "php-bcmath-8.0.30-3.el9_6.x86_64.rpm"
+        - "php-gd-8.0.30-3.el9_6.x86_64.rpm"
+        - "php-ldap-8.0.30-3.el9_6.x86_64.rpm"
+        - "php-mbstring-8.0.30-3.el9_6.x86_64.rpm"
+        - "php-mysqlnd-8.0.30-3.el9_6.x86_64.rpm"
+        - "php-pdo-8.0.30-3.el9_6.x86_64.rpm"
+        - "php-pgsql-8.0.30-3.el9_6.x86_64.rpm"
+        - "php-xml-8.0.30-3.el9_6.x86_64.rpm"
+        - "php-fpm-8.0.30-3.el9_6.x86_64.rpm"
+    - name: "Java packages"
+      packages:
+        - "javapackages-filesystem-6.4.0-1.el9.noarch.rpm"
+        - "tzdata-java-2025b-1.el9.noarch.rpm"
+        - "java-17-openjdk-headless-17.0.16.0.8-2.el9.x86_64.rpm"
+    - name: "Other dependencies"
+      packages:
+        - "js-jquery-3.6.0-1.el9.noarch.rpm"
+        - "rocky-logos-httpd-90.16-1.el9.noarch.rpm"
+        - "web-assets-filesystem-5-15.el9.noarch.rpm"
+        - "libssh2-1.11.0-1.el9.x86_64.rpm"
+        - "unixODBC-2.3.9-4.el9.x86_64.rpm"
+        - "net-snmp-libs-5.9.1-17.el9.x86_64.rpm"
+        - "OpenIPMI-libs-2.0.36-1.el9.x86_64.rpm"
+        - "fping-5.2-1.el9.x86_64.rpm"

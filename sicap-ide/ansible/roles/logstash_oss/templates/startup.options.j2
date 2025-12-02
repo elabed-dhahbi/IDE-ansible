@@ -1,0 +1,40 @@
+# Logstash OSS startup options
+
+LS_HOME={{ logstash_oss_install_dir }}
+LS_SETTINGS_DIR={{ logstash_oss_config_dir }}
+LS_OPTS="--path.settings {{ logstash_oss_config_dir }}"
+LS_JAVA_OPTS="{{ logstash_oss_jvm.heap_size | replace('g', 'g') }}"
+LS_USER={{ logstash_oss_user }}
+LS_GROUP={{ logstash_oss_group }}
+LS_PIDFILE=/var/run/logstash-oss.pid
+LS_OPEN_FILES={{ logstash_oss_system.nofile_limit }}
+LS_NICE=19
+LS_OPTS="--path.settings {{ logstash_oss_config_dir }} --path.data={{ logstash_oss_data_dir }} --path.logs={{ logstash_oss_logs_dir }}"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

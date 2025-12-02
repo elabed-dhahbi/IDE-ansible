@@ -1,0 +1,31 @@
+---
+# SLS Main Tasks
+# Installs and configures SLS (Sicap Log Service) for DMC log processing
+
+- name: Include SLS system packages installation tasks
+  include_tasks: install_system_packages.yml
+  tags: [sls, install, packages]
+
+- name: Include SLS Java installation tasks
+  include_tasks: install_java.yml
+  tags: [sls, install, java]
+
+- name: Include SLS package installation tasks
+  include_tasks: install_sls.yml
+  tags: [sls, install, sls]
+
+- name: Include SLS user configuration tasks
+  include_tasks: configure_user.yml
+  tags: [sls, user]
+
+- name: Include SLS directory configuration tasks
+  include_tasks: configure_directories.yml
+  tags: [sls, directories]
+
+- name: Include SLS configuration tasks
+  include_tasks: configure_sls.yml
+  tags: [sls, config]
+
+- name: Include SLS service configuration tasks
+  include_tasks: configure_service.yml
+  tags: [sls, service]

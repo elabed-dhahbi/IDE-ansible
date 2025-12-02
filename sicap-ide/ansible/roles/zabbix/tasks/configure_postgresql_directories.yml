@@ -1,0 +1,25 @@
+---
+# PostgreSQL Directory Configuration Tasks for Zabbix
+# Creates production-ready custom directories for data and home
+
+- name: Create PostgreSQL data directory structure
+  file:
+    path: "{{ paths.postgres_data_dir }}/{{ versions.postgres }}/data"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0700'
+  become: yes
+  tags: [postgres, directories, data]
+
+- name: Create PostgreSQL home directory
+  file:
+    path: "{{ paths.postgres_home_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0755'
+  become: yes
+  tags: [postgres, directories, home]
+
+

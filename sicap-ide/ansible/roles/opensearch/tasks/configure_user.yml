@@ -1,0 +1,133 @@
+---
+# OpenSearch User Configuration Tasks
+
+- name: Update OpenSearch user home directory and shell in /etc/passwd
+  lineinfile:
+    path: /etc/passwd
+    regexp: '^opensearch:'
+    line: "opensearch:x:983:983:opensearch user/group:/opt/opensearch:/bin/bash"
+    backup: yes
+  become: yes
+  tags: [opensearch, user, passwd]
+
+- name: Create OpenSearch home directory
+  file:
+    path: /opt/opensearch
+    state: directory
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    mode: '0755'
+  become: yes
+  tags: [opensearch, user, home]
+
+- name: Create OpenSearch .bash_profile
+  copy:
+    content: |
+      # .bash_profile
+      
+      # Get the aliases and functions
+      if [ -f ~/.bashrc ]; then
+              . ~/.bashrc
+      fi
+      
+      # User specific environment and startup programs
+      
+      if [ -f ~/.bash_ops ]; then
+              . ~/.bash_ops
+      fi
+    dest: "/opt/opensearch/.bash_profile"
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    mode: '0644'
+  become: yes
+  tags: [opensearch, user, profile]
+
+- name: Create OpenSearch .bashrc
+  copy:
+    content: |
+      # .bashrc
+      
+      # Source global definitions
+      if [ -f /etc/bashrc ]; then
+              . /etc/bashrc
+      fi
+      
+      # User specific environment
+      PATH="/usr/share/opensearch/jdk/bin:$/usr/share/opensearch/lib;$HOME/.local/bin:$HOME/bin:$PATH"
+      export PATH
+      
+      JAVA_HOME="/usr/share/opensearch/jdk"
+      export JAVA_HOME
+    dest: "/opt/opensearch/.bashrc"
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    mode: '0644'
+  become: yes
+  tags: [opensearch, user, bashrc]
+
+- name: Create OpenSearch .bash_ops
+  copy:
+    content: |
+      # .bash_ops
+      
+      ############ COLOR ############
+      export GREEN='\033[0;32m'
+      export LGREEN='\033[1;32m'
+      export LBLUE='\033[1;34m'
+      export LCYAN='\033[1;36m'
+      export LPURPLE='\033[1;35m'
+      export NC='\033[0m' # No color
+      ###############################
+      
+      export OPS_HOME=/usr/share/opensearch
+      export LOG_BASE=/var/opt/opensearch/logs
+      export CONF=/etc/opensearch
+      export DATA=/var/opt/opensearch/data
+      export OPENSEARCH_INITIAL_ADMIN_PASSWORD={{ opensearch_config.admin_password }}
+      export OPENSEARCH_JAVA_HOME=/usr/share/opensearch/jdk
+      
+      # env details
+      echo -e " "
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      echo -e " ${LCYAN}Opensearch environment variables${NC}"
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      echo -e " \$HOME directory       :   $HOME"
+      echo -e " \$OPS_HOME directory    :   $OPS_HOME"
+      echo -e " \$LOG_BASE directory   :   $LOG_BASE"
+      echo -e " \$CONF directory       :   $CONF"
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      echo -e " ${LCYAN}COMMANDS${NC}"
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      echo -e " START:   ${LPURPLE}sudo systemctl start opensearch.service ${NC}"
+      echo -e " STOP:    ${LPURPLE}sudo systemctl stop opensearch.service ${NC}"
+      echo -e " RESTART: ${LPURPLE}sudo systemctl restart opensearch.service ${NC}"
+      echo -e " STATUS:  ${LPURPLE}sudo systemctl status opensearch.service ${NC}"
+      echo -e " "
+      echo -e " CHECK OPS:"
+      echo -e " ${LPURPLE}curl -u admin:{{ opensearch_config.admin_password }} -X GET \"{{ ansible_host }}:{{ opensearch_config.http_port }}\" ${NC}"
+      echo -e " Show the nodes are up and running:"
+      echo -e " ${LPURPLE}curl -u admin:{{ opensearch_config.admin_password }} -X GET \"{{ ansible_host }}:{{ opensearch_config.http_port }}/_cat/nodes?v&pretty\" ${NC}"
+      echo -e " Show the indices status:"
+      echo -e " ${LPURPLE}curl -u admin:{{ opensearch_config.admin_password }} -X GET \"{{ ansible_host }}:{{ opensearch_config.http_port }}/_cat/indices?v&pretty\" ${NC}"
+      echo -e " Show the ops cluster status:"
+      echo -e " ${LPURPLE}curl -u admin:{{ opensearch_config.admin_password }} -X GET \"{{ ansible_host }}:{{ opensearch_config.http_port }}/_cluster/health?pretty\" ${NC}"
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      echo -e " "
+    dest: "/opt/opensearch/.bash_ops"
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    mode: '0644'
+  become: yes
+  tags: [opensearch, user, bash_ops]
+
+- name: Add OpenSearch user to wheel group
+  user:
+    name: "{{ opensearch_user }}"
+    groups: wheel
+    append: yes
+  become: yes
+  tags: [opensearch, user, groups]
+
+
+
+

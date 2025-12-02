@@ -1,0 +1,55 @@
+---
+# Kibana Service Configuration Tasks
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+  become: yes
+  tags: [kibana, service, systemd]
+
+- name: Start and enable Kibana service
+  systemd:
+    name: "{{ kibana_service_name }}"
+    state: started
+    enabled: yes
+  become: yes
+  tags: [kibana, service]
+
+- name: Restart Kibana service to apply configuration changes
+  systemd:
+    name: "{{ kibana_service_name }}"
+    state: restarted
+  become: yes
+  tags: [kibana, service, restart]
+
+- name: Wait for Kibana to be ready after restart
+  wait_for:
+    port: "{{ service_ports.kibana }}"
+    host: "{{ ansible_host }}"
+    delay: 10
+    timeout: 120
+  tags: [kibana, service, wait]
+
+- name: Check Kibana service status
+  systemd:
+    name: "{{ kibana_service_name }}"
+  register: kibana_status
+  become: yes
+  tags: [kibana, service, status]
+
+- name: Display Kibana service status
+  debug:
+    msg: "Kibana service is {{ kibana_status.status.ActiveState }}"
+  tags: [kibana, service, status]
+
+- name: Check Kibana logs for errors
+  shell: |
+    journalctl -u {{ kibana_service_name }} --no-pager -n 20
+  register: kibana_logs
+  become: yes
+  tags: [kibana, service, debug]
+
+- name: Display Kibana logs
+  debug:
+    msg: "{{ kibana_logs.stdout_lines }}"
+  tags: [kibana, service, debug]

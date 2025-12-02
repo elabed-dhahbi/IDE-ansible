@@ -1,0 +1,77 @@
+---
+# Logstash Configuration Defaults
+
+# Stack type (set by Makefile)
+stack_type: "{{ stack_type | default('elk') }}"
+
+# Logstash version
+logstash_version: "{{ versions.logstash }}"
+
+# Service configuration
+logstash_service_name: "logstash"
+logstash_user: "logstash"
+logstash_group: "logstash"
+
+# Directory paths
+logstash_install_dir: "/usr/share/logstash"
+logstash_config_dir: "/etc/logstash"
+logstash_home: "/opt/logstash"
+logstash_data_dir: "/var/opt/logstash/data"
+logstash_logs_dir: "/var/opt/logstash/logs"
+logstash_patterns_dir: "/opt/logstash/patterns"
+
+# Logstash configuration
+logstash_config:
+  # Input configuration
+  tcp_port: 5000
+  beats_port: 5044
+  
+  # DMC log paths
+  dmc_log_base_path: "/var/opt/dmc/current/log/DMC-BusinessLog"
+  csv_export_path: "/var/opt/elkstatistics/csvexport/logstash"
+  
+  # DRS configuration
+  drs_host: "{{ groups['drs'] | first | default('localhost') }}"
+  drs_port: "8080"
+  drs_base_url: "http://{{ groups['drs'] | first | default('localhost') }}:8080/drs"
+  
+  # Stack-specific configuration
+  elasticsearch_hosts: "{{ groups['elasticsearch'] | map('extract', hostvars, 'ansible_host') | map('regex_replace', '^(.*)$', 'http://\\1:9200') | list }}"
+  elasticsearch_user: "elastic"
+  elasticsearch_password: "{{ system_config.service_passwords.elasticsearch | default('elastic') }}"
+  
+  opensearch_hosts: "{{ groups['opensearch'] | map('extract', hostvars, 'ansible_host') | map('regex_replace', '^(.*)$', 'http://\\1:9200') | list }}"
+  opensearch_user: "admin"
+  opensearch_password: "{{ system_config.service_passwords.opensearch | default('Ops@#s1cap#') }}"
+  
+  # Customer configuration
+  customer_name: "{{ system_config.customer_name | default('sicapdmc46') }}"
+  
+  # Index configuration
+  dmc_index_name: "dmc-logs"
+  csv_index_name: "csvexport"
+  
+  # ILM configuration
+  dmc_ilm_alias: "dmc-logs"
+  dmc_ilm_pattern: "{now/d}-000001"
+  dmc_ilm_policy: "dmc-logs_history"
+  
+  csv_ilm_alias: "csvexport"
+  csv_ilm_pattern: "{now/d}-000001"
+  csv_ilm_policy: "csvexport_history"
+
+# JVM configuration
+logstash_jvm:
+  heap_size: "1g"
+  heap_dump_path: "/var/opt/logstash/data"
+
+# System configuration
+logstash_system:
+  memory_lock: true
+  nofile_limit: 65535
+  memlock_limit: "infinity"
+
+# Package configuration
+package_globs:
+  logstash_rpm: "logstash-{{ versions.logstash }}*.rpm"
+  logstash_filter_rest: "logstash-filter-rest-*.zip"

@@ -1,0 +1,50 @@
+---
+# Install Logstash OSS
+
+- name: Check if Logstash OSS is already installed
+  command: rpm -q logstash-oss
+  register: logstash_oss_installed
+  failed_when: false
+  changed_when: false
+
+- name: Find Logstash OSS RPM package
+  find:
+    paths:
+      - "{{ paths.offline_dir | default('/tmp/offline') }}"
+    patterns:
+      - "{{ package_globs.logstash_oss_rpm }}"
+  register: logstash_oss_rpm_files
+
+- name: Fail if Logstash OSS RPM not found
+  fail:
+    msg: "Logstash OSS RPM package not found. Expected pattern: {{ package_globs.logstash_oss_rpm }}"
+  when: logstash_oss_rpm_files.matched == 0
+
+- name: Install Logstash OSS RPM
+  yum:
+    name: "{{ logstash_oss_rpm_files.files[0].path }}"
+    state: present
+    disable_gpg_check: true
+  become: true
+  when: logstash_oss_installed.rc != 0
+
+- name: Verify Logstash OSS installation
+  command: rpm -q logstash-oss
+  register: logstash_oss_version_check
+  become: true
+  changed_when: false
+
+- name: Display Logstash OSS version
+  debug:
+    msg: "Logstash OSS version: {{ logstash_oss_version_check.stdout }}"
+
+- name: Check what was actually installed
+  find:
+    paths: "{{ logstash_oss_install_dir }}"
+    file_type: any
+  register: installed_files
+  become: true
+
+- name: Display installed files
+  debug:
+    msg: "Installed files in {{ logstash_oss_install_dir }}: {{ installed_files.files | map(attribute='path') | list }}"

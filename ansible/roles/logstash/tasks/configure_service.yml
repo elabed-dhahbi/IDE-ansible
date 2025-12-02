@@ -1,0 +1,36 @@
+---
+# Logstash Service Configuration Tasks
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+  become: yes
+  tags: [logstash, service, systemd]
+
+- name: Start and enable Logstash service
+  systemd:
+    name: "{{ logstash_service_name }}"
+    state: started
+    enabled: yes
+  become: yes
+  tags: [logstash, service]
+
+- name: Wait for Logstash to be ready
+  wait_for:
+    port: 9600
+    host: "{{ ansible_host }}"
+    delay: 10
+    timeout: 120
+  tags: [logstash, service, wait]
+
+- name: Check Logstash service status
+  systemd:
+    name: "{{ logstash_service_name }}"
+  register: logstash_status
+  become: yes
+  tags: [logstash, service, status]
+
+- name: Display Logstash service status
+  debug:
+    msg: "Logstash service is {{ logstash_status.status.ActiveState }}"
+  tags: [logstash, service, status]

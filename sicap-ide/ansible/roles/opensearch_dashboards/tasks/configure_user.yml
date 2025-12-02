@@ -1,0 +1,129 @@
+---
+# OpenSearch Dashboards User Configuration Tasks
+
+- name: Update OpenSearch Dashboards user shell in /etc/passwd
+  lineinfile:
+    path: /etc/passwd
+    regexp: '^opensearch-dashboards:'
+    line: "opensearch-dashboards:x:987:987:opensearch-dashboards user/group:/opt/opensearch-dashboards:/bin/bash"
+    backup: yes
+  become: yes
+  tags: [opensearch_dashboards, user, passwd]
+
+- name: Create OpenSearch Dashboards home directory
+  file:
+    path: /opt/opensearch-dashboards
+    state: directory
+    owner: "{{ dashboards_user }}"
+    group: "{{ dashboards_group }}"
+    mode: '0755'
+  become: yes
+  tags: [opensearch_dashboards, user, home]
+
+- name: Create OpenSearch Dashboards .bash_profile
+  copy:
+    content: |
+      # .bash_profile
+      
+      # Get the aliases and functions
+      if [ -f ~/.bashrc ]; then
+              . ~/.bashrc
+      fi
+      
+      # User specific environment and startup programs
+      
+      if [ -f ~/.bash_ops ]; then
+              . ~/.bash_ops
+      fi
+    dest: "/opt/opensearch-dashboards/.bash_profile"
+    owner: "{{ dashboards_user }}"
+    group: "{{ dashboards_group }}"
+    mode: '0644'
+  become: yes
+  tags: [opensearch_dashboards, user, profile]
+
+- name: Create OpenSearch Dashboards .bashrc
+  copy:
+    content: |
+      # .bashrc
+      
+      # Source global definitions
+      if [ -f /etc/bashrc ]; then
+              . /etc/bashrc
+      fi
+      
+      # User specific environment
+      PATH="/usr/share/opensearch-dashboards/bin:$HOME/.local/bin:$HOME/bin:$PATH"
+      export PATH
+      
+      # OpenSearch Dashboards specific environment
+      export OPENSEARCH_DASHBOARDS_HOME="/usr/share/opensearch-dashboards"
+    dest: "/opt/opensearch-dashboards/.bashrc"
+    owner: "{{ dashboards_user }}"
+    group: "{{ dashboards_group }}"
+    mode: '0644'
+  become: yes
+  tags: [opensearch_dashboards, user, bashrc]
+
+- name: Create OpenSearch Dashboards .bash_ops
+  copy:
+    content: |
+      # .bash_ops
+      
+      ############ COLOR ############
+      export GREEN='\033[0;32m'
+      export LGREEN='\033[1;32m'
+      export LBLUE='\033[1;34m'
+      export LCYAN='\033[1;36m'
+      export LPURPLE='\033[1;35m'
+      export NC='\033[0m' # No color
+      ###############################
+      
+      export DASHBOARDS_HOME=/usr/share/opensearch-dashboards
+      export LOG_BASE=/var/opt/opensearch-dashboards/logs
+      export CONF=/etc/opensearch-dashboards
+      export DATA=/var/opt/opensearch-dashboards/data
+      export OPENSEARCH_HOSTS={{ dashboards_config.opensearch_hosts }}
+      export OPENSEARCH_USERNAME={{ dashboards_config.opensearch_username }}
+      export OPENSEARCH_PASSWORD={{ dashboards_config.opensearch_password }}
+      
+      # env details
+      echo -e " "
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      echo -e " ${LCYAN}OpenSearch Dashboards environment variables${NC}"
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      echo -e " \$HOME directory       :   $HOME"
+      echo -e " \$DASHBOARDS_HOME directory :   $DASHBOARDS_HOME"
+      echo -e " \$LOG_BASE directory   :   $LOG_BASE"
+      echo -e " \$CONF directory       :   $CONF"
+      echo -e " \$DATA directory       :   $DATA"
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      echo -e " ${LCYAN}COMMANDS${NC}"
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      echo -e " START:   ${LPURPLE}sudo systemctl start opensearch-dashboards.service ${NC}"
+      echo -e " STOP:    ${LPURPLE}sudo systemctl stop opensearch-dashboards.service ${NC}"
+      echo -e " RESTART: ${LPURPLE}sudo systemctl restart opensearch-dashboards.service ${NC}"
+      echo -e " STATUS:  ${LPURPLE}sudo systemctl status opensearch-dashboards.service ${NC}"
+      echo -e " "
+      echo -e " CHECK DASHBOARDS:"
+      echo -e " ${LPURPLE}curl -X GET \"{{ ansible_host }}:{{ dashboards_config.server_port }}{{ dashboards_config.server_base_path }}\" ${NC}"
+      echo -e " Show the dashboards status:"
+      echo -e " ${LPURPLE}curl -X GET \"{{ ansible_host }}:{{ dashboards_config.server_port }}{{ dashboards_config.server_base_path }}/api/status\" ${NC}"
+      echo -e " Show the dashboards info:"
+      echo -e " ${LPURPLE}curl -X GET \"{{ ansible_host }}:{{ dashboards_config.server_port }}{{ dashboards_config.server_base_path }}/api/status\" ${NC}"
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      echo -e " "
+    dest: "/opt/opensearch-dashboards/.bash_ops"
+    owner: "{{ dashboards_user }}"
+    group: "{{ dashboards_group }}"
+    mode: '0644'
+  become: yes
+  tags: [opensearch_dashboards, user, bash_ops]
+
+- name: Add OpenSearch Dashboards user to wheel group
+  user:
+    name: "{{ dashboards_user }}"
+    groups: wheel
+    append: yes
+  become: yes
+  tags: [opensearch_dashboards, user, groups]

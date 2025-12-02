@@ -1,0 +1,64 @@
+---
+# OpenSearch Role Default Variables
+
+# OpenSearch version
+opensearch_version: "{{ versions.opensearch | default('3.2.0') }}"
+
+# Java configuration
+opensearch_java_home: "/usr/share/opensearch/jdk"
+
+# Service configuration
+opensearch_service_name: "opensearch"
+opensearch_user: "opensearch"
+opensearch_group: "opensearch"
+
+# Directory configuration
+opensearch_home: "/usr/share/opensearch"
+opensearch_config_dir: "/etc/opensearch"
+opensearch_data_dir: "/var/lib/opensearch"
+opensearch_logs_dir: "/var/log/opensearch"
+opensearch_backup_dir: "/var/opt/opensearch/ops_backup"
+
+# OpenSearch configuration
+opensearch_config:
+  cluster_name: "ops_dmc"
+  node_name: "{{ ansible_hostname }}"
+  network_host: "0.0.0.0"
+  http_port: "{{ service_ports.opensearch_http | default('9200') }}"
+  transport_port: "{{ service_ports.opensearch_transport | default('9300') }}"
+  discovery_type: "single-node"
+  bootstrap_memory_lock: true
+  path_data: "{{ opensearch_data_dir }}"
+  path_logs: "{{ opensearch_logs_dir }}"
+  path_repo: "{{ opensearch_backup_dir }}"
+  admin_password: "{{ service_passwords.opensearch }}"
+  # Performance optimizations
+  indices_memory_index_buffer_size: "20%"
+  indices_queries_cache_size: "10%"
+  indices_fielddata_cache_size: "20%"
+  # Cluster settings
+  cluster_routing_allocation_disk_threshold_enabled: true
+  cluster_routing_allocation_disk_watermark_low: "85%"
+  cluster_routing_allocation_disk_watermark_high: "90%"
+  cluster_routing_allocation_disk_watermark_flood_stage: "95%"
+
+# Security configuration
+opensearch_security:
+  enabled: true
+  ssl_http_enabled: false  # Disable for DMC compatibility
+  ssl_transport_enabled: false  # Disable for DMC compatibility
+  admin_password: "{{ service_passwords.opensearch }}"
+  # Additional security settings
+  internal_users_db_enabled: true
+  anonymous_auth_enabled: false
+  audit_enabled: false  # Disable for performance
+
+# System limits for OpenSearch (non-JVM settings)
+opensearch_limits:
+  max_file_descriptors: 65535
+  max_map_count: 262144
+
+# Note: opensearch_jvm.heap_size is defined in values.yaml
+
+# Package configuration
+opensearch_package: "{{ package_globs.opensearch_rpm }}"

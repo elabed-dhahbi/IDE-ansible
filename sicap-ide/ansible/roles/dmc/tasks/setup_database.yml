@@ -1,0 +1,127 @@
+---
+# DMC Database Setup Tasks
+
+- name: Install PostgreSQL client
+  yum:
+    name: postgresql15
+    state: present
+  become: yes
+  tags: [dmc, database, packages]
+
+- name: Copy DMC database scripts to temporary location
+  copy:
+    src: "{{ dmc_current_dir }}/db/install/"
+    dest: "/tmp/db/dmc/install/"
+    mode: '0755'
+    remote_src: yes
+  become: yes
+  tags: [dmc, database, scripts]
+
+- name: Copy DMC database migration scripts to temporary location
+  copy:
+    src: "{{ dmc_current_dir }}/db/migration/"
+    dest: "/tmp/db/dmc/migration/"
+    mode: '0755'
+    remote_src: yes
+  become: yes
+  tags: [dmc, database, scripts]
+
+- name: Install DMC DDL scripts
+  shell: |
+    PGPASSWORD="{{ dmc_database_password }}" psql -U "{{ dmc_database_user }}" -d "{{ dmc_database_name }}" -h "{{ dmc_database_host }}" -p "{{ dmc_database_port }}" \
+      -f "/tmp/db/dmc/install/DMC4_install_ddl_PostgreSQL.sql" \
+      -v tablespace_def_data="{{ dmc_database_tablespace_data }}" \
+      -v tablespace_def_index="{{ dmc_database_tablespace_index }}" \
+      -v tablespace_oth_data="{{ dmc_database_tablespace_data }}" \
+      -v tablespace_oth_index="{{ dmc_database_tablespace_index }}" \
+      -v tablespace_def_lob="{{ dmc_database_tablespace_lob }}"
+  become: yes
+  tags: [dmc, database, ddl]
+
+- name: Install DMC QRTZ scripts
+  shell: |
+    PGPASSWORD="{{ dmc_database_password }}" psql -U "{{ dmc_database_user }}" -d "{{ dmc_database_name }}" -h "{{ dmc_database_host }}" -p "{{ dmc_database_port }}" \
+      -f "/tmp/db/dmc/install/DMC4_install_qrtz_PostgreSQL.sql" \
+      -v tablespace_def_data="{{ dmc_database_tablespace_data }}" \
+      -v tablespace_def_index="{{ dmc_database_tablespace_index }}" \
+      -v tablespace_oth_data="{{ dmc_database_tablespace_data }}" \
+      -v tablespace_oth_index="{{ dmc_database_tablespace_index }}" \
+      -v tablespace_def_lob="{{ dmc_database_tablespace_lob }}"
+  become: yes
+  tags: [dmc, database, qrtz]
+
+- name: Install DMC DML scripts
+  shell: |
+    PGPASSWORD="{{ dmc_database_password }}" psql -U "{{ dmc_database_user }}" -d "{{ dmc_database_name }}" -h "{{ dmc_database_host }}" -p "{{ dmc_database_port }}" \
+      -f "/tmp/db/dmc/install/DMC4_install_dml_PostgreSQL.sql" \
+      -v tablespace_def_data="{{ dmc_database_tablespace_data }}" \
+      -v tablespace_def_index="{{ dmc_database_tablespace_index }}" \
+      -v tablespace_oth_data="{{ dmc_database_tablespace_data }}" \
+      -v tablespace_oth_index="{{ dmc_database_tablespace_index }}" \
+      -v tablespace_def_lob="{{ dmc_database_tablespace_lob }}"
+  become: yes
+  tags: [dmc, database, dml]
+
+- name: Install DMC migration scripts
+  shell: |
+    PGPASSWORD="{{ dmc_database_password }}" psql -U "{{ dmc_database_user }}" -d "{{ dmc_database_name }}" -h "{{ dmc_database_host }}" -p "{{ dmc_database_port }}" \
+      -f "/tmp/db/dmc/migration/DMC4.5.15_to_DMC4.5.16_migration_Roadmap_IPV6_PostgreSQL.sql" \
+      -v tablespace_def_data="{{ dmc_database_tablespace_data }}" \
+      -v tablespace_def_index="{{ dmc_database_tablespace_index }}" \
+      -v tablespace_oth_data="{{ dmc_database_tablespace_data }}" \
+      -v tablespace_oth_index="{{ dmc_database_tablespace_index }}" \
+      -v tablespace_def_lob="{{ dmc_database_tablespace_lob }}"
+  become: yes
+  tags: [dmc, database, migration]
+
+- name: Get provider ID from database
+  shell: |
+    PGPASSWORD="{{ dmc_database_password }}" psql -U "{{ dmc_database_user }}" -d "{{ dmc_database_name }}" -h "{{ dmc_database_host }}" -p "{{ dmc_database_port }}" \
+      -t -c "SELECT id FROM eu_provider WHERE name = '{{ dmc_provider_name }}';"
+  register: provider_id_result
+  become: yes
+  tags: [dmc, database, provider]
+
+- name: Set provider ID from database result
+  set_fact:
+    actual_provider_id: "{{ provider_id_result.stdout.strip() if provider_id_result.stdout.strip() else dmc_provider_id }}"
+  tags: [dmc, database, provider]
+
+- name: Display provider ID
+  debug:
+    msg: "Provider ID from database: {{ actual_provider_id }}"
+  tags: [dmc, database, provider]
+
+- name: Update cm-EndUser.properties with actual provider ID
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/cm-EndUser.properties"
+    regexp: 'dmc\.core\.enduser\.mobilehistory\.size\.provider\.\d+'
+    line: 'dmc.core.enduser.mobilehistory.size.provider.{{ actual_provider_id }}=10'
+    backup: yes
+  become: yes
+  tags: [dmc, database, provider]
+
+- name: Update rest-api.properties with actual provider ID
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/rest-api.properties"
+    regexp: 'cache\.providers\.list = \d+'
+    line: 'cache.providers.list = {{ actual_provider_id }}'
+    backup: yes
+  become: yes
+  tags: [dmc, database, provider]
+
+- name: Update cm-DMCDeployMode.properties with actual provider ID
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/cm-DMCDeployMode.properties"
+    regexp: 'deployedProviderId=\d+'
+    line: 'deployedProviderId={{ actual_provider_id }}'
+    backup: yes
+  become: yes
+  tags: [dmc, database, provider]
+
+- name: Clean up temporary database files
+  file:
+    path: "/tmp/db/dmc"
+    state: absent
+  become: yes
+  tags: [dmc, database, cleanup]

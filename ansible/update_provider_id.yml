@@ -1,0 +1,101 @@
+---
+# Update Provider ID Playbook
+# This playbook updates the provider ID in DMC configuration files after installation
+# Run with: make providerid
+
+- name: Update Provider ID in DMC Configuration
+  hosts: dmc1:dmc2
+  become: yes
+  gather_facts: no
+  
+  vars:
+    dmc_conf_dir: "/opt/dmc/current/conf"
+    dmc_service_name: "dmc"
+    
+  tasks:
+    - name: Query database for actual provider ID
+      postgresql_query:
+        db: "{{ dmc_database_name }}"
+        login_host: "{{ dmc_database_host }}"
+        login_port: "{{ dmc_database_port }}"
+        login_user: "{{ dmc_database_user }}"
+        login_password: "{{ dmc_database_password }}"
+        query: "SELECT id FROM eu_provider WHERE name = '{{ dmc_provider_name }}' ORDER BY id DESC LIMIT 1;"
+      register: provider_query_result
+      tags: [provider_id]
+
+    - name: Display provider query result
+      debug:
+        msg: "Provider query result: {{ provider_query_result.query_result }}"
+      tags: [provider_id]
+
+    - name: Check if provider exists
+      fail:
+        msg: "Provider '{{ dmc_provider_name }}' not found in database. Please create the provider via DMC web interface first."
+      when: provider_query_result.query_result | length == 0
+      tags: [provider_id]
+
+    - name: Set actual provider ID from database
+      set_fact:
+        actual_provider_id: "{{ provider_query_result.query_result[0].id }}"
+      tags: [provider_id]
+
+    - name: Display actual provider ID
+      debug:
+        msg: "Using provider ID: {{ actual_provider_id }}"
+      tags: [provider_id]
+
+    - name: Update provider ID in cm-EndUser.properties
+      replace:
+        path: "{{ dmc_conf_dir }}/cm-EndUser.properties"
+        regexp: 'provider\.\d+='
+        replace: 'provider.{{ actual_provider_id }}='
+        backup: yes
+      tags: [provider_id]
+
+    - name: Update provider ID in rest-api.properties
+      replace:
+        path: "{{ dmc_conf_dir }}/rest-api.properties"
+        regexp: 'cache\.providers\.list = \d+'
+        replace: 'cache.providers.list = {{ actual_provider_id }}'
+        backup: yes
+      tags: [provider_id]
+
+    - name: Update provider ID in cm-DMCDeployMode.properties
+      replace:
+        path: "{{ dmc_conf_dir }}/cm-DMCDeployMode.properties"
+        regexp: 'deployedProviderId=\d+'
+        replace: 'deployedProviderId={{ actual_provider_id }}'
+        backup: yes
+      tags: [provider_id]
+
+    - name: Restart DMC service
+      systemd:
+        name: "{{ dmc_service_name }}"
+        state: restarted
+        enabled: yes
+      tags: [provider_id]
+
+    - name: Wait for DMC service to be running
+      systemd:
+        name: "{{ dmc_service_name }}"
+        state: started
+      register: dmc_status
+      until: dmc_status.status.ActiveState == "active"
+      retries: 30
+      delay: 10
+      tags: [provider_id]
+
+    - name: Display completion message
+      debug:
+        msg: "Provider ID {{ actual_provider_id }} has been applied and DMC service restarted successfully!"
+      tags: [provider_id]
+
+
+
+
+
+
+
+
+

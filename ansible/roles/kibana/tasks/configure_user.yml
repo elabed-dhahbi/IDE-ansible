@@ -1,0 +1,134 @@
+---
+# Kibana User Configuration Tasks
+
+- name: Change kibana user home directory
+  lineinfile:
+    path: /etc/passwd
+    regexp: '^kibana:.*:/sbin/nologin$'
+    line: 'kibana:x:996:993:kibana:/opt/kibana:/bin/bash'
+    backup: yes
+  become: yes
+  tags: [kibana, user, home]
+
+- name: Add kibana user to wheel group
+  user:
+    name: "{{ kibana_user }}"
+    groups: wheel
+    append: yes
+  become: yes
+  tags: [kibana, user, groups]
+
+- name: Create kibana home directory
+  file:
+    path: "{{ kibana_home }}"
+    state: directory
+    owner: "{{ kibana_user }}"
+    group: "{{ kibana_group }}"
+    mode: '0755'
+  become: yes
+  tags: [kibana, user, home]
+
+- name: Create kibana bash profile
+  copy:
+    content: |
+      # .bash_profile
+      
+      # Get the aliases and functions
+      if [ -f ~/.bashrc ]; then
+          . ~/.bashrc
+      fi
+      
+      # User specific environment and startup programs
+      if [ -f ~/.bash_kibana ]; then
+          . ~/.bash_kibana
+      fi
+    dest: "{{ kibana_home }}/.bash_profile"
+    owner: "{{ kibana_user }}"
+    group: "{{ kibana_group }}"
+    mode: '0644'
+  become: yes
+  tags: [kibana, user, profile]
+
+- name: Create kibana bashrc
+  copy:
+    content: |
+      # .bashrc
+      
+      # Source global definitions
+      if [ -f /etc/bashrc ]; then
+          . /etc/bashrc
+      fi
+      
+      # User specific environment
+      export PATH="/usr/share/kibana/bin:$HOME/.local/bin:$HOME/bin:$PATH"
+      
+      # Uncomment the following line if you don't like systemctl's auto-paging feature:
+      # export SYSTEMD_PAGER=
+      
+      # User specific aliases and functions
+    dest: "{{ kibana_home }}/.bashrc"
+    owner: "{{ kibana_user }}"
+    group: "{{ kibana_group }}"
+    mode: '0644'
+  become: yes
+  tags: [kibana, user, bashrc]
+
+- name: Create kibana environment file
+  copy:
+    content: |
+      # .bash_kibana
+      
+      ############ COLOR ############
+      export GREEN='\033[0;32m'
+      export LGREEN='\033[1;32m'
+      export LBLUE='\033[1;34m'
+      export LCYAN='\033[1;36m'
+      export LPURPLE='\033[1;35m'
+      export NC='\033[0m' # No color
+      
+      ###############################
+      export KB_HOME=/usr/share/kibana
+      export LOG_BASE=/var/opt/kibana/logs
+      export CONF=/etc/kibana
+      export DATA=/var/opt/kibana/data
+      
+      # env details
+      echo -e " "
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      echo -e " ${LCYAN}Kibana environment variables${NC}"
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      echo -e " \$HOME directory    : $HOME"
+      echo -e " \$KB_HOME directory : $KB_HOME"
+      echo -e " \$LOG_BASE directory: $LOG_BASE"
+      echo -e " \$CONF directory    : $CONF"
+      echo -e " \$DATA directory    : $DATA"
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      echo -e " "
+      
+      # Kibana API examples
+      echo -e " ${LCYAN}API Examples for Kibana {{ kibana_version }}${NC}"
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      
+      # Get Kibana status
+      echo -e " Kibana Status:"
+      echo -e " ${LPURPLE}curl -X GET \"localhost:5601/api/status?pretty\" ${NC}"
+      
+      # Get Kibana health
+      echo -e " Kibana Health:"
+      echo -e " ${LPURPLE}curl -X GET \"localhost:5601/api/status?pretty\" ${NC}"
+      
+      # Get saved objects
+      echo -e " Saved Objects:"
+      echo -e " ${LPURPLE}curl -X GET \"localhost:5601/api/saved_objects/_find?type=dashboard&pretty\" ${NC}"
+      
+      # Create index pattern
+      echo -e " Create Index Pattern:"
+      echo -e " ${LPURPLE}curl -X POST \"localhost:5601/api/saved_objects/index-pattern/dmc-logs-*\" -H 'Content-Type: application/json' -d '{\"attributes\": {\"title\": \"dmc-logs-*\", \"timeFieldName\": \"@timestamp\"}}' ${NC}"
+      
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+    dest: "{{ kibana_home }}/.bash_kibana"
+    owner: "{{ kibana_user }}"
+    group: "{{ kibana_group }}"
+    mode: '0644'
+  become: yes
+  tags: [kibana, user, environment]

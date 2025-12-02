@@ -1,0 +1,129 @@
+---
+# DMC Role Default Variables
+
+# DMC version (inherited from main configuration)
+dmc_version: "{{ versions.dmc }}"
+
+# Service configuration
+dmc_service_name: "dmc"
+dmc_user: "dmc"
+dmc_group: "dmc"
+
+# Directory configuration
+dmc_install_dir: "/opt/dmc"
+dmc_home: "/opt/dmc/home"
+dmc_current_dir: "/opt/dmc/current"
+dmc_logs_dir: "/var/opt/dmc/{{ dmc_version }}/log"
+dmc_conf_dir: "/opt/dmc/current/conf"
+dmc_drbfile_dir: "/opt/dmc/drbfile"
+
+# Java configuration
+java_home: "/usr/j2se/current"
+java_version: "8u412-b08"
+
+# DMC configuration - simplified to avoid circular references
+dmc_http_port: 50400
+dmc_http_host: "0.0.0.0"
+dmc_node_id: 1
+
+# Java memory settings (configurable from values.yaml)
+dmc_java_xms: "8192m"
+dmc_java_xmx: "8192m"
+dmc_java_perm_size: "512m"
+dmc_java_max_perm_size: "512m"
+
+# Database configuration
+# If using external database, set database_config.external_host in values.yaml
+# Otherwise, it will use the first host in [postgres] group or localhost
+dmc_database_host: >-
+  {%- if database_config.external_host is defined and database_config.external_host -%}
+    {{ database_config.external_host }}
+  {%- elif groups['postgres'] is defined and groups['postgres'] | length > 0 -%}
+    {{ hostvars[groups['postgres'][0]]['ansible_host'] }}
+  {%- else -%}
+    localhost
+  {%- endif -%}
+dmc_database_port: "{{ database_config.external_port | default(database_config.port | default(5432)) }}"
+dmc_database_name: "{{ database_config.dmc_database | default('dmc46') }}"
+dmc_database_user: "{{ database_config.dmc_user | default('dmc4') }}"
+dmc_database_password: "{{ database_config.dmc_password | default('dmc4') }}"
+dmc_database_tablespace_data: "{{ database_config.tablespace_data | default('dmc4tab') }}"
+dmc_database_tablespace_index: "{{ database_config.tablespace_index | default('dmc4idx') }}"
+dmc_database_tablespace_lob: "{{ database_config.tablespace_lob | default('dmc4tab') }}"
+
+# Provider configuration
+dmc_provider_id: 41
+dmc_provider_name: "{{ customer_config.name | default('sicap') }}"
+dmc_provider_description: "{{ customer_config.description | default('sicap test provider') }}"
+dmc_provider_extid: 1
+dmc_provider_extnumid: 1000
+dmc_provider_authenticated_mode: true
+
+# External service configuration
+dmc_mmsoap_host: "{{ service_ips.mmsoap | default('localhost') }}"
+dmc_mmsoap_port: "{{ service_ports.mmsoap | default(50434) }}"
+dmc_mmsoap_username: "{{ database_config.dmc_user | default('dmc4') }}"
+dmc_mmsoap_password: "{{ database_config.dmc_password | default('dmc4') }}"
+dmc_mmsoap_service_id: 1
+
+dmc_drs_host: "{{ service_ips.drs | default('localhost') }}"
+dmc_drs_port: "{{ service_ports.drs | default(8080) }}"
+
+dmc_elasticsearch_host: "{{ service_ips.elasticsearch | default('localhost') }}"
+dmc_elasticsearch_port: "{{ service_ports.elasticsearch | default(9200) }}"
+dmc_elasticsearch_username: "elastic"
+dmc_elasticsearch_password: "elastic"
+
+# System configuration
+dmc_country: "{{ customer_config.country | default('Germany') }}"
+dmc_timezone: "GMT+1"
+dmc_hugepages: 5120  # 5GB in 2MB pages
+dmc_memlock: 10240000
+
+# Logging configuration
+dmc_logging_level: "INFO"
+dmc_logging_file: "/var/opt/dmc/{{ dmc_version }}/log/dmc.log"
+dmc_logging_max_size: "100MB"
+dmc_logging_max_files: 10
+
+# Package configuration
+package_globs:
+  dmc_rpm: "SCPdmc-{{ dmc_version }}*.rpm"
+  jdk8_64bit: "1_8_0_92-jdk.tar.gz"
+
+# iOS Enabler configuration
+dmc_ios_enabler:
+  enabled: "{{ ios_enabler.enabled | default(false) }}"
+  mmg_ws_url: "http://{{ ios_enabler.mmg_host }}:{{ ios_enabler.mmg_port }}/soapserver/soapserver"
+  mmg_username: "{{ ios_enabler.mmg_username }}"
+  mmg_password: "{{ ios_enabler.mmg_password }}"
+  node_id: "{{ ios_enabler.node_id_dmc1 if dmc_node_id == 1 else ios_enabler.node_id_dmc2 }}"
+  # Dynamic local IP based on DMC group membership
+  frontend_host: "{{ hostvars[groups['dmc1'][0]]['ansible_host'] if inventory_hostname in groups['dmc1'] else hostvars[groups['dmc2'][0]]['ansible_host'] }}"
+  api_provider_host: "{{ hostvars[groups['dmc1'][0]]['ansible_host'] if inventory_hostname in groups['dmc1'] else hostvars[groups['dmc2'][0]]['ansible_host'] }}"
+  connector_base_url: "https://{{ ios_enabler.public_ip }}:{{ ios_enabler.connector_port }}/dmiosenabler/dmiosenabler"
+  enrollment_retries: 1
+  enrollment_timeout: 259200
+  scep_payload_url: "http://{{ ios_enabler.public_ip }}:{{ ios_enabler.scep_port }}/sicap-ca/scep"
+  scep_challenge_url: "http://{{ hostvars[groups['dmc1'][0]]['ansible_host'] if inventory_hostname in groups['dmc1'] else hostvars[groups['dmc2'][0]]['ansible_host'] }}:{{ ios_enabler.challenge_port }}/sicap-ca/challenge"
+  session_timeout: 259200
+  session_polling_timeout: 259200
+  session_agent_timeout: 259200
+  session_query_expire_timeout: 259200
+  ios_header_regexp: "MDM,Mac OS(.)*OS 4,OS 4(.)*Mac OS,iPhone OS 4_,Mac OS(.)*OS 5,OS 5(.)*Mac OS,iPhone OS 5_,Mac OS(.)*OS 6,OS 6(.)*Mac OS,iPhone OS 6_,Mac OS(.)*OS 7,OS 7(.)*Mac OS,iPhone OS 7_,Mac OS(.)*OS 8,OS 8(.)*Mac OS,iPhone OS 8_,Mac OS(.)*OS 9,OS 9(.)*Mac OS,iPhone OS 9_,Mac OS(.)*OS 10,OS 10(.)*Mac OS,iPhone OS 10_,Mac OS(.)*OS 11,OS 11(.)*Mac OS,iPhone OS 11_,Mac OS(.)*OS 12,OS 12(.)*Mac OS,iPhone OS 12_,Mac OS(.)*OS 13,OS 13(.)*Mac OS,iPhone OS 13_, Mac OS(.)*OS 14,OS 14(.)*Mac OS,iPhone OS 14_,Mac OS(.)*OS 15,OS 15(.)*Mac OS,iPhone OS 15_"
+  ios16_header_regexp: "Mac OS(.)*OS 16,OS 16(.)*Mac OS,iPhone OS 16_,MDM"
+  ios17_header_regexp: "Mac OS(.)*OS 17,OS 17(.)*Mac OS,iPhone OS 17_,MDM"
+
+# System limits configuration
+dmc_limits:
+  nofile:
+    soft: 4096
+    hard: 65536
+  nproc:
+    soft: 4096
+    hard: 65536
+  memlock:
+    soft: 10240000
+    hard: 10240000
+
+

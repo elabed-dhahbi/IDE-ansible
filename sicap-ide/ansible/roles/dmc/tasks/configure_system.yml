@@ -1,0 +1,147 @@
+---
+# DMC System Configuration Tasks
+
+- name: Configure system limits for DMC user
+  lineinfile:
+    path: /etc/security/limits.conf
+    line: "{{ dmc_user }} soft nofile {{ dmc_limits.nofile.soft }}"
+    create: yes
+    backup: yes
+  become: yes
+  tags: [dmc, system, limits]
+
+- name: Configure hard nofile limit for DMC user
+  lineinfile:
+    path: /etc/security/limits.conf
+    line: "{{ dmc_user }} hard nofile {{ dmc_limits.nofile.hard }}"
+    create: yes
+    backup: yes
+  become: yes
+  tags: [dmc, system, limits]
+
+- name: Configure soft nproc limit for DMC user
+  lineinfile:
+    path: /etc/security/limits.conf
+    line: "{{ dmc_user }} soft nproc {{ dmc_limits.nproc.soft }}"
+    create: yes
+    backup: yes
+  become: yes
+  tags: [dmc, system, limits]
+
+- name: Configure hard nproc limit for DMC user
+  lineinfile:
+    path: /etc/security/limits.conf
+    line: "{{ dmc_user }} hard nproc {{ dmc_limits.nproc.hard }}"
+    create: yes
+    backup: yes
+  become: yes
+  tags: [dmc, system, limits]
+
+- name: Configure soft memlock limit for DMC user
+  lineinfile:
+    path: /etc/security/limits.conf
+    line: "{{ dmc_user }} soft memlock {{ dmc_limits.memlock.soft }}"
+    create: yes
+    backup: yes
+  become: yes
+  tags: [dmc, system, limits]
+
+- name: Configure hard memlock limit for DMC user
+  lineinfile:
+    path: /etc/security/limits.conf
+    line: "{{ dmc_user }} hard memlock {{ dmc_limits.memlock.hard }}"
+    create: yes
+    backup: yes
+  become: yes
+  tags: [dmc, system, limits]
+
+- name: Create hugetlb group
+  group:
+    name: hugetlb
+    state: present
+  become: yes
+  tags: [dmc, system, hugepages]
+
+# DMC user should be created by RPM package
+
+# Let RPM handle user creation completely - no user tasks
+
+- name: Configure hugepages in sysctl
+  lineinfile:
+    path: /etc/sysctl.conf
+    line: "vm.nr_hugepages = {{ dmc_hugepages }}"
+    create: yes
+    backup: yes
+  become: yes
+  tags: [dmc, system, hugepages]
+
+- name: Get hugetlb group ID using shell command
+  shell: "getent group hugetlb | cut -d: -f3"
+  register: hugetlb_gid
+  become: yes
+  tags: [dmc, system, hugepages]
+
+- name: Configure hugetlb group in sysctl
+  lineinfile:
+    path: /etc/sysctl.conf
+    line: "vm.hugetlb_shm_group = {{ hugetlb_gid.stdout }}"
+    create: yes
+    backup: yes
+  become: yes
+  tags: [dmc, system, hugepages]
+
+- name: Check available memory
+  shell: "free -g | grep '^Mem:' | awk '{print $2}'"
+  register: total_memory_gb
+  become: yes
+  tags: [dmc, system, hugepages]
+
+- name: Calculate safe hugepages setting (max 50% of total memory)
+  set_fact:
+    safe_hugepages: "{{ [dmc_hugepages, (total_memory_gb.stdout | int * 1024 / 2) | int] | min }}"
+  tags: [dmc, system, hugepages]
+
+- name: Apply hugepages sysctl configuration
+  sysctl:
+    name: vm.nr_hugepages
+    value: "{{ safe_hugepages }}"
+    state: present
+    reload: yes
+  become: yes
+  tags: [dmc, system, hugepages]
+
+- name: Apply hugetlb group sysctl configuration
+  sysctl:
+    name: vm.hugetlb_shm_group
+    value: "{{ hugetlb_gid.stdout }}"
+    state: present
+    reload: yes
+  become: yes
+  tags: [dmc, system, hugepages]
+
+- name: Clear page cache to free memory for hugepages
+  shell: sync && echo 3 > /proc/sys/vm/drop_caches
+  become: yes
+  tags: [dmc, system, hugepages]
+
+- name: Verify hugepages configuration
+  shell: cat /proc/meminfo | grep Huge
+  register: hugepages_status
+  become: yes
+  tags: [dmc, system, verify]
+
+- name: Display hugepages status
+  debug:
+    msg: "{{ hugepages_status.stdout_lines }}"
+  tags: [dmc, system, verify]
+
+- name: Check if swap is configured
+  shell: free -g
+  register: memory_status
+  become: yes
+  tags: [dmc, system, verify]
+
+- name: Display memory status
+  debug:
+    msg: "{{ memory_status.stdout_lines }}"
+  tags: [dmc, system, verify]

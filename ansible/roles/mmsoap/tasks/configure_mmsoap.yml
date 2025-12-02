@@ -1,0 +1,29 @@
+---
+# MMSOAP Configuration Tasks
+
+- name: Run MMSOAP sample rename script
+  shell: "{{ mmsoap_home }}/samplerename.sh"
+  become_user: "{{ mmsoap_user }}"
+  become: yes
+  tags: [mmsoap, config, sample]
+
+- name: Verify MMSOAP configuration files were created
+  stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ mmsoap_config_dir }}/corba.properties"
+    - "{{ mmsoap_config_dir }}/domains.properties"
+    - "{{ mmsoap_config_dir }}/log4j.properties"
+    - "{{ mmsoap_config_dir }}/platform.properties"
+  register: mmsoap_config_files
+  tags: [mmsoap, config, verify]
+
+- name: Display MMSOAP configuration files status
+  debug:
+    msg: "Configuration file {{ item.item }} exists: {{ item.stat.exists }}"
+  loop: "{{ mmsoap_config_files.results }}"
+  tags: [mmsoap, config, verify]
+
+
+
+

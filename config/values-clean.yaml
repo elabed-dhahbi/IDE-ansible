@@ -1,0 +1,357 @@
+# DMC4.6.18 Configuration Values
+# This file contains ONLY tunable configuration
+# All paths, hosts, and derived values are auto-calculated in role defaults
+
+# =============================================================================
+# VERSION NUMBERS - UPDATE WHEN UPGRADING
+# =============================================================================
+
+versions:
+  # SICAP application versions
+  dmc: "4.6.33"
+  drs: "1.7.0"
+  sls: "2.0.3"
+  mmg: "4.6.21"
+  mmsoap: "5.6.1"
+  smppc: "5.4.9"
+  
+  # Database versions
+  postgresql: "15.14-1PGDG.rhel9"
+  postgres: "15"
+  libpq: "18.0-1PGDG.rhel9"
+  python3_psycopg2: "2.8.6-6.el9"
+  
+  # ELK Stack versions
+  elasticsearch: "7.17.25"
+  kibana: "7.17.25"
+  logstash: "7.17.25"
+  
+  # OpenSearch Stack versions
+  opensearch: "3.2.0"
+  logstash_oss: "8.19.4"
+  
+  # Monitoring versions
+  zabbix: "7.4.3"
+  
+  # Other versions
+  haproxy: "1.8.27-5"
+  jdk8: "8u412"
+
+# =============================================================================
+# PACKAGE PATTERNS - Reference versions above
+# =============================================================================
+
+package_globs:
+  # SICAP application packages
+  dmc_rpm: "SCPdmc-*.tar.gz"
+  drs_rpm: "SCPdrs-*.rpm"
+  sls_rpm: "SCPsls-*.tar.gz"
+  mmg_rpm: "SCPmmg-*.rpm"
+  mmsoap_rpm: "SCPmmsoap-*.rpm"
+  smppc_rpm: "SCPsmppc-*.rpm"
+  
+  # PostgreSQL packages
+  postgresql_rpm: "postgresql15-{{ versions.postgresql }}*.rpm"
+  postgresql_libs_rpm: "postgresql15-libs-{{ versions.postgresql }}*.rpm"
+  postgresql_server_rpm: "postgresql15-server-{{ versions.postgresql }}*.rpm"
+  postgresql_contrib_rpm: "postgresql15-contrib-{{ versions.postgresql }}*.rpm"
+  libpq_rpm: "libpq5-{{ versions.libpq }}*.rpm"
+  python3_psycopg2_rpm: "python3-psycopg2-{{ versions.python3_psycopg2 }}*.rpm"
+  pgdg_repo_rpm: "pgdg-redhat-repo-latest.noarch.rpm"
+  
+  # Elasticsearch/Kibana packages
+  elasticsearch_rpm: "elasticsearch-{{ versions.elasticsearch }}-x86_64.rpm"
+  kibana_rpm: "kibana-{{ versions.kibana }}-x86_64.rpm"
+  
+  # Logstash packages
+  logstash_rpm: "logstash-{{ versions.logstash }}-x86_64.rpm"
+  logstash_oss_rpm: "logstash-oss-{{ versions.logstash_oss }}-x86_64.rpm"
+  logstash_filter_rest: "logstash-filter-rest-*.zip"
+  logstash_output_opensearch: "logstash-output-opensearch-*.gem"
+  
+  # OpenSearch packages
+  opensearch_rpm: "opensearch-{{ versions.opensearch }}*.rpm"
+  opensearch_dashboards_rpm: "opensearch-dashboards-{{ versions.opensearch }}*.rpm"
+  
+  # Zabbix packages
+  zabbix_agent2_rpm: "zabbix-agent2-{{ versions.zabbix }}-release1.el9.x86_64.rpm"
+  zabbix_agent2_plugin_mongodb_rpm: "zabbix-agent2-plugin-mongodb-{{ versions.zabbix }}-release1.el9.x86_64.rpm"
+  zabbix_agent2_plugin_mssql_rpm: "zabbix-agent2-plugin-mssql-{{ versions.zabbix }}-release1.el9.x86_64.rpm"
+  zabbix_agent2_plugin_postgresql_rpm: "zabbix-agent2-plugin-postgresql-{{ versions.zabbix }}-release1.el9.x86_64.rpm"
+  zabbix_apache_conf_rpm: "zabbix-apache-conf-{{ versions.zabbix }}-release1.el9.noarch.rpm"
+  zabbix_java_gateway_rpm: "zabbix-java-gateway-{{ versions.zabbix }}-release1.el9.x86_64.rpm"
+  zabbix_selinux_policy_rpm: "zabbix-selinux-policy-{{ versions.zabbix }}-release1.el9.x86_64.rpm"
+  zabbix_server_pgsql_rpm: "zabbix-server-pgsql-{{ versions.zabbix }}-release1.el9.x86_64.rpm"
+  zabbix_sql_scripts_rpm: "zabbix-sql-scripts-{{ versions.zabbix }}-release1.el9.noarch.rpm"
+  zabbix_web_rpm: "zabbix-web-{{ versions.zabbix }}-release1.el9.noarch.rpm"
+  zabbix_web_deps_rpm: "zabbix-web-deps-{{ versions.zabbix }}-release1.el9.noarch.rpm"
+  zabbix_web_pgsql_rpm: "zabbix-web-pgsql-{{ versions.zabbix }}-release1.el9.noarch.rpm"
+  
+  # Java packages
+  jdk8_tgz: "openlogic-openjdk-{{ versions.jdk8 }}*linux*.tar.gz"
+  jdk8_32bit: "openlogic-openjdk-{{ versions.jdk8 }}*linux*.tar.gz"
+  jdk8_64bit: "1_8_0_92-jdk.tar.gz"
+  
+  # HAProxy packages
+  haproxy_rpm: "haproxy-{{ versions.haproxy }}.el8.x86_64.rpm"
+
+# =============================================================================
+# DIRECTORIES - Only customize if needed
+# =============================================================================
+
+paths:
+  offline_dir: /tmp/offline
+  postgres_data_dir: /data/pgsql
+  postgres_home_dir: /home/postgres
+  postgres_tablespaces_dir: /data/postgres
+
+# =============================================================================
+# SYSTEM FLAGS
+# =============================================================================
+
+flags:
+  selinux: permissive
+  firewalld: disabled
+  es_single_node: true
+  dmc_hugepages_enabled: true
+  dmc_hugepages_pages: 5120
+
+# =============================================================================
+# PASSWORDS - CHANGE THESE FOR PRODUCTION
+# =============================================================================
+
+service_passwords:
+  postgres: "postgres"
+  elasticsearch: "elastic"
+  opensearch: "Ops@#s1cap#"
+  sls: "sls"
+
+# =============================================================================
+# DATABASE CONFIGURATION
+# =============================================================================
+
+database_config:
+  # DMC database
+  dmc_database: "dmc46"
+  dmc_schema: "dmc4"
+  dmc_user: "dmc4"
+  dmc_password: "dmc4"
+  tablespace_data: "dmc4tab"
+  tablespace_index: "dmc4idx"
+  
+  # MDBA schema for ELK statistics
+  mdba_schema: "mdba"
+  mdba_user: "mdba"
+  mdba_password: "mdba"
+  
+  # MMG database
+  mmg_database: "mmg"
+  mmg_schema: "mmg"
+  mmg_user: "mmg"
+  mmg_password: "mmg"
+  
+  # PostgreSQL admin
+  postgres_admin_password: "{{ service_passwords.postgres }}"
+
+# =============================================================================
+# SERVICE PORTS
+# =============================================================================
+
+service_ports:
+  # PostgreSQL
+  postgres: 5432
+  
+  # Elasticsearch/Kibana
+  elasticsearch: 9200
+  kibana: 5601
+  
+  # OpenSearch
+  opensearch_http: 9200
+  opensearch_transport: 9300
+  opensearch_dashboards_http: 5601
+  
+  # Logstash
+  logstash_api: 9600
+  logstash_beats: 5044
+  logstash_oss_api: 9600
+  logstash_oss_beats: 5044
+  
+  # DMC
+  dmc_http: 8080
+  dmc_https: 8443
+  dmc_jmx: 9999
+  dmc_debug: 8787
+  
+  # DRS
+  drs_http: 50453
+  drs_https: 50454
+  drs_jmx: 9998
+  
+  # MMG
+  mmg_http: 50434
+  mmg_https: 50435
+  mmg_jmx: 9996
+  
+  # SLS
+  sls_http: 50420
+  sls_https: 50421
+  sls_jmx: 9997
+  
+  # MMSOAP
+  mmsoap_http: 50425
+  mmsoap_https: 50426
+  mmsoap_jmx: 9995
+  
+  # SMPPC
+  smppc_http: 50429
+  smppc_https: 50430
+  smppc_jmx: 9994
+  
+  # HAProxy
+  haproxy_stats: 8081
+  haproxy_http: 80
+  haproxy_https: 443
+  
+  # Zabbix
+  zabbix_server: 10051
+  zabbix_agent: 10050
+  zabbix_java_gateway: 10052
+
+# =============================================================================
+# POSTGRESQL CONFIGURATION
+# =============================================================================
+
+postgresql_config:
+  service_name: "postgresql-{{ versions.postgres }}"
+  data_directory: "{{ paths.postgres_data_dir }}/{{ versions.postgres }}/data"
+  home_directory: "{{ paths.postgres_home_dir }}"
+  databases:
+    dmc46:
+      name: "{{ database_config.dmc_database }}"
+      owner: "{{ database_config.dmc_user }}"
+      schema: "{{ database_config.dmc_schema }}"
+      tablespaces:
+        data: "{{ database_config.tablespace_data }}"
+        index: "{{ database_config.tablespace_index }}"
+    mmg:
+      name: "{{ database_config.mmg_database }}"
+      owner: "{{ database_config.mmg_user }}"
+      schema: "{{ database_config.mmg_schema }}"
+      tablespaces:
+        data: "mmgtab"
+        index: "mmgidx"
+  users:
+    dmc4:
+      name: "{{ database_config.dmc_user }}"
+      password: "{{ database_config.dmc_password }}"
+    mmg:
+      name: "{{ database_config.mmg_user }}"
+      password: "{{ database_config.mmg_password }}"
+    mdba:
+      name: "{{ database_config.mdba_user }}"
+      password: "{{ database_config.mdba_password }}"
+      schema: "{{ database_config.mdba_schema }}"
+      tablespaces:
+        data: "mdbatab"
+        index: "mdbaidx"
+
+install_paths:
+  postgres_tablespaces_base: "{{ paths.postgres_tablespaces_dir }}"
+
+# =============================================================================
+# DMC JAVA MEMORY
+# =============================================================================
+
+dmc_java:
+  xms: "8192m"
+  xmx: "8192m"
+  perm_size: "512m"
+  max_perm_size: "512m"
+
+# =============================================================================
+# DMC CONFIGURATION
+# =============================================================================
+
+dmc_config:
+  version: "4.6.18"
+  release: "release1"
+  cluster_name: "dmc_cluster"
+  provider_id: "1"
+
+# =============================================================================
+# OPENSEARCH CONFIGURATION
+# =============================================================================
+
+opensearch_config:
+  cluster_name: "opensearch-cluster"
+  path_repo: "/mnt/opensearch_backup"
+  admin_password: "{{ service_passwords.opensearch }}"
+
+# =============================================================================
+# CUSTOMER NAME
+# =============================================================================
+
+customer_name: "sicapdmc46"
+
+# =============================================================================
+# IOS ENABLER (Optional)
+# =============================================================================
+
+ios_enabler:
+  enabled: false
+  public_ip: "YOUR_PUBLIC_IP_HERE"
+  mmg_port: 50434
+  mmg_username: "dmc"
+  mmg_password: "ZG1j"
+  node_id_dmc1: "iosenabler01"
+  node_id_dmc2: "iosenabler02"
+  connector_port: 50452
+  scep_port: 50455
+  challenge_port: 50400
+
+# =============================================================================
+# ZABBIX CONFIGURATION
+# =============================================================================
+
+zabbix:
+  version: "{{ versions.zabbix }}"
+  user: "zabbix"
+  group: "zabbix"
+  web_user: "apache"
+  web_group: "apache"
+  
+  server:
+    start_java_pollers: 25
+    timeout: 4
+    log_slow_queries: 3000
+    enable_global_scripts: 0
+  
+  web:
+    php_timezone: "Europe/Berlin"
+    php_max_execution_time: 300
+    php_memory_limit: "128M"
+  
+  java_gateway:
+    start_pollers: 5
+    timeout: 3
+    listen_port: "{{ service_ports.zabbix_java_gateway }}"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

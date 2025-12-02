@@ -1,0 +1,25 @@
+---
+# Firewall Configuration Tasks
+# Configures firewall rules for DMC services
+
+- name: Start and enable firewalld
+  service:
+    name: firewalld
+    state: started
+    enabled: yes
+  tags: [common, firewall, service]
+
+- name: Configure firewall rules
+  firewalld:
+    port: "{{ item.port }}/{{ item.protocol }}"
+    permanent: yes
+    state: enabled
+    immediate: yes
+  loop: "{{ firewall_rules }}"
+  when: item.state == "enabled"
+  tags: [common, firewall, rules]
+
+- name: Reload firewall
+  firewalld:
+    state: reloaded
+  tags: [common, firewall, reload]

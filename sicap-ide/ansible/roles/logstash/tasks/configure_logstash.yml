@@ -1,0 +1,89 @@
+---
+# Logstash Configuration Tasks
+
+- name: Create logstash configuration file
+  template:
+    src: logstash.conf.j2
+    dest: "{{ logstash_config_dir }}/conf.d/logstash.conf"
+    owner: "{{ logstash_user }}"
+    group: "{{ logstash_group }}"
+    mode: '0644'
+  become: yes
+  tags: [logstash, config, main]
+
+- name: Create JVM options directory
+  file:
+    path: "{{ logstash_config_dir }}/jvm.options.d"
+    state: directory
+    owner: "{{ logstash_user }}"
+    group: "{{ logstash_group }}"
+    mode: '0755'
+  become: yes
+  tags: [logstash, config, jvm]
+
+- name: Create JVM options file
+  copy:
+    content: |
+      -Xms{{ logstash_jvm.heap_size }}
+      -Xmx{{ logstash_jvm.heap_size }}
+      -XX:HeapDumpPath={{ logstash_jvm.heap_dump_path }}
+      -XX:ErrorFile={{ logstash_logs_dir }}/hs_err_pid%p.log
+    dest: "{{ logstash_config_dir }}/jvm.options.d/jvm.options"
+    owner: "{{ logstash_user }}"
+    group: "{{ logstash_group }}"
+    mode: '0644'
+  become: yes
+  tags: [logstash, config, jvm]
+
+- name: Create logstash.yml configuration
+  copy:
+    content: |
+      http.host: "0.0.0.0"
+      http.port: 9600
+      log.level: info
+      path.data: {{ logstash_data_dir }}
+      path.logs: {{ logstash_logs_dir }}
+      pipeline.workers: 2
+      pipeline.batch.size: 125
+      pipeline.batch.delay: 50
+    dest: "{{ logstash_config_dir }}/logstash.yml"
+    owner: "{{ logstash_user }}"
+    group: "{{ logstash_group }}"
+    mode: '0644'
+  become: yes
+  tags: [logstash, config, main]
+
+- name: Create systemd override directory
+  file:
+    path: /etc/systemd/system/logstash.service.d
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [logstash, config, systemd]
+
+- name: Create systemd override configuration
+  copy:
+    content: |
+      [Service]
+      LimitMEMLOCK={{ logstash_system.memlock_limit }}
+      LimitNOFILE={{ logstash_system.nofile_limit }}
+    dest: /etc/systemd/system/logstash.service.d/override.conf
+    mode: '0644'
+  become: yes
+  tags: [logstash, config, systemd]
+
+- name: Check if logstash systemd service file exists
+  stat:
+    path: /usr/lib/systemd/system/logstash.service
+  register: logstash_service_file
+  tags: [logstash, config, systemd]
+
+- name: Update logstash systemd service file
+  lineinfile:
+    path: /usr/lib/systemd/system/logstash.service
+    regexp: '^LimitNOFILE='
+    line: 'LimitNOFILE={{ logstash_system.nofile_limit }}'
+    backup: yes
+  become: yes
+  when: logstash_service_file.stat.exists
+  tags: [logstash, config, systemd]

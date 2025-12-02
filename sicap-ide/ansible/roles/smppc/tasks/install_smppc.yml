@@ -1,0 +1,19 @@
+---
+# SMPPC Installation Tasks
+
+- name: Install SMPPC package
+  yum:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ lookup('fileglob', paths.offline_dir + '/' + package_globs.smppc_rpm, errors='ignore') }}"
+  tags: [smppc, install, packages]
+
+- name: Check if SMPPC is already installed
+  stat:
+    path: "{{ smppc_install_dir }}"
+  register: smppc_installed
+  tags: [smppc, install, check]
+
+
+
+

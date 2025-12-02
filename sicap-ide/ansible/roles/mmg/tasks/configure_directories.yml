@@ -1,0 +1,41 @@
+---
+# MMG Directory Configuration Tasks
+
+- name: Create MMG configuration directory
+  file:
+    path: "{{ mmg_config_dir }}"
+    state: directory
+    owner: "{{ mmg_user }}"
+    group: "{{ mmg_group }}"
+    mode: '0755'
+  tags: [mmg, directories, config]
+
+- name: Create MMG logs directory
+  file:
+    path: "{{ mmg_logs_dir }}"
+    state: directory
+    owner: "{{ mmg_user }}"
+    group: "{{ mmg_group }}"
+    mode: '0755'
+  tags: [mmg, directories, logs]
+
+- name: Create MMG data directory
+  file:
+    path: "{{ mmg_data_dir }}"
+    state: directory
+    owner: "{{ mmg_user }}"
+    group: "{{ mmg_group }}"
+    mode: '0755'
+  tags: [mmg, directories, data]
+
+- name: Change ownership of MMG install directory
+  file:
+    path: "{{ mmg_install_dir }}"
+    owner: "{{ mmg_user }}"
+    group: "{{ mmg_group }}"
+    recurse: yes
+  tags: [mmg, directories, ownership]
+
+
+
+

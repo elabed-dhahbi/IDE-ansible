@@ -1,0 +1,120 @@
+---
+# SLS User Configuration Tasks
+
+- name: Set SLS user password
+  user:
+    name: "{{ sls_user }}"
+    password: "{{ system_config.service_passwords.sls | password_hash('sha512') }}"
+  become: yes
+  tags: [sls, user, password]
+
+- name: Check if .profile.sicap exists
+  stat:
+    path: "{{ sls_home }}/.profile.sicap"
+  register: profile_sicap_exists
+  tags: [sls, user, profile]
+
+- name: Update .profile.sicap to use installed Java
+  lineinfile:
+    path: "{{ sls_home }}/.profile.sicap"
+    regexp: "^JAVA_HOME=\\${JAVA_HOME:-.*}"
+    line: "JAVA_HOME=\\${JAVA_HOME:-{{ java_home }}}"
+    backup: yes
+  become: yes
+  when: profile_sicap_exists.stat.exists
+  tags: [sls, user, profile]
+
+- name: Create SLS-specific profile
+  copy:
+    content: |
+      #                             \\\\
+      #                             (. .)
+      #                              ( )
+      # ccm.sicap@sicap.com-----ooO-------Ooo----------------------------------------
+      #
+      # DESCRIPTION
+      #
+      # Application-specific profile for SLS.
+      #
+      # #############################################################################
+      #
+      # U S A G E
+      #
+      # Sourced at login of 'sls' user
+      #
+      # #############################################################################
+      # $Name:  $
+      # $Header: /data/cvs/tools/templates/NewFileHeader_shell,v 1.2 2004/03/10 08:09:51 rme Exp $
+      #
+      # Revision history
+      #
+      # $Log: NewFileHeader_shell,v $
+      # Revision 1.2  2004/03/10 08:09:51  rme
+      # removed text in default tags
+      #
+      #
+      #
+      #
+      # #############################################################################
+
+      # JAVA configuration
+      # SLS requires a very special java version
+      if [ -d "{{ java_home }}" ]; then
+              JAVA_HOME="{{ java_home }}"
+              export JAVA_HOME
+              PATH="$JAVA_HOME/bin:$PATH"
+              export PATH
+      fi
+
+      # SLS configuration
+      # Add SLS bin directory to PATH
+      if [ -d "{{ sls_current_dir }}/bin" ]; then
+              PATH="{{ sls_current_dir }}/bin:$PATH"
+              export PATH
+      fi
+
+      # Set SLS environment variables
+      RUN="{{ sls_current_dir }}/bin"
+      LOG_BASE="{{ sls_logs_dir }}"
+      export RUN
+      export LOG_BASE
+
+      echo " ------------------------------------------------------"
+      echo " sls {{ sls_version }} environment variables"
+      echo " ------------------------------------------------------"
+      echo " Installation directory :   {{ sls_install_dir }}"
+      echo " Release                :   {{ sls_version }}"
+      echo " \$RUN directory         :   $RUN"
+      echo " \$LOG_BASE directory    :   $LOG_BASE"
+      echo " ------------------------------------------------------"
+      echo " "
+      echo " ------------------------------------------------------"
+      echo " SLS Java configuration"
+      echo " ------------------------------------------------------"
+      echo " JAVA_HOME              :   $JAVA_HOME"
+      echo " ------------------------------------------------------"
+    dest: "{{ sls_home }}/.profile.sls"
+    owner: "{{ sls_user }}"
+    group: "{{ sls_group }}"
+    mode: '0644'
+  become: yes
+  tags: [sls, user, profile]
+
+- name: Update SLS user bash profile to source .profile.sls
+  lineinfile:
+    path: "{{ sls_home }}/.bash_profile"
+    line: "source ~/.profile.sls"
+    create: yes
+    owner: "{{ sls_user }}"
+    group: "{{ sls_group }}"
+    mode: '0644'
+  become: yes
+  tags: [sls, user, bash_profile]
+
+- name: Verify Java version under SLS user
+  shell: |
+    source {{ sls_home }}/.profile.sls
+    java -version
+  become_user: "{{ sls_user }}"
+  register: sls_java_version
+  tags: [sls, user, verify]

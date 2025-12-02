@@ -1,0 +1,42 @@
+---
+# OpenSearch Dashboards Service Configuration Tasks
+
+- name: Check if OpenSearch Dashboards service is running
+  systemd:
+    name: "{{ dashboards_service_name }}"
+  register: dashboards_service_status
+  become: yes
+  tags: [opensearch_dashboards, service, status]
+
+- name: Display OpenSearch Dashboards service status
+  debug:
+    msg: "OpenSearch Dashboards service is {{ 'running' if dashboards_service_status.status.ActiveState == 'active' else 'not running' }}"
+  tags: [opensearch_dashboards, service, status]
+
+- name: Start OpenSearch Dashboards service if not running
+  systemd:
+    name: "{{ dashboards_service_name }}"
+    state: started
+    enabled: yes
+    daemon_reload: yes
+  become: yes
+  when: dashboards_service_status.status.ActiveState != 'active'
+  tags: [opensearch_dashboards, service, start]
+
+- name: Display OpenSearch Dashboards service information
+  debug:
+    msg: |
+      OpenSearch Dashboards Service Information:
+      - Service Name: {{ dashboards_service_name }}
+      - Status: {{ dashboards_service_status.status.ActiveState | default('unknown') }}
+      - Enabled: {{ dashboards_service_status.status.UnitFileState | default('unknown') }}
+      - URL: http://{{ ansible_host }}:{{ dashboards_config.server_port }}{{ dashboards_config.server_base_path }}
+  tags: [opensearch_dashboards, service, info]
+
+
+
+
+
+
+
+

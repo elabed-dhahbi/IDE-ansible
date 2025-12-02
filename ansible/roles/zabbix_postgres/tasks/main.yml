@@ -1,0 +1,66 @@
+---
+# Zabbix PostgreSQL Main Tasks
+
+- name: Install PostgreSQL packages
+  command: "rpm -Uvh --force {{ paths.offline_dir | default('/tmp/offline') }}/{{ item }}"
+  loop: "{{ postgres_packages }}"
+  become: true
+  tags: [zabbix_postgres, install]
+
+- name: Check if PostgreSQL data directory exists
+  stat:
+    path: "{{ postgres_data_dir }}"
+  register: postgres_data_dir_stat
+  become: true
+  tags: [zabbix_postgres, init]
+
+- name: Initialize PostgreSQL database
+  command: "/usr/pgsql-{{ postgres_version }}/bin/postgresql-{{ postgres_version }}-setup initdb"
+  become: true
+  when: not postgres_data_dir_stat.stat.exists
+  tags: [zabbix_postgres, init]
+
+- name: Start and enable PostgreSQL
+  systemd:
+    name: "{{ postgres_service }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+  tags: [zabbix_postgres, service]
+
+- name: Create Zabbix database user
+  shell: |
+    sudo -u postgres createuser --pwprompt {{ zabbix_db_user }}
+  become: true
+  environment:
+    PGPASSWORD: "{{ zabbix_db_password }}"
+  tags: [zabbix_postgres, database]
+
+- name: Create Zabbix database
+  shell: |
+    sudo -u postgres createdb -O {{ zabbix_db_user }} {{ zabbix_db_name }}
+  become: true
+  tags: [zabbix_postgres, database]
+
+- name: Configure PostgreSQL for network access
+  lineinfile:
+    path: "{{ postgres_data_dir }}/postgresql.conf"
+    regexp: '^#listen_addresses ='
+    line: "listen_addresses = '*'"
+  become: true
+  tags: [zabbix_postgres, config]
+
+- name: Configure PostgreSQL authentication
+  lineinfile:
+    path: "{{ postgres_data_dir }}/pg_hba.conf"
+    line: "host    {{ zabbix_db_name }}    {{ zabbix_db_user }}    0.0.0.0/0    md5"
+  become: true
+  tags: [zabbix_postgres, config]
+
+- name: Restart PostgreSQL
+  systemd:
+    name: "{{ postgres_service }}"
+    state: restarted
+  become: true
+  tags: [zabbix_postgres, service]

@@ -1,0 +1,50 @@
+---
+# Configure Logstash OSS pipeline
+
+- name: Create Logstash OSS pipeline directory
+  file:
+    path: "{{ logstash_oss_pipeline_dir }}"
+    state: directory
+    owner: "{{ logstash_oss_user }}"
+    group: "{{ logstash_oss_group }}"
+    mode: '0755'
+  become: yes
+  tags: [logstash_oss, pipeline, directory]
+
+- name: Create Logstash OSS pipeline configuration
+  template:
+    src: logstash_oss.conf.j2
+    dest: "{{ logstash_oss_pipeline_dir }}/logstash.conf"
+    owner: "{{ logstash_oss_user }}"
+    group: "{{ logstash_oss_group }}"
+    mode: '0644'
+  become: true
+  notify: restart logstash-oss
+
+- name: Create custom patterns directory
+  file:
+    path: "{{ logstash_oss_patterns_dir }}"
+    state: directory
+    owner: "{{ logstash_oss_user }}"
+    group: "{{ logstash_oss_group }}"
+    mode: '0755'
+  become: true
+
+- name: Create custom patterns file
+  template:
+    src: sicap_patterns.j2
+    dest: "{{ logstash_oss_patterns_dir }}/sicap_patterns"
+    owner: "{{ logstash_oss_user }}"
+    group: "{{ logstash_oss_group }}"
+    mode: '0644'
+  become: true
+  notify: restart logstash-oss
+
+- name: Create CSV export log directory
+  file:
+    path: "{{ logstash_oss_logs_dir }}"
+    state: directory
+    owner: "{{ logstash_oss_user }}"
+    group: "{{ logstash_oss_group }}"
+    mode: '0755'
+  become: true

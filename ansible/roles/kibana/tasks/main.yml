@@ -1,0 +1,23 @@
+---
+# Kibana Main Tasks
+# Installs and configures Kibana for DMC log visualization
+
+- name: Include Kibana installation tasks
+  include_tasks: install_kibana.yml
+  tags: [kibana, install]
+
+- name: Include Kibana user configuration tasks
+  include_tasks: configure_user.yml
+  tags: [kibana, user]
+
+- name: Include Kibana directory configuration tasks
+  include_tasks: configure_directories.yml
+  tags: [kibana, directories]
+
+- name: Include Kibana main configuration tasks
+  include_tasks: configure_kibana.yml
+  tags: [kibana, config]
+
+- name: Include Kibana service configuration tasks
+  include_tasks: configure_service.yml
+  tags: [kibana, service]

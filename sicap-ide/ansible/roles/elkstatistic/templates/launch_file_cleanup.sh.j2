@@ -1,0 +1,120 @@
+#!/bin/bash
+
+ARCHIVED_LOG_AGE=""
+TEMP_FILE_AGE=""
+GENERAL_CONF_ROOT_PATH=""
+ARCHIVED_LOG_DIR=""
+TEMP_FILE_DIR=""
+
+LOG_DIR=""
+LOG_LEVEL=""
+
+declare -A LOG_LEVELS
+__LOG_LEVEL=""
+
+LOG_FILE=""
+echo "Start"
+
+init_log () {
+  LOG_LEVEL=$(grep '^logging.level.*=' $1 | cut -d '=' -f 2)
+  if [[ "$LOG_LEVEL" -eq 1 ]] ; then
+    LOG_LEVEL="INFO"
+  elif [[ "$LOG_LEVEL" -eq 2 ]] ; then
+    LOG_LEVEL="DEBUG"
+  fi
+  LOG_DIR=$(grep '^logging.path=' $1 | cut -d '=' -f 2)
+  LOG_FILE=$LOG_DIR$(date +%Y-%m-%d)"_file_cleanup.log"
+  LOG_LEVELS[INFO]=1
+  LOG_LEVELS[DEBUG]=2
+  __LOG_LEVEL=${LOG_LEVELS[$LOG_LEVEL]}
+}
+
+log () {
+  ts=$(date +'%Y-%m-%d %H:%M:%S:%3N')
+  if [[ $__LOG_LEVEL -ge LOG_LEVELS[$1] ]] ; then
+    echo "["$ts"]["$1"] "$2 >> $LOG_FILE
+  fi
+}
+
+loadProperties () {
+  log INFO "loadProperties start ["$1"]"
+  ARCHIVED_LOG_AGE=$(grep "^archived_log_age=" $1 | cut -d '=' -f 2)
+  log DEBUG "ARCHIVED_LOG_AGE: "$ARCHIVED_LOG_AGE
+  TEMP_FILE_AGE=$(grep "^tempfile_age=" $1 | cut -d '=' -f 2)
+  log DEBUG "TEMP_FILE_AGE: "$TEMP_FILE_AGE
+  GENERAL_CONF_ROOT_PATH=$(grep "^generalConf_rootpath=" $1 | cut -d '=' -f 2)
+  log DEBUG "GENERAL_CONF_ROOT_PATH: "$GENERAL_CONF_ROOT_PATH
+  ARCHIVED_LOG_DIR=$(grep "^fileHandling_log_save_dir=" $1 | cut -d '=' -f 2)
+  log DEBUG "ARCHIVED_LOG_DIR: "$ARCHIVED_LOG_DIR
+  TEMP_FILE_DIR=$(grep "^fileHandling_log_tmap_tmp_directory=" $1 | cut -d '=' -f 2)
+  log DEBUG "TEMP_FILE_DIR: "$TEMP_FILE_DIR
+  log INFO "loadProperties end"
+}
+
+if [[ -z "$1" ]] ; then
+  echo "properties file location must be passed as argument. exiting..."
+  exit 1
+fi
+init_log $1
+log INFO "file cleanup process starts"
+loadProperties $1
+
+if [[ ! -z "$ARCHIVED_LOG_AGE" ]] ; then
+  if [[ 5 -gt $ARCHIVED_LOG_AGE ]] ; then
+    ARCHIVED_LOG_AGE=5
+    log DEBUG "ARCHIVED_LOG_AGE set to: "$ARCHIVED_LOG_AGE
+  fi
+  log INFO "deleting old logs"
+  archivedLogDir=$GENERAL_CONF_ROOT_PATH/$ARCHIVED_LOG_DIR
+  while read line ; do
+    rm -f $line
+    log INFO "deleted: "$line
+  done < <(find $archivedLogDir -mtime +$ARCHIVED_LOG_AGE -type f)
+else
+  log INFO "old log deletion has not been configured"
+fi
+
+if [[ ! -z "$TEMP_FILE_AGE" ]] ; then
+  if [[ 5 -gt $TEMP_FILE_AGE ]] ; then
+    TEMP_FILE_AGE=5
+    log INFO "TEMP_FILE_AGE set to: "$TEMP_FILE_AGE
+  fi
+  log INFO "deleting old temp files"
+  tempfileDir=$GENERAL_CONF_ROOT_PATH/$TEMP_FILE_DIR
+  while read line ; do
+    rm -f $line
+    log INFO "deleted: "$line
+  done < <(find $tempfileDir -mtime +$TEMP_FILE_AGE -type f)
+else
+  log INFO "old temp file deletion has not been configured"
+fi
+
+log INFO "file cleanup process ends"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

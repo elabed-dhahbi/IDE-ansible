@@ -1,0 +1,194 @@
+#---------------------------------------------------------------------
+# Global settings
+#---------------------------------------------------------------------
+global
+    log /dev/log local2 debug
+    chroot /var/opt/haproxy
+    pidfile /var/opt/haproxy/run/haproxy.pid
+    maxconn 2000
+    daemon
+    user haproxy
+    group haproxy
+    stats socket /var/opt/haproxy/run/haproxy.stat mode 600 level admin
+    unix-bind prefix /var/opt/haproxy/run/stunnel/sockets mode 660 user root group root
+
+#---------------------------------------------------------------------
+# Defaults
+#---------------------------------------------------------------------
+defaults
+    mode                    http
+    log                     global
+    option                  httplog
+    option                  dontlognull
+    option http-server-close
+    option forwardfor       except 127.0.0.0/8
+    option                  redispatch
+    retries                 3
+    timeout http-request    15s
+    timeout queue           30s
+    timeout connect         5s
+    timeout client          1m
+    timeout server          1m
+    timeout http-keep-alive 60s
+    timeout check           10s
+    maxconn                 5000
+
+#---------------------------------------------------------------------
+# Load balancer for DMC4 BO / CC (plain HTTP)
+#---------------------------------------------------------------------
+frontend ft_DMC_L7_HTTP_50400
+    bind 0.0.0.0:50400
+    mode http
+    log global
+    option httplog
+    timeout client 900s
+    maxconn 2000
+    default_backend bk_DMC_L7_HTTP_50400
+    acl allowed_dmc_uris url_reg -i ^/(cc|dmc|sicap-business_soap-impl|xdrs|sicap-dmc-addbe-soap-web|dmc-ivr)
+    http-request deny unless allowed_dmc_uris
+
+backend bk_DMC_L7_HTTP_50400
+    balance roundrobin
+    mode http
+    option forwardfor except 127.0.0.1/8
+    cookie JSESSIONID prefix nocache
+    default-server inter 3s rise 2 fall 3 slowstart 0
+    option httpchk HEAD /dmc HTTP/1.0
+    timeout server 120s
+{% for host in groups['dmc1'] %}
+    server {{ hostvars[host]['inventory_hostname'] }} {{ hostvars[host]['ansible_host'] }}:50400 maxconn 2000 weight 10 cookie E1 check
+{% endfor %}
+{% for host in groups['dmc2'] %}
+    server {{ hostvars[host]['inventory_hostname'] }} {{ hostvars[host]['ansible_host'] }}:50400 maxconn 2000 weight 10 cookie E2 check
+{% endfor %}
+{% if groups['dmc2'] | length == 0 and groups['dmc1'] | length > 0 %}
+    server lpcdmc2p lpcdmc2p:50400 maxconn 2000 weight 10 cookie E2 check
+{% endif %}
+
+#---------------------------------------------------------------------
+# Load balancer for DMC4 FO (HTTPS)
+#---------------------------------------------------------------------
+frontend ft_DMC_L7_HTTP_50461
+    bind 0.0.0.0:50461 ssl crt /etc/pki/tls/certs/haproxy.pem
+    mode http
+    log global
+    option httplog
+    timeout client 900s
+    maxconn 2000
+    default_backend bk_DMC_L7_HTTP_50461
+    acl allowed_fo_uris url_reg -i ^/(fo|/fo|rest-api)
+    http-request deny unless allowed_fo_uris
+
+backend bk_DMC_L7_HTTP_50461
+    balance roundrobin
+    mode http
+    option forwardfor
+    option httpclose
+    cookie FOGUI insert nocache
+    default-server inter 3s rise 2 fall 3 slowstart 0
+    option httpchk HEAD /fo HTTP/1.0
+    timeout server 120s
+{% for host in groups['dmc1'] %}
+    server {{ hostvars[host]['inventory_hostname'] }} {{ hostvars[host]['ansible_host'] }}:50400 maxconn 2000 weight 10 cookie E1 check
+{% endfor %}
+{% for host in groups['dmc2'] %}
+    server {{ hostvars[host]['inventory_hostname'] }} {{ hostvars[host]['ansible_host'] }}:50400 maxconn 2000 weight 10 cookie E2 check
+{% endfor %}
+{% if groups['dmc2'] | length == 0 and groups['dmc1'] | length > 0 %}
+    server lpcdmc2p lpcdmc2p:50400 maxconn 2000 weight 10 cookie E2 check
+{% endif %}
+
+#---------------------------------------------------------------------
+# DM iOS Enabler (HTTPS)
+#---------------------------------------------------------------------
+frontend ft_DMC_L7_HTTP_50452
+    bind 0.0.0.0:50452 ssl crt /etc/pki/tls/certs/haproxy.pem
+    mode http
+    log global
+    maxconn 2000
+    timeout client 25s
+    default_backend bk_DMC_L7_HTTP_50452
+    acl enabler_uris url_reg -i ^/(dmiosenabler)/
+    http-request deny unless enabler_uris
+
+backend bk_DMC_L7_HTTP_50452
+    mode http
+    option httpchk GET /dmiosenabler HTTP/1.0
+    timeout server 25s
+    timeout connect 10s
+{% for host in groups['dmc1'] %}
+    server {{ hostvars[host]['inventory_hostname'] }} {{ hostvars[host]['ansible_host'] }}:50400 maxconn 2000 check
+{% endfor %}
+{% for host in groups['dmc2'] %}
+    server {{ hostvars[host]['inventory_hostname'] }} {{ hostvars[host]['ansible_host'] }}:50400 maxconn 2000 check
+{% endfor %}
+{% if groups['dmc2'] | length == 0 and groups['dmc1'] | length > 0 %}
+    server lpcdmc2p lpcdmc2p:50400 maxconn 2000 check
+{% endif %}
+{% for host in groups['dmc1'] %}
+    use-server {{ hostvars[host]['inventory_hostname'] }} if { urlp(enablerId) EnablerInstance01 }
+{% endfor %}
+{% for host in groups['dmc2'] %}
+    use-server {{ hostvars[host]['inventory_hostname'] }} if { urlp(enablerId) EnablerInstance02 }
+{% endfor %}
+
+#---------------------------------------------------------------------
+# Certificate Authority Proxy (HTTPS)
+#---------------------------------------------------------------------
+frontend ft_DMC_L7_HTTP_50455
+  bind 0.0.0.0:50455 ssl crt  /etc/pki/tls/certs/haproxy.pem                                 # Address:port to listen to
+        mode http                                       # HTTP mode
+        log global                                      # use global log parameters
+        maxconn 2000                                    # Max connections per instance
+        timeout client  25s                             # Maximum client idle time
+        acl enabler_uris  url_reg -i ^/(node01|node02)/(sicap-ca)/
+        acl enabler_node1 url_reg -i ^/(node01)/
+        acl enabler_node2 url_reg -i ^/(node02)/
+        http-request deny unless enabler_uris
+        use_backend bk_DMC_L7_HTTP_50455_node1 if enabler_node1
+        default_backend bk_DMC_L7_HTTP_50455_node2
+
+
+
+backend bk_DMC_L7_HTTP_50455_node1
+        mode http
+#       option httplog
+        option httpchk HEAD /sicap-ca HTTP/1.0                              # HTTP check method
+        timeout server  25s                                          # Maximum backend server response time
+        timeout connect 10s                                          # Maximum time to wait for a server connection
+#        http-request replace-path ^([^\ :]*)\ /node01/(.*)      \1\ /\2
+        http-request replace-path /node01(/)?(.*) /\2
+{% for host in groups['dmc1'] %}
+        server {{ hostvars[host]['inventory_hostname'] }} {{ hostvars[host]['ansible_host'] }}:50400 maxconn 2000 check
+{% endfor %}
+
+
+backend bk_DMC_L7_HTTP_50455_node2
+        mode http
+#       option httplog
+        option httpchk HEAD /sicap-ca HTTP/1.0                              # HTTP check method
+        timeout server  25s                                          # Maximum backend server response time
+        timeout connect 10s                                          # Maximum time to wait for a server connection
+#        http-request replace-path ^([^\ :]*)\ /node02/(.*)      \1\ /\2
+        http-request replace-path /node02(/)?(.*) /\2
+{% for host in groups['dmc2'] %}
+        server {{ hostvars[host]['inventory_hostname'] }} {{ hostvars[host]['ansible_host'] }}:50400 maxconn 2000 check
+{% endfor %}
+{% if groups['dmc2'] | length == 0 and groups['dmc1'] | length > 0 %}
+        server lpcdmc2p lpcdmc2p:50400 maxconn 2000 check
+{% endif %}
+#---------------------------------------------------------------------
+# HAProxy statistics dashboard
+#---------------------------------------------------------------------
+listen stats
+    bind 0.0.0.0:51400
+    mode http
+    timeout client 5000
+    timeout connect 4000
+    timeout server 30000
+    stats enable
+    stats hide-version
+    stats realm HAProxy\ Statistics
+    stats uri /hastats
+    stats auth system:sicap
+    stats admin if TRUE

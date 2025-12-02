@@ -1,0 +1,27 @@
+---
+# PostgreSQL 15 Installation and Configuration
+# Supports custom data and home directories for production environments
+# Installation tasks can be skipped with: skip_postgres_install: true
+
+# PostgreSQL Installation Tasks (can be skipped)
+# Tag: postgres_install
+# These tasks install packages, initialize database, configure service, and start PostgreSQL
+- name: Include PostgreSQL installation tasks
+  include_tasks: install.yml
+  when: not (skip_postgres_install | default(false))
+  tags: [postgres, postgres_install, install]
+
+# PostgreSQL Service Configuration (only if installation ran)
+# These tasks configure the service after installation
+- name: Include PostgreSQL service configuration tasks
+  include_tasks: configure_service.yml
+  when: not (skip_postgres_install | default(false))
+  tags: [postgres, postgres_install, service]
+
+# DMC SQL-Only Setup Tasks (ALWAYS runs)
+# These tasks create databases, users, schemas, and grant privileges using ONLY SQL
+# They work with both local and remote PostgreSQL instances
+# NO file operations, NO config changes, NO service restarts
+- name: Include DMC SQL setup tasks
+  include_tasks: dmc_sql_setup.yml
+  tags: [postgres, databases, dmc]

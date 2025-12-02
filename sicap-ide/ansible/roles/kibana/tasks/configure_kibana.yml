@@ -1,0 +1,47 @@
+---
+# Kibana Configuration Tasks
+
+- name: Create kibana configuration file
+  template:
+    src: kibana.yml.j2
+    dest: "{{ kibana_config_dir }}/kibana.yml"
+    owner: "{{ kibana_user }}"
+    group: "{{ kibana_group }}"
+    mode: '0644'
+  become: yes
+  tags: [kibana, config, main]
+
+- name: Create systemd override directory
+  file:
+    path: /etc/systemd/system/kibana.service.d
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [kibana, config, systemd]
+
+- name: Create systemd override configuration
+  copy:
+    content: |
+      [Service]
+      LimitMEMLOCK={{ kibana_system.memlock_limit }}
+      LimitNOFILE={{ kibana_system.nofile_limit }}
+    dest: /etc/systemd/system/kibana.service.d/override.conf
+    mode: '0644'
+  become: yes
+  tags: [kibana, config, systemd]
+
+- name: Check if kibana systemd service file exists
+  stat:
+    path: /usr/lib/systemd/system/kibana.service
+  register: kibana_service_file
+  tags: [kibana, config, systemd]
+
+- name: Update kibana systemd service file
+  lineinfile:
+    path: /usr/lib/systemd/system/kibana.service
+    regexp: '^LimitNOFILE='
+    line: 'LimitNOFILE={{ kibana_system.nofile_limit }}'
+    backup: yes
+  become: yes
+  when: kibana_service_file.stat.exists
+  tags: [kibana, config, systemd]

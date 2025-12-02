@@ -1,0 +1,20 @@
+---
+# DRS User Configuration Tasks
+# Note: DRS user is created by the RPM package, no need to create it manually
+
+- name: Display DRS user information
+  debug:
+    msg: "DRS user '{{ drs_user }}' should be created by RPM package"
+  tags: [drs, user, info]
+
+- name: Set DRS user password (if needed)
+  user:
+    name: "{{ drs_user }}"
+    password: "{{ drs_password | password_hash('sha512') }}"
+  when: drs_password is defined
+  become: yes
+  tags: [drs, user, password]
+
+
+
+

@@ -1,0 +1,26 @@
+---
+# Zabbix PostgreSQL Configuration Defaults
+
+# PostgreSQL version
+postgres_version: "15"
+
+# PostgreSQL service configuration
+postgres_service: "postgresql-{{ postgres_version }}"
+postgres_data_dir: "/var/lib/pgsql/{{ postgres_version }}/data"
+postgres_home_dir: "/var/lib/pgsql"
+
+# Zabbix database configuration
+zabbix_db_name: "zabbix"
+zabbix_db_user: "zabbix"
+zabbix_db_password: "zabbix"
+
+# PostgreSQL packages
+postgres_packages:
+  - "postgresql15-15.14-1PGDG.rhel9.x86_64.rpm"
+  - "postgresql15-server-15.14-1PGDG.rhel9.x86_64.rpm"
+  - "postgresql15-libs-15.14-1PGDG.rhel9.x86_64.rpm"
+  - "postgresql15-contrib-15.14-1PGDG.rhel9.x86_64.rpm"
+  - "libpq5-17.6-1PGDG.rhel9.x86_64.rpm"
+  - "python3-psycopg2-2.8.6-6.el9.x86_64.rpm"
+
+

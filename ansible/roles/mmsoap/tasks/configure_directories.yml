@@ -1,0 +1,20 @@
+---
+# MMSOAP Directory Configuration Tasks
+# Note: All MMSOAP directories are created by the RPM package
+
+- name: Verify MMSOAP directories exist (created by RPM)
+  stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ mmsoap_home }}"
+    - "{{ mmsoap_config_dir }}"
+    - "{{ mmsoap_logs_dir }}"
+    - "{{ mmsoap_data_dir }}"
+  register: mmsoap_dirs_check
+  tags: [mmsoap, directories, verify]
+
+- name: Display MMSOAP directory status
+  debug:
+    msg: "Directory {{ item.item }} exists: {{ item.stat.exists }}"
+  loop: "{{ mmsoap_dirs_check.results }}"
+  tags: [mmsoap, directories, verify]

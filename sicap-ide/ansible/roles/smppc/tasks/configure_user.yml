@@ -1,0 +1,111 @@
+---
+# SMPPC User Configuration Tasks
+
+- name: Set SMPPC user password
+  user:
+    name: "{{ smppc_user }}"
+    password: "{{ system_config.service_passwords.smppc | default('smppc') | password_hash('sha512') }}"
+  become: yes
+  tags: [smppc, user, password]
+
+- name: Check if .profile.sicap exists
+  stat:
+    path: "{{ smppc_home }}/.profile.sicap"
+  register: profile_sicap_exists
+  tags: [smppc, user, profile]
+
+- name: Update .profile.sicap to use installed Java
+  lineinfile:
+    path: "{{ smppc_home }}/.profile.sicap"
+    regexp: "^JAVA_HOME=\\${JAVA_HOME:-.*}"
+    line: "JAVA_HOME=\\${JAVA_HOME:-{{ java_home }}}"
+    backup: yes
+  become: yes
+  when: profile_sicap_exists.stat.exists
+  tags: [smppc, user, profile]
+
+- name: Create SMPPC-specific profile
+  copy:
+    content: |
+      #                             \\\\
+      #                             (. .)
+      #                              ( )
+      # ccm.sicap@sicap.com-----ooO-------Ooo----------------------------------------
+      #
+      # DESCRIPTION
+      #
+      # Application-specific profile for SMPPC.
+      #
+      # #############################################################################
+      #
+      # U S A G E
+      #
+      # Sourced at login of 'smppc' user
+      #
+      # #############################################################################
+
+      # JAVA configuration
+      # SMPPC requires a very special java version
+      if [ -d "{{ java_home }}" ]; then
+              JAVA_HOME="{{ java_home }}"
+              export JAVA_HOME
+              PATH="$JAVA_HOME/bin:$PATH"
+              export PATH
+      fi
+
+      # SMPPC configuration
+      # Add SMPPC bin directory to PATH
+      if [ -d "{{ smppc_current_dir }}/bin" ]; then
+              PATH="{{ smppc_current_dir }}/bin:$PATH"
+              export PATH
+      fi
+
+      # Set SMPPC environment variables
+      RUN="{{ smppc_current_dir }}/bin"
+      LOG_BASE="{{ smppc_logs_dir }}"
+      export RUN
+      export LOG_BASE
+
+      echo " ------------------------------------------------------"
+      echo " smppc {{ smppc_version }} environment variables"
+      echo " ------------------------------------------------------"
+      echo " Installation directory :   {{ smppc_install_dir }}"
+      echo " Release                :   {{ smppc_version }}"
+      echo " \$RUN directory         :   $RUN"
+      echo " \$LOG_BASE directory    :   $LOG_BASE"
+      echo " ------------------------------------------------------"
+      echo " "
+      echo " ------------------------------------------------------"
+      echo " SMPPC Java configuration"
+      echo " ------------------------------------------------------"
+      echo " JAVA_HOME              :   $JAVA_HOME"
+      echo " ------------------------------------------------------"
+    dest: "{{ smppc_home }}/.profile.smppc"
+    owner: "{{ smppc_user }}"
+    group: "{{ smppc_group }}"
+    mode: '0644'
+  become: yes
+  tags: [smppc, user, profile]
+
+- name: Update SMPPC user bash profile to source .profile.smppc
+  lineinfile:
+    path: "{{ smppc_home }}/.bash_profile"
+    line: "source ~/.profile.smppc"
+    create: yes
+    owner: "{{ smppc_user }}"
+    group: "{{ smppc_group }}"
+    mode: '0644'
+  become: yes
+  tags: [smppc, user, bash_profile]
+
+- name: Verify Java version under SMPPC user
+  shell: |
+    source {{ smppc_home }}/.profile.smppc
+    java -version
+  become_user: "{{ smppc_user }}"
+  register: smppc_java_version
+  tags: [smppc, user, verify]
+
+
+
+

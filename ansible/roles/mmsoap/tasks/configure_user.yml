@@ -1,0 +1,19 @@
+---
+# MMSOAP User Configuration Tasks
+# Note: MMSOAP user and group are created by the RPM package
+
+- name: Verify MMSOAP user exists (created by RPM)
+  getent:
+    database: passwd
+    key: "{{ mmsoap_user }}"
+  register: mmsoap_user_check
+  tags: [mmsoap, user, verify]
+
+- name: Display MMSOAP user status
+  debug:
+    msg: "MMSOAP user {{ mmsoap_user }} exists: {{ mmsoap_user_check.ansible_facts.getent_passwd[mmsoap_user] is defined }}"
+  tags: [mmsoap, user, verify]
+
+
+
+

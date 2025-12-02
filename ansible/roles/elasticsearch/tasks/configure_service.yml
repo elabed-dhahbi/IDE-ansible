@@ -1,0 +1,104 @@
+---
+# Elasticsearch Service Configuration Tasks
+
+- name: Check if Elasticsearch is already running
+  systemd:
+    name: "{{ elasticsearch_service_name }}"
+  register: elasticsearch_status
+  tags: [elasticsearch, service, check]
+
+- name: Start Elasticsearch service (ignore systemd timeouts)
+  command: systemctl start {{ elasticsearch_service_name }}
+  become: yes
+  ignore_errors: yes
+  when: elasticsearch_status.status.ActiveState != "active"
+  tags: [elasticsearch, service, start]
+
+- name: Enable Elasticsearch service
+  command: systemctl enable {{ elasticsearch_service_name }}
+  become: yes
+  ignore_errors: yes
+  when: elasticsearch_status.status.ActiveState != "active"
+  tags: [elasticsearch, service, enable]
+
+- name: Wait for Elasticsearch to be ready
+  wait_for:
+    port: "{{ service_ports.elasticsearch }}"
+    host: "{{ ansible_host }}"
+    delay: 10
+    timeout: 300
+  ignore_errors: yes
+  when: elasticsearch_status.status.ActiveState != "active"
+  tags: [elasticsearch, service, wait]
+
+- name: Copy password setup script
+  copy:
+    src: setup_passwords.sh
+    dest: /tmp/setup_passwords.sh
+    mode: '0755'
+  become: yes
+  tags: [elasticsearch, service, passwords]
+
+- name: Install expect package
+  yum:
+    name: expect
+    state: present
+  become: yes
+  tags: [elasticsearch, service, passwords]
+
+- name: Set up Elasticsearch passwords using custom script
+  shell: |
+    /tmp/setup_passwords.sh
+  become: yes
+  register: password_setup
+  tags: [elasticsearch, service, passwords]
+
+- name: Display password setup output
+  debug:
+    msg: "{{ password_setup.stdout_lines }}"
+  tags: [elasticsearch, service, passwords]
+
+- name: Check if passwords were actually changed (restart needed)
+  set_fact:
+    passwords_changed: "{{ password_setup.rc == 0 and 'Setting up initial passwords' in password_setup.stdout }}"
+  tags: [elasticsearch, service, passwords]
+
+- name: Restart Elasticsearch only if passwords were changed
+  systemd:
+    name: "{{ elasticsearch_service_name }}"
+    state: restarted
+  become: yes
+  when: passwords_changed
+  tags: [elasticsearch, service, restart]
+
+- name: Wait for Elasticsearch to be ready after restart
+  wait_for:
+    port: "{{ service_ports.elasticsearch }}"
+    host: "{{ ansible_host }}"
+    delay: 10
+    timeout: 120
+  when: passwords_changed
+  tags: [elasticsearch, service, wait]
+
+- name: Clean up password setup script
+  file:
+    path: /tmp/setup_passwords.sh
+    state: absent
+  become: yes
+  tags: [elasticsearch, service, passwords]
+
+- name: Check Elasticsearch cluster health
+  uri:
+    url: "http://{{ ansible_host }}:{{ service_ports.elasticsearch }}/_cluster/health"
+    method: GET
+    user: "elastic"
+    password: "elastic"
+  register: elasticsearch_health
+  tags: [elasticsearch, service, health]
+
+- name: Display Elasticsearch status
+  debug:
+    msg:
+      - "Elasticsearch is running on {{ ansible_host }}:{{ service_ports.elasticsearch }}"
+      - "Cluster status: {{ elasticsearch_health.json.status | default('unknown') }}"
+  tags: [elasticsearch, service, status]

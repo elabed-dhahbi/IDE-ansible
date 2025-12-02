@@ -1,0 +1,30 @@
+---
+# MMSOAP Role Default Variables
+
+# MMSOAP version (inherited from main configuration)
+mmsoap_version: "{{ versions.mmsoap }}"
+
+# Service configuration
+mmsoap_service_name: "mmsoap"
+mmsoap_user: "mmsoap"
+mmsoap_group: "mmsoap"
+
+# Directory configuration
+mmsoap_home: "/opt/mmsoap"
+mmsoap_install_dir: "{{ install_paths.mmsoap_home }}"
+mmsoap_config_dir: "/etc/mmsoap"
+mmsoap_logs_dir: "/var/log/mmsoap"
+mmsoap_data_dir: "/var/lib/mmsoap"
+
+# MMSOAP configuration
+mmsoap_config:
+  http_port: "{{ service_ports.mmsoap_http }}"
+  http_host: "0.0.0.0"
+  node_id: "{{ ansible_hostname }}"
+
+# Package configuration
+mmsoap_package: "{{ package_globs.mmsoap_rpm }}"
+
+
+
+

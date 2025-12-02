@@ -1,0 +1,57 @@
+---
+# Zabbix Database Setup Tasks
+# Assumes PostgreSQL is already installed and configured by db_postgres role
+
+- name: Wait for PostgreSQL to be ready
+  wait_for:
+    port: "{{ database_config.postgres_port }}"
+    host: "{{ hostvars[groups['zabbix'][0]]['ansible_host'] if groups['zabbix'] is defined and groups['zabbix'] | length > 0 else '127.0.0.1' }}"
+    delay: 5
+    timeout: 60
+  tags: [zabbix, database, wait]
+
+- name: Ensure postgres user has password set
+  shell: |
+    sudo -u postgres psql -c "ALTER USER postgres PASSWORD '{{ database_config.postgres_admin_password }}';"
+  become: yes
+  ignore_errors: true
+  tags: [zabbix, database, postgres_password]
+
+- name: Create Zabbix database user
+  shell: |
+    PGPASSWORD="{{ database_config.postgres_admin_password }}" psql -U "{{ database_config.postgres_admin_user }}" -d postgres -h "{{ hostvars[groups['zabbix'][0]]['ansible_host'] if groups['zabbix'] is defined and groups['zabbix'] | length > 0 else '127.0.0.1' }}" -p "{{ database_config.postgres_port }}" -c "CREATE USER zabbix WITH PASSWORD 'zabbix';"
+  become: yes
+  ignore_errors: true
+  tags: [zabbix, database, postgres]
+
+- name: Create Zabbix database
+  shell: |
+    PGPASSWORD="{{ database_config.postgres_admin_password }}" psql -U "{{ database_config.postgres_admin_user }}" -d postgres -h "{{ hostvars[groups['zabbix'][0]]['ansible_host'] if groups['zabbix'] is defined and groups['zabbix'] | length > 0 else '127.0.0.1' }}" -p "{{ database_config.postgres_port }}" -c "CREATE DATABASE zabbix OWNER zabbix;"
+  become: yes
+  ignore_errors: true
+  tags: [zabbix, database, postgres]
+
+- name: Grant database permissions
+  shell: |
+    PGPASSWORD="{{ database_config.postgres_admin_password }}" psql -U "{{ database_config.postgres_admin_user }}" -d zabbix -h "{{ hostvars[groups['zabbix'][0]]['ansible_host'] if groups['zabbix'] is defined and groups['zabbix'] | length > 0 else '127.0.0.1' }}" -p "{{ database_config.postgres_port }}" -c "GRANT ALL PRIVILEGES ON DATABASE zabbix TO zabbix;"
+  become: yes
+  tags: [zabbix, database, postgres]
+
+- name: Import Zabbix database schema
+  shell: |
+    zcat /usr/share/zabbix/sql-scripts/postgresql/server.sql.gz | PGPASSWORD="zabbix" psql -U zabbix -d zabbix -h "{{ hostvars[groups['zabbix'][0]]['ansible_host'] if groups['zabbix'] is defined and groups['zabbix'] | length > 0 else '127.0.0.1' }}" -p "{{ database_config.postgres_port }}"
+  become: yes
+  tags: [zabbix, database, schema]
+
+- name: Verify database import
+  shell: |
+    PGPASSWORD="zabbix" psql -U zabbix -d zabbix -h "{{ hostvars[groups['zabbix'][0]]['ansible_host'] if groups['zabbix'] is defined and groups['zabbix'] | length > 0 else '127.0.0.1' }}" -p "{{ database_config.postgres_port }}" -c "SELECT COUNT(*) FROM users;"
+  become: yes
+  register: db_import_check
+  tags: [zabbix, database, verify]
+
+- name: Display database import status
+  debug:
+    msg: "Database import completed successfully. User count: {{ db_import_check.stdout }}"
+  when: db_import_check.rc == 0
+  tags: [zabbix, database, verify]

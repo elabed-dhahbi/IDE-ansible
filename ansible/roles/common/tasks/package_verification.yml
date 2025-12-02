@@ -1,0 +1,189 @@
+---
+# Package Verification Tasks
+# Verifies that required packages are available in offline directory
+
+- name: Check if offline directory exists
+  stat:
+    path: "{{ paths.offline_dir }}"
+  register: offline_dir_check
+  tags: [common, packages, verification]
+
+- name: Fail if offline directory not found
+  fail:
+    msg: "Offline package directory not found: {{ paths.offline_dir }}"
+  when: not offline_dir_check.stat.exists
+  tags: [common, packages, verification]
+
+- name: Verify PostgreSQL repository package
+  stat:
+    path: "{{ paths.offline_dir }}/{{ package_globs.pgdg_repo_rpm }}"
+  register: postgres_repo_check
+  when: inventory_hostname in groups['postgres']
+  tags: [common, packages, verification, postgres]
+
+- name: Fail if PostgreSQL repository package not found
+  fail:
+    msg: "PostgreSQL repository package not found: {{ paths.offline_dir }}/{{ package_globs.pgdg_repo_rpm }}"
+  when: 
+    - inventory_hostname in groups['postgres']
+    - not postgres_repo_check.stat.exists 
+    - package_verification.fail_on_missing
+  tags: [common, packages, verification, postgres]
+
+- name: Verify DMC package
+  stat:
+    path: "{{ paths.offline_dir }}/{{ package_globs.dmc_rpm }}"
+  register: dmc_package_check
+  when: inventory_hostname in groups['dmc1'] or inventory_hostname in groups['dmc2']
+  tags: [common, packages, verification, dmc]
+
+- name: Fail if DMC package not found
+  fail:
+    msg: "DMC package not found: {{ paths.offline_dir }}/{{ package_globs.dmc_rpm }}"
+  when: 
+    - inventory_hostname in groups['dmc1'] or inventory_hostname in groups['dmc2']
+    - not dmc_package_check.stat.exists 
+    - package_verification.fail_on_missing
+  tags: [common, packages, verification, dmc]
+
+- name: Verify MMG package
+  stat:
+    path: "{{ paths.offline_dir }}/{{ package_globs.mmg_rpm }}"
+  register: mmg_package_check
+  when: inventory_hostname in groups['mmg']
+  tags: [common, packages, verification, mmg]
+
+- name: Fail if MMG package not found
+  fail:
+    msg: "MMG package not found: {{ paths.offline_dir }}/{{ package_globs.mmg_rpm }}"
+  when: 
+    - inventory_hostname in groups['mmg']
+    - not mmg_package_check.stat.exists 
+    - package_verification.fail_on_missing
+  tags: [common, packages, verification, mmg]
+
+- name: Verify MMSOAP package
+  stat:
+    path: "{{ paths.offline_dir }}/{{ package_globs.mmsoap_rpm }}"
+  register: mmsoap_package_check
+  when: inventory_hostname in groups['mmsoap']
+  tags: [common, packages, verification, mmsoap]
+
+- name: Fail if MMSOAP package not found
+  fail:
+    msg: "MMSOAP package not found: {{ paths.offline_dir }}/{{ package_globs.mmsoap_rpm }}"
+  when: 
+    - inventory_hostname in groups['mmsoap']
+    - not mmsoap_package_check.stat.exists 
+    - package_verification.fail_on_missing
+  tags: [common, packages, verification, mmsoap]
+
+- name: Verify SMPPC package
+  stat:
+    path: "{{ paths.offline_dir }}/{{ package_globs.smppc_rpm }}"
+  register: smppc_package_check
+  when: inventory_hostname in groups['smppc']
+  tags: [common, packages, verification, smppc]
+
+- name: Fail if SMPPC package not found
+  fail:
+    msg: "SMPPC package not found: {{ paths.offline_dir }}/{{ package_globs.smppc_rpm }}"
+  when: 
+    - inventory_hostname in groups['smppc']
+    - not smppc_package_check.stat.exists 
+    - package_verification.fail_on_missing
+  tags: [common, packages, verification, smppc]
+
+- name: Verify SLS package
+  stat:
+    path: "{{ paths.offline_dir }}/{{ package_globs.sls_rpm }}"
+  register: sls_package_check
+  when: inventory_hostname in groups['sls']
+  tags: [common, packages, verification, sls]
+
+- name: Fail if SLS package not found
+  fail:
+    msg: "SLS package not found: {{ paths.offline_dir }}/{{ package_globs.sls_rpm }}"
+  when: 
+    - inventory_hostname in groups['sls']
+    - not sls_package_check.stat.exists 
+    - package_verification.fail_on_missing
+  tags: [common, packages, verification, sls]
+
+- name: Verify Elasticsearch package
+  stat:
+    path: "{{ paths.offline_dir }}/{{ package_globs.es_rpm }}"
+  register: es_package_check
+  when: inventory_hostname in groups['elasticsearch']
+  tags: [common, packages, verification, elasticsearch]
+
+- name: Fail if Elasticsearch package not found
+  fail:
+    msg: "Elasticsearch package not found: {{ paths.offline_dir }}/{{ package_globs.es_rpm }}"
+  when: 
+    - inventory_hostname in groups['elasticsearch']
+    - not es_package_check.stat.exists 
+    - package_verification.fail_on_missing
+  tags: [common, packages, verification, elasticsearch]
+
+- name: Verify Kibana package
+  stat:
+    path: "{{ paths.offline_dir }}/{{ package_globs.kibana_rpm }}"
+  register: kibana_package_check
+  when: inventory_hostname in groups['kibana']
+  tags: [common, packages, verification, kibana]
+
+- name: Fail if Kibana package not found
+  fail:
+    msg: "Kibana package not found: {{ paths.offline_dir }}/{{ package_globs.kibana_rpm }}"
+  when: 
+    - inventory_hostname in groups['kibana']
+    - not kibana_package_check.stat.exists 
+    - package_verification.fail_on_missing
+  tags: [common, packages, verification, kibana]
+
+- name: Check for Logstash package
+  shell: "ls {{ paths.offline_dir }}/logstash-*.rpm 2>/dev/null | head -1"
+  register: logstash_package_check
+  when: inventory_hostname in groups['logstash']
+  failed_when: false
+  tags: [common, packages, verification, logstash]
+
+- name: Fail if Logstash package not found
+  fail:
+    msg: "Logstash package not found in {{ paths.offline_dir }}/"
+  when: 
+    - inventory_hostname in groups['logstash']
+    - logstash_package_check.stdout == ""
+    - package_verification.fail_on_missing | default(false)
+  tags: [common, packages, verification, logstash]
+
+- name: Check for JDK8 package
+  shell: "ls {{ paths.offline_dir }}/openlogic-openjdk-8u*linux*.tar.gz 2>/dev/null | head -1"
+  register: jdk8_package_check
+  failed_when: false
+  tags: [common, packages, verification, jdk]
+
+- name: Fail if JDK8 package not found
+  fail:
+    msg: "JDK8 package not found in {{ paths.offline_dir }}/"
+  when: 
+    - jdk8_package_check.stdout == ""
+    - package_verification.fail_on_missing | default(false)
+  tags: [common, packages, verification, jdk]
+
+- name: Display package verification results
+  debug:
+    msg:
+      - "Package verification completed"
+      - "PostgreSQL repo: {{ 'Found' if postgres_repo_check.stat.exists else 'Missing' }}"
+      - "DMC: {{ 'Found' if dmc_package_check.stat.exists else 'Missing' }}"
+      - "MMG: {{ 'Found' if mmg_package_check.stat.exists else 'Missing' }}"
+      - "MMSOAP: {{ 'Found' if mmsoap_package_check.stat.exists else 'Missing' }}"
+      - "SMPPC: {{ 'Found' if smppc_package_check.stat.exists else 'Missing' }}"
+      - "SLS: {{ 'Found' if sls_package_check.stat.exists else 'Missing' }}"
+      - "Elasticsearch: {{ 'Found' if es_package_check.stat.exists else 'Missing' }}"
+      - "Kibana: {{ 'Found' if kibana_package_check.stat.exists else 'Missing' }}"
+      - "Logstash: {{ 'Found' if logstash_package_check.stat.exists else 'Missing' }}"
+      - "JDK8: {{ 'Found' if jdk8_package_check.stat.exists else 'Missing' }}"
+  tags: [common, packages, verification, summary]

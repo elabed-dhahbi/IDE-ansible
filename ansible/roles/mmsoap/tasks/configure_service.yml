@@ -1,0 +1,36 @@
+---
+# MMSOAP Service Configuration Tasks
+
+- name: Start MMSOAP service using SICAP ctl
+  shell: "ctl start all"
+  become_user: "{{ mmsoap_user }}"
+  become: yes
+  args:
+    chdir: "{{ mmsoap_home }}"
+  tags: [mmsoap, service, start]
+
+- name: Check MMSOAP service status
+  shell: "ctl status all"
+  become_user: "{{ mmsoap_user }}"
+  become: yes
+  args:
+    chdir: "{{ mmsoap_home }}"
+  register: mmsoap_status
+  tags: [mmsoap, service, status]
+
+- name: Display MMSOAP service status
+  debug:
+    msg: "{{ mmsoap_status.stdout_lines }}"
+  tags: [mmsoap, service, info]
+
+- name: Wait for MMSOAP to be ready
+  wait_for:
+    port: "{{ mmsoap_config.http_port }}"
+    host: "{{ ansible_host }}"
+    delay: 10
+    timeout: 120
+  tags: [mmsoap, service, wait]
+
+
+
+

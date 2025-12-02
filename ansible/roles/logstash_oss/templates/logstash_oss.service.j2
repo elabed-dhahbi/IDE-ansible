@@ -1,0 +1,31 @@
+[Unit]
+Description=Logstash OSS
+Documentation=https://www.elastic.co/products/logstash
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User={{ logstash_oss_user }}
+Group={{ logstash_oss_group }}
+EnvironmentFile={{ logstash_oss_config_dir }}/startup.options
+ExecStart={{ logstash_oss_install_dir }}/bin/logstash
+Restart=always
+RestartSec=5
+WorkingDirectory={{ logstash_oss_home }}
+LimitNOFILE={{ logstash_oss_system.nofile_limit }}
+LimitMEMLOCK={{ logstash_oss_system.memlock_limit }}
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ logstash_oss_data_dir }} {{ logstash_oss_logs_dir }} {{ logstash_oss_home }}
+
+[Install]
+WantedBy=multi-user.target
+
+
+
+

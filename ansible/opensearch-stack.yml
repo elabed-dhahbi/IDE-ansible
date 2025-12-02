@@ -1,0 +1,71 @@
+---
+# OpenSearch Stack Playbook
+# This playbook deploys the OpenSearch stack with Logstash OSS instead of regular Logstash
+
+- name: Deploy OpenSearch Stack with Logstash OSS
+  hosts: "{{ target_hosts | default('opensearch_stack') }}"
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    stack_type: "opensearch"
+    
+  pre_tasks:
+    - name: Display deployment information
+      debug:
+        msg: "Deploying OpenSearch stack with Logstash OSS version 8.19.4"
+        
+    - name: Verify required packages are available
+      stat:
+        path: "{{ artifacts_dir | default('/opt/artifacts') }}/logstash-oss-8.19.4-x86_64.rpm"
+      register: logstash_oss_package
+      failed_when: not logstash_oss_package.stat.exists
+      
+  roles:
+    - role: common
+      tags: [common, system]
+      
+    - role: opensearch
+      tags: [opensearch, search]
+      when: "'opensearch' in group_names"
+      
+    - role: logstash_oss
+      tags: [logstash_oss, log_processing]
+      when: "'logstash' in group_names or 'opensearch' in group_names"
+      
+    - role: opensearch_dashboards
+      tags: [opensearch_dashboards, visualization]
+      when: "'opensearch_dashboards' in group_names or 'opensearch' in group_names"
+      
+  post_tasks:
+    - name: Verify OpenSearch stack services
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - opensearch
+        - logstash-oss
+        - opensearch-dashboards
+      when: ansible_os_family == "RedHat"
+      
+    - name: Display OpenSearch stack status
+      debug:
+        msg: |
+          OpenSearch Stack deployed successfully!
+          
+          Services:
+          - OpenSearch: http://{{ ansible_host }}:9200
+          - Logstash OSS: http://{{ ansible_host }}:9600
+          - OpenSearch Dashboards: http://{{ ansible_host }}:5601/dmcdashboards
+          
+          Logstash OSS Configuration:
+          - Version: 8.19.4
+          - Pipeline: /usr/share/logstash/pipeline/logstash.conf
+          - Patterns: /opt/logstash/patterns/sicap_patterns
+          - Data Directory: /var/opt/logstash/data
+          - Logs Directory: /var/opt/logstash/logs
+
+
+
+

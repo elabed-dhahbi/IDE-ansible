@@ -1,0 +1,372 @@
+---
+# DMC Database Setup Tasks
+
+- name: Check if psql is already available
+  command: which psql
+  register: psql_check
+  failed_when: false
+  changed_when: false
+  tags: [dmc, database, packages]
+
+- name: Find PostgreSQL client package in offline directory
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "postgresql15-*.rpm"
+      - "postgresql-*.rpm"
+    excludes:
+      - "*server*"
+      - "*libs*"
+      - "*contrib*"
+  register: postgresql_client_package
+  when: psql_check.rc != 0
+  tags: [dmc, database, packages]
+
+- name: Find PostgreSQL libs package in offline directory (required dependency)
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "postgresql15-libs-*.rpm"
+      - "postgresql-libs-*.rpm"
+  register: postgresql_libs_package
+  when:
+    - psql_check.rc != 0
+    - postgresql_client_package.files | default([]) | length > 0
+  tags: [dmc, database, packages]
+
+- name: Install PostgreSQL libs from offline package (required dependency)
+  command: rpm -Uvh --force --nodeps "{{ item.path }}"
+  loop: "{{ postgresql_libs_package.files | default([]) }}"
+  become: yes
+  when:
+    - psql_check.rc != 0
+    - postgresql_libs_package.files | default([]) | length > 0
+  ignore_errors: yes
+  tags: [dmc, database, packages]
+
+- name: Install PostgreSQL client from offline package
+  command: rpm -Uvh --force "{{ item.path }}"
+  loop: "{{ postgresql_client_package.files | default([]) }}"
+  become: yes
+  when:
+    - psql_check.rc != 0
+    - postgresql_client_package.files | default([]) | length > 0
+  ignore_errors: yes
+  tags: [dmc, database, packages]
+
+- name: Install PostgreSQL client from system repositories (fallback)
+  dnf:
+    name: postgresql15
+    state: present
+  become: yes
+  when:
+    - psql_check.rc != 0
+    - postgresql_client_package.files | default([]) | length == 0
+  ignore_errors: yes
+  tags: [dmc, database, packages]
+
+- name: Verify psql is available
+  command: which psql
+  register: psql_final_check
+  failed_when: psql_final_check.rc != 0
+  changed_when: false
+  tags: [dmc, database, packages]
+
+- name: Get psql binary path
+  set_fact:
+    psql_binary: "{{ psql_final_check.stdout.strip() }}"
+  tags: [dmc, database, packages]
+
+- name: Copy DMC database scripts to temporary location
+  copy:
+    src: "{{ dmc_current_dir }}/db/install/"
+    dest: "/tmp/db/dmc/install/"
+    mode: '0755'
+    remote_src: yes
+  become: yes
+  tags: [dmc, database, scripts]
+
+- name: Copy DMC database migration scripts to temporary location
+  copy:
+    src: "{{ dmc_current_dir }}/db/migration/"
+    dest: "/tmp/db/dmc/migration/"
+    mode: '0755'
+    remote_src: yes
+  become: yes
+  tags: [dmc, database, scripts]
+
+- name: Check if tablespace exists (data)
+  shell: |
+    PGPASSWORD="{{ dmc_database_password }}" {{ psql_binary }} -U "{{ dmc_database_user }}" -d "{{ dmc_database_name }}" -h "{{ dmc_database_host }}" -p "{{ dmc_database_port }}" \
+      -t -c "SELECT EXISTS (SELECT 1 FROM pg_tablespace WHERE spcname = '{{ dmc_database_tablespace_data }}');"
+  become: yes
+  register: tablespace_data_exists
+  failed_when: false
+  changed_when: false
+  tags: [dmc, database, tablespace_check]
+
+- name: Check if tablespace exists (index)
+  shell: |
+    PGPASSWORD="{{ dmc_database_password }}" {{ psql_binary }} -U "{{ dmc_database_user }}" -d "{{ dmc_database_name }}" -h "{{ dmc_database_host }}" -p "{{ dmc_database_port }}" \
+      -t -c "SELECT EXISTS (SELECT 1 FROM pg_tablespace WHERE spcname = '{{ dmc_database_tablespace_index }}');"
+  become: yes
+  register: tablespace_index_exists
+  failed_when: false
+  changed_when: false
+  tags: [dmc, database, tablespace_check]
+
+- name: Check if tablespace exists (lob)
+  shell: |
+    PGPASSWORD="{{ dmc_database_password }}" {{ psql_binary }} -U "{{ dmc_database_user }}" -d "{{ dmc_database_name }}" -h "{{ dmc_database_host }}" -p "{{ dmc_database_port }}" \
+      -t -c "SELECT EXISTS (SELECT 1 FROM pg_tablespace WHERE spcname = '{{ dmc_database_tablespace_lob }}');"
+  become: yes
+  register: tablespace_lob_exists
+  failed_when: false
+  changed_when: false
+  tags: [dmc, database, tablespace_check]
+
+- name: Set tablespace usage flags
+  set_fact:
+    use_tablespace_data: "{{ (tablespace_data_exists.stdout | default('f')).strip() == 't' and dmc_database_tablespace_data != 'default' }}"
+    use_tablespace_index: "{{ (tablespace_index_exists.stdout | default('f')).strip() == 't' and dmc_database_tablespace_index != 'default' }}"
+    use_tablespace_lob: "{{ (tablespace_lob_exists.stdout | default('f')).strip() == 't' and dmc_database_tablespace_lob != 'default' }}"
+  tags: [dmc, database, tablespace_check]
+
+- name: Display tablespace usage flags
+  debug:
+    msg: "Using tablespaces - data: {{ use_tablespace_data }}, index: {{ use_tablespace_index }}, lob: {{ use_tablespace_lob }}"
+  tags: [dmc, database, tablespace_check, debug]
+
+- name: Pre-process DDL script to handle missing or default tablespaces
+  shell: |
+    # Create a temporary processed SQL file
+    cp "/tmp/db/dmc/install/DMC4_install_ddl_PostgreSQL.sql" "/tmp/db/dmc/install/DMC4_install_ddl_PostgreSQL_processed.sql"
+    # Remove TABLESPACE clauses if tablespaces don't exist or are set to "default"
+    {% if not use_tablespace_data or not use_tablespace_index or not use_tablespace_lob %}
+    # Remove TABLESPACE clauses that use tablespace variables
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_def_data[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_ddl_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_def_index[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_ddl_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_oth_data[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_ddl_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_oth_index[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_ddl_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_def_lob[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_ddl_PostgreSQL_processed.sql"
+    # Also handle cases where TABLESPACE appears after variable substitution
+    sed -i 's/TABLESPACE[[:space:]]*{{ dmc_database_tablespace_data }}[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_ddl_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*{{ dmc_database_tablespace_index }}[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_ddl_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*{{ dmc_database_tablespace_lob }}[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_ddl_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*default[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_ddl_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*default;//g' "/tmp/db/dmc/install/DMC4_install_ddl_PostgreSQL_processed.sql"
+    {% endif %}
+  become: yes
+  tags: [dmc, database, ddl]
+
+- name: Install DMC DDL scripts
+  shell: |
+    # Build psql command with conditional variable flags
+    CMD="PGPASSWORD=\"{{ dmc_database_password }}\" {{ psql_binary }} -U \"{{ dmc_database_user }}\" -d \"{{ dmc_database_name }}\" -h \"{{ dmc_database_host }}\" -p \"{{ dmc_database_port }}\" -f \"/tmp/db/dmc/install/DMC4_install_ddl_PostgreSQL_processed.sql\""
+    {% if use_tablespace_data %}
+    CMD="$CMD -v tablespace_def_data=\"{{ dmc_database_tablespace_data }}\" -v tablespace_oth_data=\"{{ dmc_database_tablespace_data }}\""
+    {% endif %}
+    {% if use_tablespace_lob %}
+    CMD="$CMD -v tablespace_def_lob=\"{{ dmc_database_tablespace_lob }}\""
+    {% endif %}
+    {% if use_tablespace_index %}
+    CMD="$CMD -v tablespace_def_index=\"{{ dmc_database_tablespace_index }}\" -v tablespace_oth_index=\"{{ dmc_database_tablespace_index }}\""
+    {% endif %}
+    eval $CMD
+  become: yes
+  register: ddl_result
+  failed_when: "'ERROR:' in ddl_result.stderr and 'already exists' not in ddl_result.stderr and 'does not exist' not in ddl_result.stderr"
+  changed_when: ddl_result.rc == 0
+  tags: [dmc, database, ddl]
+
+- name: Display DDL script result
+  debug:
+    msg: "DDL script output: {{ ddl_result.stdout_lines if ddl_result.stdout_lines is defined else [] }}"
+  when: ddl_result.stdout_lines is defined
+  tags: [dmc, database, ddl, debug]
+
+- name: Display DDL script errors
+  debug:
+    msg: "DDL script errors: {{ ddl_result.stderr_lines if ddl_result.stderr_lines is defined else [] }}"
+  when: ddl_result.stderr_lines is defined
+  tags: [dmc, database, ddl, debug]
+
+- name: Verify eu_provider table exists after DDL
+  shell: |
+    PGPASSWORD="{{ dmc_database_password }}" {{ psql_binary }} -U "{{ dmc_database_user }}" -d "{{ dmc_database_name }}" -h "{{ dmc_database_host }}" -p "{{ dmc_database_port }}" \
+      -t -c "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'eu_provider');"
+  become: yes
+  register: table_check
+  failed_when: false
+  changed_when: false
+  tags: [dmc, database, ddl, debug]
+
+- name: Display table check result
+  debug:
+    msg: "eu_provider table exists: {{ table_check.stdout.strip() }}"
+  tags: [dmc, database, ddl, debug]
+
+- name: Pre-process QRTZ script to handle missing or default tablespaces
+  shell: |
+    cp "/tmp/db/dmc/install/DMC4_install_qrtz_PostgreSQL.sql" "/tmp/db/dmc/install/DMC4_install_qrtz_PostgreSQL_processed.sql"
+    {% if not use_tablespace_data or not use_tablespace_index or not use_tablespace_lob %}
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_def_data[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_qrtz_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_def_index[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_qrtz_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_oth_data[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_qrtz_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_oth_index[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_qrtz_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_def_lob[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_qrtz_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*{{ dmc_database_tablespace_data }}[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_qrtz_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*{{ dmc_database_tablespace_index }}[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_qrtz_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*{{ dmc_database_tablespace_lob }}[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_qrtz_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*default[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_qrtz_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*default;//g' "/tmp/db/dmc/install/DMC4_install_qrtz_PostgreSQL_processed.sql"
+    {% endif %}
+  become: yes
+  tags: [dmc, database, qrtz]
+
+- name: Install DMC QRTZ scripts
+  shell: |
+    CMD="PGPASSWORD=\"{{ dmc_database_password }}\" {{ psql_binary }} -U \"{{ dmc_database_user }}\" -d \"{{ dmc_database_name }}\" -h \"{{ dmc_database_host }}\" -p \"{{ dmc_database_port }}\" -f \"/tmp/db/dmc/install/DMC4_install_qrtz_PostgreSQL_processed.sql\""
+    {% if use_tablespace_data %}
+    CMD="$CMD -v tablespace_def_data=\"{{ dmc_database_tablespace_data }}\" -v tablespace_oth_data=\"{{ dmc_database_tablespace_data }}\""
+    {% endif %}
+    {% if use_tablespace_lob %}
+    CMD="$CMD -v tablespace_def_lob=\"{{ dmc_database_tablespace_lob }}\""
+    {% endif %}
+    {% if use_tablespace_index %}
+    CMD="$CMD -v tablespace_def_index=\"{{ dmc_database_tablespace_index }}\" -v tablespace_oth_index=\"{{ dmc_database_tablespace_index }}\""
+    {% endif %}
+    eval $CMD
+  become: yes
+  register: qrtz_result
+  failed_when: "'ERROR:' in qrtz_result.stderr and 'already exists' not in qrtz_result.stderr and 'does not exist' not in qrtz_result.stderr"
+  changed_when: qrtz_result.rc == 0
+  tags: [dmc, database, qrtz]
+
+- name: Pre-process DML script to handle missing or default tablespaces
+  shell: |
+    cp "/tmp/db/dmc/install/DMC4_install_dml_PostgreSQL.sql" "/tmp/db/dmc/install/DMC4_install_dml_PostgreSQL_processed.sql"
+    {% if not use_tablespace_data or not use_tablespace_index or not use_tablespace_lob %}
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_def_data[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_dml_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_def_index[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_dml_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_oth_data[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_dml_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_oth_index[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_dml_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_def_lob[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_dml_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*{{ dmc_database_tablespace_data }}[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_dml_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*{{ dmc_database_tablespace_index }}[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_dml_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*{{ dmc_database_tablespace_lob }}[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_dml_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*default[[:space:]]*//g' "/tmp/db/dmc/install/DMC4_install_dml_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*default;//g' "/tmp/db/dmc/install/DMC4_install_dml_PostgreSQL_processed.sql"
+    {% endif %}
+  become: yes
+  tags: [dmc, database, dml]
+
+- name: Install DMC DML scripts
+  shell: |
+    CMD="PGPASSWORD=\"{{ dmc_database_password }}\" {{ psql_binary }} -U \"{{ dmc_database_user }}\" -d \"{{ dmc_database_name }}\" -h \"{{ dmc_database_host }}\" -p \"{{ dmc_database_port }}\" -f \"/tmp/db/dmc/install/DMC4_install_dml_PostgreSQL_processed.sql\""
+    {% if use_tablespace_data %}
+    CMD="$CMD -v tablespace_def_data=\"{{ dmc_database_tablespace_data }}\" -v tablespace_oth_data=\"{{ dmc_database_tablespace_data }}\""
+    {% endif %}
+    {% if use_tablespace_lob %}
+    CMD="$CMD -v tablespace_def_lob=\"{{ dmc_database_tablespace_lob }}\""
+    {% endif %}
+    {% if use_tablespace_index %}
+    CMD="$CMD -v tablespace_def_index=\"{{ dmc_database_tablespace_index }}\" -v tablespace_oth_index=\"{{ dmc_database_tablespace_index }}\""
+    {% endif %}
+    eval $CMD
+  become: yes
+  register: dml_result
+  failed_when: "'ERROR:' in dml_result.stderr and 'already exists' not in dml_result.stderr and 'does not exist' not in dml_result.stderr"
+  changed_when: dml_result.rc == 0
+  tags: [dmc, database, dml]
+
+- name: Pre-process migration script to handle missing or default tablespaces
+  shell: |
+    cp "/tmp/db/dmc/migration/DMC4.5.15_to_DMC4.5.16_migration_Roadmap_IPV6_PostgreSQL.sql" "/tmp/db/dmc/migration/DMC4.5.15_to_DMC4.5.16_migration_Roadmap_IPV6_PostgreSQL_processed.sql"
+    {% if not use_tablespace_data or not use_tablespace_index or not use_tablespace_lob %}
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_def_data[[:space:]]*//g' "/tmp/db/dmc/migration/DMC4.5.15_to_DMC4.5.16_migration_Roadmap_IPV6_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_def_index[[:space:]]*//g' "/tmp/db/dmc/migration/DMC4.5.15_to_DMC4.5.16_migration_Roadmap_IPV6_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_oth_data[[:space:]]*//g' "/tmp/db/dmc/migration/DMC4.5.15_to_DMC4.5.16_migration_Roadmap_IPV6_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_oth_index[[:space:]]*//g' "/tmp/db/dmc/migration/DMC4.5.15_to_DMC4.5.16_migration_Roadmap_IPV6_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*:tablespace_def_lob[[:space:]]*//g' "/tmp/db/dmc/migration/DMC4.5.15_to_DMC4.5.16_migration_Roadmap_IPV6_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*{{ dmc_database_tablespace_data }}[[:space:]]*//g' "/tmp/db/dmc/migration/DMC4.5.15_to_DMC4.5.16_migration_Roadmap_IPV6_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*{{ dmc_database_tablespace_index }}[[:space:]]*//g' "/tmp/db/dmc/migration/DMC4.5.15_to_DMC4.5.16_migration_Roadmap_IPV6_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*{{ dmc_database_tablespace_lob }}[[:space:]]*//g' "/tmp/db/dmc/migration/DMC4.5.15_to_DMC4.5.16_migration_Roadmap_IPV6_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*default[[:space:]]*//g' "/tmp/db/dmc/migration/DMC4.5.15_to_DMC4.5.16_migration_Roadmap_IPV6_PostgreSQL_processed.sql"
+    sed -i 's/TABLESPACE[[:space:]]*default;//g' "/tmp/db/dmc/migration/DMC4.5.15_to_DMC4.5.16_migration_Roadmap_IPV6_PostgreSQL_processed.sql"
+    {% endif %}
+  become: yes
+  tags: [dmc, database, migration]
+
+- name: Install DMC migration scripts
+  shell: |
+    CMD="PGPASSWORD=\"{{ dmc_database_password }}\" {{ psql_binary }} -U \"{{ dmc_database_user }}\" -d \"{{ dmc_database_name }}\" -h \"{{ dmc_database_host }}\" -p \"{{ dmc_database_port }}\" -f \"/tmp/db/dmc/migration/DMC4.5.15_to_DMC4.5.16_migration_Roadmap_IPV6_PostgreSQL_processed.sql\""
+    {% if use_tablespace_data %}
+    CMD="$CMD -v tablespace_def_data=\"{{ dmc_database_tablespace_data }}\" -v tablespace_oth_data=\"{{ dmc_database_tablespace_data }}\""
+    {% endif %}
+    {% if use_tablespace_lob %}
+    CMD="$CMD -v tablespace_def_lob=\"{{ dmc_database_tablespace_lob }}\""
+    {% endif %}
+    {% if use_tablespace_index %}
+    CMD="$CMD -v tablespace_def_index=\"{{ dmc_database_tablespace_index }}\" -v tablespace_oth_index=\"{{ dmc_database_tablespace_index }}\""
+    {% endif %}
+    eval $CMD
+  become: yes
+  register: migration_result
+  failed_when: "'ERROR:' in migration_result.stderr and 'already exists' not in migration_result.stderr and 'does not exist' not in migration_result.stderr"
+  changed_when: migration_result.rc == 0
+  tags: [dmc, database, migration]
+
+- name: Get provider ID from database
+  shell: |
+    PGPASSWORD="{{ dmc_database_password }}" {{ psql_binary }} -U "{{ dmc_database_user }}" -d "{{ dmc_database_name }}" -h "{{ dmc_database_host }}" -p "{{ dmc_database_port }}" \
+      -t -c "SELECT id FROM eu_provider WHERE name = '{{ dmc_provider_name }}';"
+  register: provider_id_result
+  become: yes
+  failed_when: false
+  changed_when: false
+  tags: [dmc, database, provider]
+
+- name: Set provider ID from database result
+  set_fact:
+    actual_provider_id: "{{ provider_id_result.stdout.strip() if (provider_id_result.rc == 0 and provider_id_result.stdout.strip()) else dmc_provider_id }}"
+  tags: [dmc, database, provider]
+
+- name: Display provider ID
+  debug:
+    msg: "Provider ID from database: {{ actual_provider_id }}"
+  tags: [dmc, database, provider]
+
+- name: Update cm-EndUser.properties with actual provider ID
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/cm-EndUser.properties"
+    regexp: 'dmc\.core\.enduser\.mobilehistory\.size\.provider\.\d+'
+    line: 'dmc.core.enduser.mobilehistory.size.provider.{{ actual_provider_id }}=10'
+    backup: yes
+  become: yes
+  tags: [dmc, database, provider]
+
+- name: Update rest-api.properties with actual provider ID
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/rest-api.properties"
+    regexp: 'cache\.providers\.list = \d+'
+    line: 'cache.providers.list = {{ actual_provider_id }}'
+    backup: yes
+  become: yes
+  tags: [dmc, database, provider]
+
+- name: Update cm-DMCDeployMode.properties with actual provider ID
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/cm-DMCDeployMode.properties"
+    regexp: 'deployedProviderId=\d+'
+    line: 'deployedProviderId={{ actual_provider_id }}'
+    backup: yes
+  become: yes
+  tags: [dmc, database, provider]
+
+- name: Clean up temporary database files
+  file:
+    path: "/tmp/db/dmc"
+    state: absent
+  become: yes
+  tags: [dmc, database, cleanup]

@@ -1,0 +1,25 @@
+---
+# Zabbix Agents and Java Gateway Configuration Only
+# This file configures only agents and Java Gateway, no server components
+
+- name: Create Zabbix agent2 configuration
+  template:
+    src: roles/zabbix/templates/zabbix_agent2.conf.j2
+    dest: "/etc/zabbix/zabbix_agent2.conf"
+    owner: "zabbix"
+    group: "zabbix"
+    mode: '0640'
+  become: true
+  when: zabbix.components.agent2 | default(false)
+  tags: [zabbix, config, agent2]
+
+- name: Create Zabbix Java Gateway configuration
+  template:
+    src: roles/zabbix/templates/zabbix_java_gateway.conf.j2
+    dest: "/etc/zabbix/zabbix_java_gateway.conf"
+    owner: "zabbix"
+    group: "zabbix"
+    mode: '0640'
+  become: true
+  when: zabbix.components.java_gateway | default(false)
+  tags: [zabbix, config, java_gateway]

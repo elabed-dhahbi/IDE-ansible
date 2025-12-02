@@ -1,0 +1,25 @@
+---
+# PostgreSQL 15 Installation Tasks
+
+- name: Install PostgreSQL repository package
+  rpm:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ lookup('fileglob', paths.offline_dir + '/' + package_globs.pgdg_repo_rpm, errors='ignore') }}"
+  tags: [postgres, install, packages]
+
+- name: Install PostgreSQL server and contrib packages
+  yum:
+    name:
+      - postgresql{{ versions.postgres }}-server
+      - postgresql{{ versions.postgres }}-contrib
+    state: present
+    enablerepo: pgdg{{ versions.postgres }}
+  tags: [postgres, install, packages]
+
+- name: Check if PostgreSQL is already initialized
+  stat:
+    path: "{{ postgresql_config.data_directory }}/postgresql.conf"
+  register: postgres_initialized
+  tags: [postgres, install, init]
+

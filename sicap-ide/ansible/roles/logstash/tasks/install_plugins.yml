@@ -1,0 +1,53 @@
+---
+# Logstash Plugin Installation Tasks
+
+- name: Check if rest filter plugin is already installed
+  shell: /usr/share/logstash/bin/logstash-plugin list | grep -q "logstash-filter-rest"
+  register: rest_plugin_check
+  failed_when: false
+  become: yes
+  tags: [logstash, plugins, rest]
+
+- name: Copy rest filter plugin package to target
+  copy:
+    src: "{{ item }}"
+    dest: "{{ paths.offline_dir }}/"
+    mode: '0644'
+  loop: "{{ lookup('fileglob', paths.offline_dir + '/' + package_globs.logstash_filter_rest, wantlist=True, errors='ignore') }}"
+  when: not rest_plugin_check.rc == 0
+  become: yes
+  tags: [logstash, plugins, rest]
+
+- name: Find rest filter plugin package
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns: "{{ package_globs.logstash_filter_rest }}"
+  register: rest_plugin_files
+  when: not rest_plugin_check.rc == 0
+  tags: [logstash, plugins, rest]
+
+- name: Install rest filter plugin from offline package
+  shell: |
+    cd /usr/share/logstash
+    bin/logstash-plugin install file://{{ item.path }}
+  loop: "{{ rest_plugin_files.files }}"
+  become: yes
+  when: not rest_plugin_check.rc == 0
+  tags: [logstash, plugins, rest]
+
+- name: Verify rest filter plugin installation
+  shell: /usr/share/logstash/bin/logstash-plugin list | grep "logstash-filter-rest"
+  register: rest_plugin_verify
+  become: yes
+  tags: [logstash, plugins, rest]
+
+- name: Display rest filter plugin status
+  debug:
+    msg: "Rest filter plugin installed: {{ rest_plugin_verify.stdout_lines }}"
+  tags: [logstash, plugins, rest]
+
+- name: Clear logstash cache
+  shell: |
+    rm -f /var/lib/logstash/plugins/inputs/file/.sincedb*
+  become: yes
+  tags: [logstash, plugins, cache]

@@ -1,0 +1,260 @@
+---
+# Zabbix Database Setup Tasks
+# Assumes PostgreSQL is already installed and configured by db_postgres role
+
+- name: Find psql binary location
+  shell: |
+    for path in /usr/pgsql-*/bin/psql /usr/bin/psql /usr/local/pgsql/bin/psql; do
+      if [ -f "$path" ]; then
+        echo "$path"
+        break
+      fi
+    done
+  register: psql_location
+  become: yes
+  tags: [zabbix, database, psql]
+
+- name: Debug - psql location
+  debug:
+    msg: "psql location: {{ psql_location.stdout }}"
+  tags: [zabbix, database, psql]
+
+- name: Wait for PostgreSQL to be ready
+  wait_for:
+    port: "{{ service_ports.postgres }}"
+    host: "{{ hostvars[groups['zabbix'][0]]['ansible_host'] if groups['zabbix'] is defined and groups['zabbix'] | length > 0 else '127.0.0.1' }}"
+    delay: 5
+    timeout: 60
+  tags: [zabbix, database, wait]
+
+- name: Ensure postgres user has password set (via Unix socket with peer auth)
+  shell: "{{ psql_location.stdout }} -U postgres -d postgres -c \"ALTER USER postgres PASSWORD '{{ database_config.postgres_admin_password }}';\""
+  become: yes
+  become_user: postgres
+  when: psql_location.stdout is defined and psql_location.stdout | length > 0
+  ignore_errors: true
+  tags: [zabbix, database, postgres_password]
+
+- name: Create Zabbix database user (via Unix socket)
+  shell: "{{ psql_location.stdout }} -U postgres -d postgres -c \"CREATE USER zabbix WITH PASSWORD 'zabbix';\""
+  become: yes
+  become_user: postgres
+  when: psql_location.stdout is defined and psql_location.stdout | length > 0
+  ignore_errors: true
+  tags: [zabbix, database, postgres]
+
+- name: Create Zabbix database (via Unix socket)
+  shell: "{{ psql_location.stdout }} -U postgres -d postgres -c \"CREATE DATABASE zabbix OWNER zabbix;\""
+  become: yes
+  become_user: postgres
+  when: psql_location.stdout is defined and psql_location.stdout | length > 0
+  ignore_errors: true
+  tags: [zabbix, database, postgres]
+
+- name: Grant database permissions (via Unix socket)
+  shell: "{{ psql_location.stdout }} -U postgres -d zabbix -c \"GRANT ALL PRIVILEGES ON DATABASE zabbix TO zabbix;\""
+  become: yes
+  become_user: postgres
+  when: psql_location.stdout is defined and psql_location.stdout | length > 0
+  tags: [zabbix, database, postgres]
+
+- name: Check if zabbix-sql-scripts package is installed
+  command: rpm -q zabbix-sql-scripts
+  register: zabbix_sql_scripts_check
+  failed_when: false
+  changed_when: false
+  become: yes
+  tags: [zabbix, database, schema]
+
+- name: Find zabbix-sql-scripts package in offline directory
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "{{ package_globs.zabbix_sql_scripts_rpm }}"
+      - "zabbix-sql-scripts-*.el9.*.rpm"
+      - "zabbix-sql-scripts-*.rpm"
+  register: zabbix_sql_scripts_package
+  delegate_to: localhost
+  when: zabbix_sql_scripts_check.rc != 0
+  tags: [zabbix, database, schema]
+
+- name: Copy zabbix-sql-scripts package to target if found
+  copy:
+    src: "{{ item.path }}"
+    dest: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    mode: '0644'
+  loop: "{{ zabbix_sql_scripts_package.files }}"
+  become: yes
+  when:
+    - zabbix_sql_scripts_check.rc != 0
+    - zabbix_sql_scripts_package.files | length > 0
+  tags: [zabbix, database, schema]
+
+- name: Install zabbix-sql-scripts from offline directory if missing
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ zabbix_sql_scripts_package.files }}"
+  become: yes
+  when:
+    - zabbix_sql_scripts_check.rc != 0
+    - zabbix_sql_scripts_package.files | length > 0
+  register: sql_scripts_install_result
+  tags: [zabbix, database, schema]
+
+- name: Try to install zabbix-sql-scripts from system repositories as fallback
+  yum:
+    name: zabbix-sql-scripts
+    state: present
+  become: yes
+  when:
+    - zabbix_sql_scripts_check.rc != 0
+    - zabbix_sql_scripts_package.files | length == 0
+  ignore_errors: yes
+  register: sql_scripts_system_install
+  tags: [zabbix, database, schema]
+
+- name: Verify zabbix-sql-scripts is now installed
+  command: rpm -q zabbix-sql-scripts
+  register: zabbix_sql_scripts_verify
+  failed_when: false
+  changed_when: false
+  become: yes
+  tags: [zabbix, database, schema]
+
+- name: Fail if zabbix-sql-scripts is still not installed
+  fail:
+    msg: |
+      zabbix-sql-scripts package is not installed and could not be installed.
+      Please ensure the package is available in the offline directory or system repositories.
+      Searched in: {{ paths.offline_dir }}
+  when: zabbix_sql_scripts_verify.rc != 0
+  tags: [zabbix, database, schema]
+
+- name: Find all Zabbix SQL schema files
+  shell: |
+    find /usr/share/zabbix* /usr/share/doc/zabbix* -name "server.sql.gz" -o -name "create.sql.gz" 2>/dev/null | head -10
+  register: all_sql_files
+  failed_when: false
+  changed_when: false
+  become: yes
+  tags: [zabbix, database, schema]
+
+- name: Debug - Show all found SQL files
+  debug:
+    msg: "All SQL files found: {{ all_sql_files.stdout_lines }}"
+  when: all_sql_files.stdout_lines | length > 0
+  tags: [zabbix, database, schema]
+
+- name: Find PostgreSQL-specific SQL schema file
+  shell: |
+    find /usr/share/zabbix* /usr/share/doc/zabbix* -type f -name "*.sql.gz" 2>/dev/null | grep -i postgres | head -1
+  register: postgres_sql_file
+  failed_when: false
+  changed_when: false
+  become: yes
+  tags: [zabbix, database, schema]
+
+- name: Debug - PostgreSQL SQL file search result
+  debug:
+    msg: "PostgreSQL SQL file found: {{ postgres_sql_file.stdout }}"
+  when: postgres_sql_file.stdout | length > 0
+  tags: [zabbix, database, schema]
+
+- name: Check each potential SQL file path
+  stat:
+    path: "{{ item }}"
+  register: sql_file_checks
+  loop:
+    - "{{ postgres_sql_file.stdout if postgres_sql_file.stdout | length > 0 else '' }}"
+    - /usr/share/zabbix-sql-scripts/postgresql/server.sql.gz
+    - /usr/share/zabbix/sql-scripts/postgresql/server.sql.gz
+    - /usr/share/doc/zabbix-sql-scripts/postgresql/server.sql.gz
+  when: item | length > 0
+  tags: [zabbix, database, schema]
+
+- name: Set SQL file path from first existing file
+  set_fact:
+    sql_file_path: "{{ item.item }}"
+  loop: "{{ sql_file_checks.results | default([]) }}"
+  when:
+    - item.stat.exists | default(false)
+    - sql_file_path is not defined
+  tags: [zabbix, database, schema]
+
+- name: Debug - Final SQL file path
+  debug:
+    msg: "Using SQL file path: {{ sql_file_path }}"
+  tags: [zabbix, database, schema]
+
+- name: Check if SQL file exists
+  stat:
+    path: "{{ sql_file_path }}"
+  register: sql_file_stat
+  when: sql_file_path is defined and sql_file_path | length > 0
+  tags: [zabbix, database, schema]
+
+- name: Fail if SQL file not found
+  fail:
+    msg: |
+      Zabbix SQL schema file not found. Searched locations:
+      - {{ postgres_sql_file.stdout | default('Not found') }}
+      - /usr/share/zabbix-sql-scripts/postgresql/server.sql.gz
+      - /usr/share/zabbix/sql-scripts/postgresql/server.sql.gz
+      - /usr/share/doc/zabbix-sql-scripts/postgresql/server.sql.gz
+      
+      Please ensure zabbix-sql-scripts package is installed and contains the PostgreSQL schema file.
+  when: sql_file_path is not defined or sql_file_path | length == 0 or (sql_file_stat is defined and not sql_file_stat.stat.exists)
+  tags: [zabbix, database, schema]
+
+- name: Import Zabbix database schema (via Unix socket as postgres user)
+  shell: |
+    zcat {{ sql_file_path }} | {{ psql_location.stdout }} -U zabbix -d zabbix
+  become: yes
+  become_user: postgres
+  when:
+    - psql_location.stdout is defined and psql_location.stdout | length > 0
+    - sql_file_path is defined and sql_file_path | length > 0
+    - sql_file_stat is defined
+    - sql_file_stat.stat.exists
+  register: schema_import
+  tags: [zabbix, database, schema]
+
+- name: Display schema import result
+  debug:
+    msg: |
+      Schema import completed.
+      Return code: {{ schema_import.rc }}
+      Stdout: {{ schema_import.stdout }}
+      Stderr: {{ schema_import.stderr }}
+  when: schema_import is defined
+  tags: [zabbix, database, schema]
+
+- name: Fail if schema import failed
+  fail:
+    msg: "Schema import failed with return code {{ schema_import.rc }}. Error: {{ schema_import.stderr }}"
+  when:
+    - schema_import is defined
+    - schema_import.rc != 0
+  tags: [zabbix, database, schema]
+
+- name: Verify database import (via Unix socket)
+  shell: "{{ psql_location.stdout }} -U zabbix -d zabbix -c \"SELECT COUNT(*) FROM users;\""
+  become: yes
+  become_user: postgres
+  when: psql_location.stdout is defined and psql_location.stdout | length > 0
+  register: db_import_check
+  tags: [zabbix, database, verify]
+
+- name: Display database import status
+  debug:
+    msg: "Database import completed successfully. User count: {{ db_import_check.stdout }}"
+  when: db_import_check.rc == 0
+  tags: [zabbix, database, verify]
+
+- name: Fail if database verification failed
+  fail:
+    msg: "Database verification failed. The users table does not exist. Schema import may have failed. Error: {{ db_import_check.stderr }}"
+  when: db_import_check.rc != 0
+  tags: [zabbix, database, verify]

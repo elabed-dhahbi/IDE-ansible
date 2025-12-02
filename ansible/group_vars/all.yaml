@@ -1,0 +1,176 @@
+# DMC4.6.18 Global Variables
+# This file imports configuration from values.yaml and provides service IP mapping
+
+# Import configuration from values.yaml
+# All roles must read versions.* and package_globs.* from this configuration
+# Package installation paths are constructed as: paths.offline_dir + resolved filenames
+# Alternative: use with_fileglob on package_globs.* patterns
+
+# Set default stack_type if not provided
+stack_type: elk
+
+# Service IP mapping using inventory hostvars
+# Maps service names to their corresponding IP addresses from inventory
+service_ips:
+  postgres: >-
+    {%- if database_config.external_host is defined and database_config.external_host -%}
+      {{ database_config.external_host }}
+    {%- elif groups['postgres'] is defined and groups['postgres'] | length > 0 -%}
+      {{ hostvars[groups['postgres'][0]]['ansible_host'] }}
+    {%- else -%}
+      localhost
+    {%- endif -%}
+  elasticsearch: "{{ hostvars[groups['elasticsearch'][0]]['ansible_host'] if groups['elasticsearch'] is defined and groups['elasticsearch'] | length > 0 else '' }}"
+  kibana: "{{ hostvars[groups['kibana'][0]]['ansible_host'] if groups['kibana'] is defined and groups['kibana'] | length > 0 else '' }}"
+  dmc1: "{{ hostvars[groups['dmc1'][0]]['ansible_host'] if groups['dmc1'] is defined and groups['dmc1'] | length > 0 else '' }}"
+  dmc2: "{{ hostvars[groups['dmc2'][0]]['ansible_host'] if groups['dmc2'] is defined and groups['dmc2'] | length > 0 else '' }}"
+  drs: "{{ hostvars[groups['drs'][0]]['ansible_host'] if groups['drs'] is defined and groups['drs'] | length > 0 else '' }}"
+  mmg: "{{ hostvars[groups['mmg'][0]]['ansible_host'] if groups['mmg'] is defined and groups['mmg'] | length > 0 else '' }}"
+  mmsoap: "{{ hostvars[groups['mmsoap'][0]]['ansible_host'] if groups['mmsoap'] is defined and groups['mmsoap'] | length > 0 else '' }}"
+  smppc: "{{ hostvars[groups['smppc'][0]]['ansible_host'] if groups['smppc'] is defined and groups['smppc'] | length > 0 else '' }}"
+  sls: "{{ hostvars[groups['sls'][0]]['ansible_host'] if groups['sls'] is defined and groups['sls'] | length > 0 else '' }}"
+
+# Service hostname mapping (alternative to IPs)
+service_hostnames:
+  postgres: "{{ groups['postgres'][0] if groups['postgres'] is defined and groups['postgres'] | length > 0 else '' }}"
+  elasticsearch: "{{ groups['elasticsearch'][0] if groups['elasticsearch'] is defined and groups['elasticsearch'] | length > 0 else '' }}"
+  kibana: "{{ groups['kibana'][0] if groups['kibana'] is defined and groups['kibana'] | length > 0 else '' }}"
+  dmc1: "{{ groups['dmc1'][0] if groups['dmc1'] is defined and groups['dmc1'] | length > 0 else '' }}"
+  dmc2: "{{ groups['dmc2'][0] if groups['dmc2'] is defined and groups['dmc2'] | length > 0 else '' }}"
+  drs: "{{ groups['drs'][0] if groups['drs'] is defined and groups['drs'] | length > 0 else '' }}"
+  mmg: "{{ groups['mmg'][0] if groups['mmg'] is defined and groups['mmg'] | length > 0 else '' }}"
+  mmsoap: "{{ groups['mmsoap'][0] if groups['mmsoap'] is defined and groups['mmsoap'] | length > 0 else '' }}"
+  smppc: "{{ groups['smppc'][0] if groups['smppc'] is defined and groups['smppc'] | length > 0 else '' }}"
+  sls: "{{ groups['sls'][0] if groups['sls'] is defined and groups['sls'] | length > 0 else '' }}"
+
+# Package discovery helpers
+# These variables help roles discover package files using glob patterns
+package_discovery:
+  # Base directory for offline packages (from values.yaml)
+  base_dir: "{{ paths.offline_dir }}"
+  
+  # Common package patterns that can be used with with_fileglob
+  dmc_pattern: "{{ paths.offline_dir }}/{{ package_globs.dmc_rpm }}"
+  mmg_pattern: "{{ paths.offline_dir }}/{{ package_globs.mmg_rpm }}"
+  mmsoap_pattern: "{{ paths.offline_dir }}/{{ package_globs.mmsoap_rpm }}"
+  smppc_pattern: "{{ paths.offline_dir }}/{{ package_globs.smppc_rpm }}"
+  sls_pattern: "{{ paths.offline_dir }}/{{ package_globs.sls_rpm }}"
+  postgres_pattern: "{{ paths.offline_dir }}/{{ package_globs.pgdg_repo_rpm }}"
+  elasticsearch_pattern: "{{ paths.offline_dir }}/{{ package_globs.es_rpm }}"
+  kibana_pattern: "{{ paths.offline_dir }}/{{ package_globs.kibana_rpm }}"
+  logstash_pattern: "{{ paths.offline_dir }}/{{ package_globs.logstash_rpm }}"
+  jdk8_pattern: "{{ paths.offline_dir }}/{{ package_globs.jdk8_tgz }}"
+
+# Installation paths and directories
+install_paths:
+  # Common installation directories
+  dmc_home: "/opt/dmc"
+  mmg_home: "/opt/mmg"
+  mmsoap_home: "/opt/mmsoap"
+  smppc_home: "/opt/smppc"
+  sls_home: "/opt/sls"
+  drs_home: "/opt/drs"
+  
+  # Java installation directory
+  java_home: "/usr/j2se"
+  
+  # PostgreSQL directories (production-ready configuration)
+  postgres_data: "{{ paths.postgres_data_dir }}/{{ versions.postgres }}"
+  postgres_home: "{{ paths.postgres_home_dir }}"
+  postgres_tablespaces_base: "{{ paths.postgres_tablespaces_dir }}/db1/tablespaces"
+  
+  # Log directories
+  logs_base: "/var/log"
+  
+  # Configuration directories
+  config_base: "/etc"
+
+# PostgreSQL specific configuration
+postgresql_config:
+  # Service configuration
+  service_name: "postgresql-{{ versions.postgres }}"
+  systemd_service_file: "/usr/lib/systemd/system/postgresql-{{ versions.postgres }}.service"
+  
+  # Directory configuration
+  data_directory: "{{ paths.postgres_data_dir }}/{{ versions.postgres }}/data"
+  home_directory: "{{ paths.postgres_home_dir }}"
+  
+  # Database and schema configuration
+  databases:
+    dmc46:
+      name: "dmc46"
+      owner: "dmc4"
+      schema: "dmc4"
+      tablespaces:
+        data: "dmc4tab"
+        index: "dmc4idx"
+    mmg:
+      name: "mmg"
+      owner: "mmg"
+      schema: "mmg"
+      tablespaces:
+        data: "mmgtab"
+        index: "mmgidx"
+  
+  # User configurations
+  users:
+    dmc4:
+      password: "dmc4"
+      databases: ["dmc46"]
+    mmg:
+      password: "mmg"
+      databases: ["mmg"]
+    mdba:
+      password: "mdba"
+      databases: ["dmc46"]
+      schema: "mdba"
+      tablespaces:
+        data: "mdbatab"
+        index: "mdbaidx"
+
+# System configuration defaults
+system_config:
+  # User accounts for services
+  service_users:
+    dmc: "dmc"
+    mmg: "mmg"
+    mmsoap: "mmsoap"
+    smppc: "smppc"
+    sls: "sls"
+    drs: "drs"
+    postgres: "postgres"
+    elasticsearch: "elasticsearch"
+    kibana: "kibana"
+    logstash: "logstash"
+  
+  # Default passwords (should be overridden in production)
+  service_passwords:
+    dmc: "dmc4"
+    mmg: "mmg"
+    mmsoap: "mmsoap"
+    smppc: "smppc"
+    sls: "sls"
+    drs: "drs"
+    postgres: "postgres"
+    dmc_db_user: "dmc4"
+    mmg_db_user: "mmg"
+    mdba_db_user: "mdba"
+
+# Port configurations
+service_ports:
+  dmc_http: 50400
+  mmg_http: 50404
+  mmsoap_http: 50434
+  smppc_http: 50424
+  sls_http: 50420
+  drs_http: 9292
+  postgres: 5432
+  elasticsearch: 9200
+  kibana: 5601
+  logstash: 5044
+
+# Documentation for roles:
+# - All roles must read versions.* and package_globs.* from values.yaml
+# - Package installation should use paths.offline_dir + resolved filenames
+# - Alternative: use with_fileglob on package_globs.* patterns for dynamic discovery
+# - Service IPs are available via service_ips.* variables for cross-service communication

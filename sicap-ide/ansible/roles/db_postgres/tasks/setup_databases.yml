@@ -1,0 +1,138 @@
+---
+# PostgreSQL Database and User Setup Tasks
+# Creates databases, users, schemas, and tablespaces based on your installation notes
+
+- name: Set PostgreSQL password for postgres user
+  shell: |
+    echo "ALTER USER postgres PASSWORD '{{ system_config.service_passwords.postgres }}';" | psql -U postgres
+  become_user: postgres
+  tags: [postgres, databases, users]
+
+- name: Create DMC database
+  postgresql_db:
+    name: "{{ postgresql_config.databases.dmc46.name }}"
+    owner: "{{ postgresql_config.databases.dmc46.owner }}"
+    state: present
+  become_user: postgres
+  when: postgresql_config.databases.dmc46 is defined
+  tags: [postgres, databases, dmc]
+
+- name: Create MMG database
+  postgresql_db:
+    name: "{{ postgresql_config.databases.mmg.name }}"
+    owner: "{{ postgresql_config.databases.mmg.owner }}"
+    state: present
+  become_user: postgres
+  when: postgresql_config.databases.mmg is defined
+  tags: [postgres, databases, mmg]
+
+- name: Create DMC user
+  postgresql_user:
+    name: "{{ postgresql_config.users.dmc4.name | default('dmc4') }}"
+    password: "{{ postgresql_config.users.dmc4.password }}"
+    state: present
+  become_user: postgres
+  when: postgresql_config.users.dmc4 is defined
+  tags: [postgres, databases, users, dmc]
+
+- name: Create MMG user
+  postgresql_user:
+    name: "{{ postgresql_config.users.mmg.name | default('mmg') }}"
+    password: "{{ postgresql_config.users.mmg.password }}"
+    state: present
+  become_user: postgres
+  when: postgresql_config.users.mmg is defined
+  tags: [postgres, databases, users, mmg]
+
+- name: Create MDBA user
+  postgresql_user:
+    name: "{{ postgresql_config.users.mdba.name | default('mdba') }}"
+    password: "{{ postgresql_config.users.mdba.password }}"
+    state: present
+  become_user: postgres
+  when: postgresql_config.users.mdba is defined
+  tags: [postgres, databases, users, mdba]
+
+- name: Create DMC schema and set search path
+  postgresql_query:
+    queries:
+      - "CREATE SCHEMA IF NOT EXISTS {{ postgresql_config.databases.dmc46.schema }} AUTHORIZATION {{ postgresql_config.databases.dmc46.owner }}"
+      - "ALTER ROLE {{ postgresql_config.databases.dmc46.owner }} IN DATABASE {{ postgresql_config.databases.dmc46.name }} SET search_path = {{ postgresql_config.databases.dmc46.schema }}"
+      - "GRANT CONNECT ON DATABASE {{ postgresql_config.databases.dmc46.name }} TO {{ postgresql_config.databases.dmc46.owner }}"
+      - "GRANT USAGE ON SCHEMA {{ postgresql_config.databases.dmc46.schema }} TO {{ postgresql_config.databases.dmc46.owner }}"
+    db: "{{ postgresql_config.databases.dmc46.name }}"
+  become_user: postgres
+  when: postgresql_config.databases.dmc46 is defined
+  tags: [postgres, databases, schemas, dmc]
+
+- name: Create MMG schema and set search path
+  postgresql_query:
+    queries:
+      - "CREATE SCHEMA IF NOT EXISTS {{ postgresql_config.databases.mmg.schema }} AUTHORIZATION {{ postgresql_config.databases.mmg.owner }}"
+      - "ALTER ROLE {{ postgresql_config.databases.mmg.owner }} IN DATABASE {{ postgresql_config.databases.mmg.name }} SET search_path = {{ postgresql_config.databases.mmg.schema }}"
+      - "GRANT CONNECT ON DATABASE {{ postgresql_config.databases.mmg.name }} TO {{ postgresql_config.databases.mmg.owner }}"
+      - "GRANT USAGE ON SCHEMA {{ postgresql_config.databases.mmg.schema }} TO {{ postgresql_config.databases.mmg.owner }}"
+    db: "{{ postgresql_config.databases.mmg.name }}"
+  become_user: postgres
+  when: postgresql_config.databases.mmg is defined
+  tags: [postgres, databases, schemas, mmg]
+
+- name: Create MDBA schema and set search path
+  postgresql_query:
+    queries:
+      - "CREATE SCHEMA IF NOT EXISTS {{ postgresql_config.users.mdba.schema }} AUTHORIZATION {{ postgresql_config.users.mdba.name | default('mdba') }}"
+      - "ALTER ROLE {{ postgresql_config.users.mdba.name | default('mdba') }} IN DATABASE {{ postgresql_config.databases.dmc46.name }} SET search_path = {{ postgresql_config.users.mdba.schema }}"
+      - "GRANT USAGE ON SCHEMA {{ postgresql_config.databases.dmc46.schema }} TO {{ postgresql_config.users.mdba.name | default('mdba') }}"
+    db: "{{ postgresql_config.databases.dmc46.name }}"
+  become_user: postgres
+  when: postgresql_config.users.mdba is defined
+  tags: [postgres, databases, schemas, mdba]
+
+- name: Create DMC tablespaces
+  postgresql_query:
+    queries:
+      - "CREATE TABLESPACE {{ postgresql_config.databases.dmc46.tablespaces.data }} OWNER {{ postgresql_config.databases.dmc46.owner }} LOCATION '{{ install_paths.postgres_tablespaces_base }}/{{ postgresql_config.databases.dmc46.tablespaces.data }}'"
+      - "CREATE TABLESPACE {{ postgresql_config.databases.dmc46.tablespaces.index }} OWNER {{ postgresql_config.databases.dmc46.owner }} LOCATION '{{ install_paths.postgres_tablespaces_base }}/{{ postgresql_config.databases.dmc46.tablespaces.index }}'"
+  become_user: postgres
+  when: postgresql_config.databases.dmc46 is defined
+  tags: [postgres, databases, tablespaces, dmc]
+
+- name: Create MMG tablespaces
+  postgresql_query:
+    queries:
+      - "CREATE TABLESPACE {{ postgresql_config.databases.mmg.tablespaces.data }} OWNER {{ postgresql_config.databases.mmg.owner }} LOCATION '{{ install_paths.postgres_tablespaces_base }}/{{ postgresql_config.databases.mmg.tablespaces.data }}'"
+      - "CREATE TABLESPACE {{ postgresql_config.databases.mmg.tablespaces.index }} OWNER {{ postgresql_config.databases.mmg.owner }} LOCATION '{{ install_paths.postgres_tablespaces_base }}/{{ postgresql_config.databases.mmg.tablespaces.index }}'"
+  become_user: postgres
+  when: postgresql_config.databases.mmg is defined
+  tags: [postgres, databases, tablespaces, mmg]
+
+- name: Create MDBA tablespaces
+  postgresql_query:
+    queries:
+      - "CREATE TABLESPACE {{ postgresql_config.users.mdba.tablespaces.data }} OWNER {{ postgresql_config.users.mdba.name | default('mdba') }} LOCATION '{{ install_paths.postgres_tablespaces_base }}/{{ postgresql_config.users.mdba.tablespaces.data }}'"
+      - "CREATE TABLESPACE {{ postgresql_config.users.mdba.tablespaces.index }} OWNER {{ postgresql_config.users.mdba.name | default('mdba') }} LOCATION '{{ install_paths.postgres_tablespaces_base }}/{{ postgresql_config.users.mdba.tablespaces.index }}'"
+  become_user: postgres
+  when: postgresql_config.users.mdba is defined
+  tags: [postgres, databases, tablespaces, mdba]
+
+- name: Configure PostgreSQL to accept connections
+  postgresql_info:
+    filter: "settings"
+  register: postgres_settings
+  become_user: postgres
+  tags: [postgres, databases, config]
+
+- name: Update PostgreSQL configuration for network access
+  postgresql_query:
+    queries:
+      - "ALTER SYSTEM SET listen_addresses = '*'"
+      - "ALTER SYSTEM SET max_prepared_transactions = 64"
+  become_user: postgres
+  tags: [postgres, databases, config, network]
+
+- name: Restart PostgreSQL to apply configuration changes
+  systemd:
+    name: "{{ postgresql_config.service_name }}"
+    state: restarted
+  tags: [postgres, databases, config, service]
+

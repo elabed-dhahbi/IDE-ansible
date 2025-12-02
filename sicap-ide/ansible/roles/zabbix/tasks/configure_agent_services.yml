@@ -1,0 +1,23 @@
+---
+# Zabbix Agent and Java Gateway Service Configuration Only
+# This file starts only agent and Java Gateway services, no server services
+
+# Agent services (on all hosts, including Zabbix server)
+- name: Start and enable Zabbix agent2
+  systemd:
+    name: "zabbix-agent2"
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+  tags: [zabbix, service, agent2]
+
+- name: Start and enable Zabbix Java Gateway
+  systemd:
+    name: "zabbix-java-gateway"
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+  tags: [zabbix, service, java_gateway]
+

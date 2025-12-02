@@ -1,0 +1,22 @@
+---
+# MMSOAP User Configuration Tasks
+
+- name: Create MMSOAP user
+  user:
+    name: "{{ mmsoap_user }}"
+    system: yes
+    shell: /bin/bash
+    home: "{{ mmsoap_home }}"
+    create_home: yes
+  tags: [mmsoap, user, create]
+
+- name: Add MMSOAP user to wheel group
+  user:
+    name: "{{ mmsoap_user }}"
+    groups: wheel
+    append: yes
+  tags: [mmsoap, user, groups]
+
+
+
+

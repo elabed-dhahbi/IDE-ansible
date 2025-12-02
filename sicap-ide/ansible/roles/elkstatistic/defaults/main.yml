@@ -1,0 +1,67 @@
+---
+# ELK Statistics Stack Configuration Defaults
+
+# ELK Statistics version
+elkstack_version: "4.7.2"
+
+# User and group configuration
+elkstack_user: "dmc"
+elkstack_group: "dmc"
+
+# Directory paths
+elkstack_install_dir: "/opt/elkstatistics"
+elkstack_logs_dir: "/var/opt/elkstatistics/logs"
+elkstack_csv_dir: "/var/opt/elkstatistics/csvexport"
+elkstack_csv_logstash_dir: "/var/opt/elkstatistics/csvexport/logstash"
+
+# Database configuration - using centralized values from database_config
+elkstack_db:
+  # PostgreSQL configuration
+  postgres_host: "{{ hostvars[groups['postgres'][0]]['ansible_host'] if groups['postgres'] is defined and groups['postgres'] | length > 0 else 'localhost' }}"
+  postgres_port: "{{ database_config.postgres_port }}"
+  postgres_database: "{{ database_config.dmc_database }}"
+  postgres_dmc_schema: "{{ database_config.dmc_schema }}"
+  postgres_mdba_schema: "{{ database_config.mdba_schema }}"
+  postgres_dmc_user: "{{ database_config.dmc_user }}"
+  postgres_dmc_password: "{{ database_config.dmc_password }}"
+  postgres_mdba_user: "{{ database_config.mdba_user }}"
+  postgres_mdba_password: "{{ database_config.mdba_password }}"
+  postgres_admin_user: "{{ database_config.postgres_admin_user }}"
+  postgres_admin_password: "{{ database_config.postgres_admin_password }}"
+
+# DRS configuration
+elkstack_drs:
+  host: "{{ hostvars[groups['drs'][0]]['ansible_host'] if groups['drs'] is defined and groups['drs'] | length > 0 else 'localhost' }}"
+  port: "{{ service_ports.drs_http }}"
+  base_url: "http://{{ hostvars[groups['drs'][0]]['ansible_host'] if groups['drs'] is defined and groups['drs'] | length > 0 else 'localhost' }}:{{ service_ports.drs_http }}/drs"
+
+# Elasticsearch/OpenSearch configuration
+elkstack_elasticsearch:
+  host: "{{ hostvars[groups['elasticsearch'][0]]['ansible_host'] if groups['elasticsearch'] is defined and groups['elasticsearch'] | length > 0 else 'localhost' }}"
+  port: "{{ service_ports.elasticsearch }}"
+
+# FTP configuration for log files
+elkstack_ftp:
+  host: "{{ hostvars[groups['dmc1'][0]]['ansible_host'] if groups['dmc1'] is defined and groups['dmc1'] | length > 0 else 'localhost' }}"
+  port: "22"
+  user: "jboss"
+  password: "jboss"
+  log_dir: "/var/opt/dmc/current/log/DMC-BusinessLog"
+
+# CSV Export configuration
+elkstack_csv:
+  years_keep_facts_data: 2
+  column_49_provider_id: "{providerId}"
+  column_49_name: "providerID"
+  column_50_provider_name: "{providerName}"
+  column_50_name: "providerName"
+
+# Cron configuration
+elkstack_cron:
+  csv_export_time: "01 00 1 * *"  # Monthly on 1st at 00:01
+  cleanup_time: "0 0 * * *"       # Daily at 00:00
+
+# Package configuration
+elkstack_package:
+  name: "prd-dmcstats-4.7.2.zip"
+  source_dir: "{{ paths.offline_dir | default('/tmp/offline') }}"

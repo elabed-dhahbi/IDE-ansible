@@ -1,0 +1,54 @@
+---
+# Elasticsearch Configuration Tasks
+
+- name: Create elasticsearch configuration file
+  template:
+    src: elasticsearch.yml.j2
+    dest: "{{ elasticsearch_config_dir }}/elasticsearch.yml"
+    owner: "{{ elasticsearch_user }}"
+    group: "{{ elasticsearch_group }}"
+    mode: '0644'
+  become: yes
+  tags: [elasticsearch, config, main]
+
+- name: Create JVM options file
+  copy:
+    content: |
+      -Xms{{ elasticsearch_jvm.heap_size }}
+      -Xmx{{ elasticsearch_jvm.heap_size }}
+      -XX:HeapDumpPath={{ elasticsearch_jvm.heap_dump_path }}
+      -XX:ErrorFile={{ elasticsearch_jvm.error_file }}
+    dest: "{{ elasticsearch_config_dir }}/jvm.options.d/jvm.options"
+    owner: "{{ elasticsearch_user }}"
+    group: "{{ elasticsearch_group }}"
+    mode: '0644'
+  become: yes
+  tags: [elasticsearch, config, jvm]
+
+- name: Create systemd override directory
+  file:
+    path: /etc/systemd/system/elasticsearch.service.d
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [elasticsearch, config, systemd]
+
+- name: Create systemd override configuration
+  copy:
+    content: |
+      [Service]
+      LimitMEMLOCK={{ elasticsearch_system.memlock_limit }}
+    dest: /etc/systemd/system/elasticsearch.service.d/override.conf
+    mode: '0644'
+  become: yes
+  tags: [elasticsearch, config, systemd]
+
+- name: Update elasticsearch systemd service file
+  lineinfile:
+    path: /usr/lib/systemd/system/elasticsearch.service
+    regexp: '^LimitNOFILE='
+    line: 'LimitNOFILE={{ elasticsearch_system.nofile_limit }}'
+    backup: yes
+  become: yes
+  tags: [elasticsearch, config, systemd]
+

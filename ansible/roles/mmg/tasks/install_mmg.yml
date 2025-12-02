@@ -1,0 +1,88 @@
+---
+# MMG Installation Tasks
+
+- name: Ensure offline directory exists on target
+  file:
+    path: "{{ paths.offline_dir }}"
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [mmg, install, packages]
+
+- name: Get MMG files using fileglob
+  set_fact:
+    mmg_files: "{{ lookup('fileglob', paths.offline_dir + '/' + package_globs.mmg_rpm, wantlist=True, errors='ignore') }}"
+  tags: [mmg, install, debug]
+
+- name: Copy MMGp ackage to target
+  copy:
+    src: "{{ item }}"
+    dest: "{{ paths.offline_dir }}/"
+    mode: '0644'
+  loop: "{{ mmg_files }}"
+  become: yes
+  tags: [mmg, install, packages]
+
+- name: Display MMG files found
+  debug:
+    msg: "MMG files found: {{ mmg_files }}"
+  tags: [mmg, install, debug]
+
+- name: Fix ownership of MMG RPM files
+  file:
+    path: "{{ paths.offline_dir }}/{{ item | basename }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ mmg_files }}"
+  become: yes
+  tags: [mmg, install, fix_permissions]
+
+- name: Check if Java 8 is installed
+  stat:
+    path: "/usr/j2se"
+  register: java8_check
+  tags: [mmg, install, java]
+
+- name: Extract Java 8 if not installed
+  unarchive:
+    src: "{{ paths.offline_dir }}/{{ package_globs.jdk8_64bit }}"
+    dest: "/usr"
+    remote_src: yes
+    creates: "/usr/j2se"
+  become: yes
+  when: not java8_check.stat.exists
+  tags: [mmg, install, java]
+
+- name: Set Java 8 permissions
+  file:
+    path: "/usr/j2se"
+    mode: '0755'
+    recurse: yes
+  become: yes
+  when: not java8_check.stat.exists
+  tags: [mmg, install, java]
+
+- name: Install MMG package
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ mmg_files }}"
+  become: yes
+  tags: [mmg, install, packages]
+
+- name: Check if MMG is already installed
+  stat:
+    path: "{{ mmg_home }}"
+  register: mmg_installed
+  tags: [mmg, install, check]
+
+- name: Display MMG installation status
+  debug:
+    msg: "MMG installation directory {{ mmg_home }} exists: {{ mmg_installed.stat.exists }}"
+  tags: [mmg, install, check]
+
+
+
+

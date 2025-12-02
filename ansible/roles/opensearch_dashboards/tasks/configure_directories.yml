@@ -1,0 +1,61 @@
+---
+# OpenSearch Dashboards Directory Configuration Tasks
+
+- name: Create OpenSearch Dashboards data and logs directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ dashboards_user }}"
+    group: "{{ dashboards_group }}"
+    mode: '0755'
+  loop:
+    - "/var/opt/opensearch-dashboards"
+    - "/var/opt/opensearch-dashboards/data"
+    - "/var/opt/opensearch-dashboards/logs"
+  become: yes
+  tags: [opensearch_dashboards, directories, create]
+
+- name: Create symbolic links in OpenSearch Dashboards home
+  file:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    state: link
+    owner: "{{ dashboards_user }}"
+    group: "{{ dashboards_group }}"
+  loop:
+    - { src: "/usr/share/opensearch-dashboards", dest: "/opt/opensearch-dashboards/ops_home" }
+    - { src: "/usr/share/opensearch-dashboards/bin", dest: "/opt/opensearch-dashboards/bin" }
+    - { src: "/var/opt/opensearch-dashboards/logs", dest: "/opt/opensearch-dashboards/logs" }
+    - { src: "/var/opt/opensearch-dashboards/data", dest: "/opt/opensearch-dashboards/data" }
+    - { src: "/etc/opensearch-dashboards", dest: "/opt/opensearch-dashboards/conf" }
+    - { src: "/usr/share/opensearch-dashboards/plugins", dest: "/opt/opensearch-dashboards/plugins" }
+  become: yes
+  tags: [opensearch_dashboards, directories, symlinks]
+
+- name: Stop OpenSearch Dashboards service before ownership change
+  systemd:
+    name: "{{ dashboards_service_name }}"
+    state: stopped
+  become: yes
+  ignore_errors: yes
+  tags: [opensearch_dashboards, directories, ownership]
+
+- name: Change ownership of OpenSearch Dashboards directories
+  file:
+    path: "{{ item }}"
+    owner: "{{ dashboards_user }}"
+    group: "{{ dashboards_group }}"
+    recurse: yes
+  loop:
+    - "/etc/opensearch-dashboards"
+    - "/usr/share/opensearch-dashboards"
+  become: yes
+  tags: [opensearch_dashboards, directories, ownership]
+
+- name: Start OpenSearch Dashboards service after ownership change
+  systemd:
+    name: "{{ dashboards_service_name }}"
+    state: started
+    enabled: yes
+  become: yes
+  tags: [opensearch_dashboards, directories, ownership]

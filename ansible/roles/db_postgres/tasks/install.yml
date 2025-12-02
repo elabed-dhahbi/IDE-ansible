@@ -1,0 +1,128 @@
+---
+# PostgreSQL Installation Tasks
+# These tasks install PostgreSQL packages, initialize the database, and start the service
+# Tag: postgres_install
+# Can be skipped with: skip_postgres_install: true
+
+- name: Ensure offline directory exists on target
+  file:
+    path: "{{ paths.offline_dir }}"
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [postgres, postgres_install, install, packages]
+
+- name: Copy PostgreSQL packages to target
+  copy:
+    src: "{{ item }}"
+    dest: "{{ paths.offline_dir }}/"
+    mode: '0644'
+  loop: "{{ lookup('fileglob', paths.offline_dir + '/postgresql15*.rpm', wantlist=True) + lookup('fileglob', paths.offline_dir + '/libpq5*.rpm', wantlist=True) + lookup('fileglob', paths.offline_dir + '/python3-psycopg2*.rpm', wantlist=True) }}"
+  become: yes
+  tags: [postgres, postgres_install, install, packages]
+
+- name: Install PostgreSQL dependencies
+  dnf:
+    name:
+      - perl
+      - perl-libs
+      - libxslt
+      - libxslt-devel
+    state: present
+    disablerepo: epel,epel-modular
+  become: yes
+  tags: [postgres, postgres_install, install, dependencies]
+
+- name: Install PostgreSQL packages in correct order
+  command: rpm -Uvh --force "{{ paths.offline_dir }}/{{ item }}"
+  loop:
+    - "postgresql15-libs-15.14-1PGDG.rhel9.x86_64.rpm"
+    - "postgresql15-15.14-1PGDG.rhel9.x86_64.rpm"
+    - "postgresql15-server-15.14-1PGDG.rhel9.x86_64.rpm"
+    - "postgresql15-contrib-15.14-1PGDG.rhel9.x86_64.rpm"
+    - "libpq5-17.6-1PGDG.rhel9.x86_64.rpm"
+    - "python3-psycopg2-2.8.6-6.el9.x86_64.rpm"
+  become: yes
+  tags: [postgres, postgres_install, install, packages]
+
+- name: Check if PostgreSQL is already initialized in custom directory
+  stat:
+    path: "{{ postgresql_config.data_directory }}/postgresql.conf"
+  register: postgres_initialized_custom
+  become: yes
+  tags: [postgres, postgres_install, install, init]
+
+- name: Check if PostgreSQL is already initialized in default directory
+  stat:
+    path: "/var/lib/pgsql/{{ versions.postgres }}/data/postgresql.conf"
+  register: postgres_initialized_default
+  become: yes
+  tags: [postgres, postgres_install, install, init]
+
+- name: Set PostgreSQL initialization status
+  set_fact:
+    postgres_initialized: "{{ postgres_initialized_custom if postgres_initialized_custom.stat.exists else postgres_initialized_default }}"
+  tags: [postgres, postgres_install, install, init]
+
+- name: Create PostgreSQL data directory with proper ownership
+  file:
+    path: "{{ postgresql_config.data_directory }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0700'
+  become: yes
+  when: not postgres_initialized.stat.exists
+  tags: [postgres, postgres_install, install, init]
+
+- name: Initialize PostgreSQL database if not already initialized
+  command: /usr/pgsql-{{ versions.postgres }}/bin/initdb -D {{ postgresql_config.data_directory }}
+  become: yes
+  become_user: postgres
+  when: not postgres_initialized.stat.exists
+  tags: [postgres, postgres_install, install, init]
+
+- name: Update PostgreSQL systemd service file with custom data directory
+  lineinfile:
+    path: "{{ postgresql_config.systemd_service_file }}"
+    regexp: '^Environment=PGDATA='
+    line: "Environment=PGDATA={{ postgresql_config.data_directory }}"
+    backup: yes
+  become: yes
+  tags: [postgres, postgres_install, service, systemd]
+
+- name: Update PostgreSQL user bash profile with PGDATA
+  lineinfile:
+    path: "{{ postgresql_config.home_directory }}/.bash_profile"
+    regexp: '^export PGDATA='
+    line: "export PGDATA={{ postgresql_config.data_directory }}"
+    create: yes
+    owner: postgres
+    group: postgres
+    mode: '0644'
+  become: yes
+  tags: [postgres, postgres_install, service, profile]
+
+- name: Reload systemd daemon configuration
+  systemd:
+    daemon_reload: yes
+  become: yes
+  tags: [postgres, postgres_install, service, systemd]
+
+- name: Start and enable PostgreSQL service
+  systemd:
+    name: "{{ postgresql_config.service_name }}"
+    state: started
+    enabled: yes
+  become: yes
+  tags: [postgres, postgres_install, service]
+
+- name: Wait for PostgreSQL to be ready
+  wait_for:
+    port: "{{ service_ports.postgres }}"
+    host: "{{ ansible_host }}"
+    delay: 5
+    timeout: 60
+  tags: [postgres, postgres_install, service, wait]
+
+

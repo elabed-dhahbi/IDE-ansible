@@ -1,0 +1,86 @@
+---
+# Elasticsearch Directory Configuration Tasks
+
+- name: Create elasticsearch data directory
+  file:
+    path: "{{ elasticsearch_data_dir }}"
+    state: directory
+    owner: "{{ elasticsearch_user }}"
+    group: "{{ elasticsearch_group }}"
+    mode: '0755'
+  become: yes
+  tags: [elasticsearch, directories, data]
+
+- name: Create elasticsearch logs directory
+  file:
+    path: "{{ elasticsearch_logs_dir }}"
+    state: directory
+    owner: "{{ elasticsearch_user }}"
+    group: "{{ elasticsearch_group }}"
+    mode: '0755'
+  become: yes
+  tags: [elasticsearch, directories, logs]
+
+- name: Create system elasticsearch logs directory
+  file:
+    path: "/var/log/elasticsearch"
+    state: directory
+    owner: "{{ elasticsearch_user }}"
+    group: "{{ elasticsearch_group }}"
+    mode: '0755'
+  become: yes
+  tags: [elasticsearch, directories, system-logs]
+
+- name: Change ownership of elasticsearch install directory
+  file:
+    path: "{{ elasticsearch_install_dir }}"
+    owner: "{{ elasticsearch_user }}"
+    group: "{{ elasticsearch_group }}"
+    recurse: yes
+  become: yes
+  tags: [elasticsearch, directories, ownership]
+
+- name: Change ownership of elasticsearch config directory
+  file:
+    path: "{{ elasticsearch_config_dir }}"
+    owner: "{{ elasticsearch_user }}"
+    group: "{{ elasticsearch_group }}"
+    recurse: yes
+  become: yes
+  tags: [elasticsearch, directories, config-ownership]
+
+- name: Create symbolic links in elasticsearch home
+  file:
+    src: "{{ item.src }}"
+    dest: "{{ elasticsearch_home }}/{{ item.dest }}"
+    state: link
+    owner: "{{ elasticsearch_user }}"
+    group: "{{ elasticsearch_group }}"
+  loop:
+    - { src: "{{ elasticsearch_install_dir }}", dest: "es_home" }
+    - { src: "{{ elasticsearch_install_dir }}/bin", dest: "bin" }
+    - { src: "/etc/sysconfig/elasticsearch", dest: "sys_conf" }
+    - { src: "{{ elasticsearch_install_dir }}/jdk", dest: "jdk" }
+    - { src: "{{ elasticsearch_install_dir }}/jdk/lib", dest: "lib" }
+    - { src: "{{ elasticsearch_logs_dir }}", dest: "logs" }
+    - { src: "{{ elasticsearch_data_dir }}", dest: "data" }
+  become: yes
+  tags: [elasticsearch, directories, symlinks]
+
+- name: Remove existing conf directory if it exists
+  file:
+    path: "{{ elasticsearch_home }}/conf"
+    state: absent
+  become: yes
+  tags: [elasticsearch, directories, conf]
+
+- name: Create conf symlink
+  file:
+    src: "{{ elasticsearch_config_dir }}"
+    dest: "{{ elasticsearch_home }}/conf"
+    state: link
+    owner: "{{ elasticsearch_user }}"
+    group: "{{ elasticsearch_group }}"
+  become: yes
+  tags: [elasticsearch, directories, conf-symlink]
+

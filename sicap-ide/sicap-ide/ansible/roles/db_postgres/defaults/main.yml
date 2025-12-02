@@ -1,0 +1,39 @@
+---
+# PostgreSQL Role Default Variables
+# These can be overridden in group_vars or host_vars
+
+# PostgreSQL version (inherited from main configuration)
+postgresql_version: "{{ versions.postgres }}"
+
+# Service configuration
+postgresql_service_name: "postgresql-{{ versions.postgres }}"
+
+# Directory configuration (inherited from main configuration)
+postgresql_data_directory: "{{ postgresql_config.data_directory }}"
+postgresql_home_directory: "{{ postgresql_config.home_directory }}"
+
+# Package configuration
+postgresql_repo_package: "{{ package_globs.pgdg_repo_rpm }}"
+
+# Database configuration
+postgresql_databases: "{{ postgresql_config.databases }}"
+postgresql_users: "{{ postgresql_config.users }}"
+
+# Tablespaces configuration
+postgresql_tablespaces_base: "{{ install_paths.postgres_tablespaces_base }}"
+
+# Network configuration
+postgresql_port: "{{ service_ports.postgres }}"
+postgresql_listen_addresses: "*"
+postgresql_max_prepared_transactions: 64
+
+# Security configuration
+postgresql_ssl: false
+postgresql_authentication_method: "password"
+
+# Performance tuning
+postgresql_shared_buffers: "256MB"
+postgresql_effective_cache_size: "1GB"
+postgresql_work_mem: "4MB"
+postgresql_maintenance_work_mem: "64MB"
+

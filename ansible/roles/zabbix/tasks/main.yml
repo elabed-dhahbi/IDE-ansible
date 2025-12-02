@@ -1,0 +1,41 @@
+---
+# Zabbix Main Tasks
+# Single role with conditional logic for different host types
+
+- name: Include Zabbix installation tasks
+  include_tasks: install_zabbix.yml
+  tags: [zabbix, install]
+
+# Server-only tasks (only on Zabbix server host)
+- name: Include PostgreSQL installation tasks
+  include_tasks: install_postgresql.yml
+  when: inventory_hostname in groups['zabbix']
+  tags: [zabbix, database, postgres, install]
+
+- name: Include PostgreSQL directory configuration tasks
+  include_tasks: configure_postgresql_directories.yml
+  when: inventory_hostname in groups['zabbix']
+  tags: [zabbix, database, postgres, directories]
+
+- name: Include PostgreSQL service configuration tasks
+  include_tasks: configure_postgresql.yml
+  when: inventory_hostname in groups['zabbix']
+  tags: [zabbix, database, postgres, service]
+
+- name: Include Zabbix database setup tasks
+  include_tasks: setup_database.yml
+  when: inventory_hostname in groups['zabbix']
+  tags: [zabbix, database]
+
+- name: Include Zabbix configuration tasks
+  include_tasks: configure_zabbix.yml
+  tags: [zabbix, config]
+
+- name: Include Zabbix service configuration tasks
+  include_tasks: configure_services.yml
+  tags: [zabbix, service]
+
+- name: Include Zabbix web configuration tasks
+  include_tasks: configure_web.yml
+  when: inventory_hostname in groups['zabbix']
+  tags: [zabbix, web]

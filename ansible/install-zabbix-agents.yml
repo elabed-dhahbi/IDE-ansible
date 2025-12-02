@@ -1,0 +1,17 @@
+---
+# Zabbix Agents Installation Playbook
+# Installs Zabbix agents on all hosts except the Zabbix server
+
+- name: Install Zabbix agents on all hosts
+  hosts: all
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  tasks:
+    - name: Include Zabbix agent installation tasks
+      include_tasks: roles/zabbix/tasks/install_agents.yml
+      when: inventory_hostname not in groups['zabbix']
+      tags: [zabbix, agents]
+
+
+

@@ -1,0 +1,123 @@
+---
+# DMC4.6.18 Installation Playbook
+# Load configuration values from config/values.yaml
+vars_files:
+  - "../config/values.yaml"
+
+# Play execution order - each play includes only its specific role
+# Real logic implementation comes later in individual roles
+
+# a) Preflight checks on all hosts
+- name: Preflight system checks
+  hosts: all
+  gather_facts: yes
+  roles:
+    - common
+  tags:
+    - preflight
+
+# b) PostgreSQL database installation
+- name: Install and configure PostgreSQL
+  hosts: postgres
+  gather_facts: yes
+  roles:
+    - db_postgres
+  tags:
+    - postgres
+
+# c) Elasticsearch installation
+- name: Install and configure Elasticsearch
+  hosts: elasticsearch
+  gather_facts: yes
+  roles:
+    - elasticsearch
+  tags:
+    - elasticsearch
+
+# d) Logstash installation
+- name: Install and configure Logstash
+  hosts: logstash
+  gather_facts: yes
+  roles:
+    - logstash
+  tags:
+    - logstash
+
+# e) Kibana installation
+- name: Install and configure Kibana
+  hosts: kibana
+  gather_facts: yes
+  roles:
+    - kibana
+  tags:
+    - kibana
+
+# f) DMC installation on first node
+- name: Install and configure DMC (Node 1)
+  hosts: dmc1
+  gather_facts: yes
+  roles:
+    - dmc
+  tags:
+    - dmc1
+
+# g) DMC installation on second node (conditional)
+- name: Install and configure DMC (Node 2)
+  hosts: dmc2
+  gather_facts: yes
+  roles:
+    - dmc
+  tags:
+    - dmc2
+  when: groups['dmc2'] is defined and groups['dmc2'] | length > 0
+
+# h) DRS installation
+- name: Install and configure DRS
+  hosts: drs
+  gather_facts: yes
+  roles:
+    - drs
+  tags:
+    - drs
+
+# i) MMG installation
+- name: Install and configure MMG
+  hosts: mmg
+  gather_facts: yes
+  roles:
+    - mmg
+  tags:
+    - mmg
+
+# j) MMSOAP installation (REQUIRED)
+- name: Install and configure MMSOAP
+  hosts: mmsoap
+  gather_facts: yes
+  roles:
+    - mmsoap
+  tags:
+    - mmsoap
+
+# k) SMPPC installation
+- name: Install and configure SMPPC
+  hosts: smppc
+  gather_facts: yes
+  roles:
+    - smppc
+  tags:
+    - smppc
+
+# l) SLS installation (REQUIRED)
+- name: Install and configure SLS
+  hosts: sls
+  gather_facts: yes
+  roles:
+    - sls
+  tags:
+    - sls
+
+# IMPORTANT NOTES:
+# - All roles must read versions.* and package_globs.* from values.yaml
+# - RPM discovery is handled via glob patterns (checked in preflight)
+# - Roles later consume exact filenames or use with_fileglob for package installation
+# - Package paths are constructed as: paths.offline_dir + resolved filenames

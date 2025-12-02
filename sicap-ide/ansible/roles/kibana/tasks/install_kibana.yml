@@ -1,0 +1,34 @@
+---
+# Kibana Installation Tasks
+
+- name: Ensure offline directory exists on target
+  file:
+    path: "{{ paths.offline_dir }}"
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [kibana, install, packages]
+
+- name: Copy Kibana packages to target
+  copy:
+    src: "{{ item }}"
+    dest: "{{ paths.offline_dir }}/"
+    mode: '0644'
+  loop: "{{ lookup('fileglob', paths.offline_dir + '/' + package_globs.kibana_rpm, wantlist=True, errors='ignore') }}"
+  become: yes
+  tags: [kibana, install, packages]
+
+- name: Install Kibana package
+  yum:
+    name: "{{ item }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ lookup('fileglob', paths.offline_dir + '/' + package_globs.kibana_rpm, wantlist=True, errors='ignore') }}"
+  become: yes
+  tags: [kibana, install, packages]
+
+- name: Check if Kibana is already installed
+  stat:
+    path: "{{ kibana_install_dir }}"
+  register: kibana_installed
+  tags: [kibana, install, check]

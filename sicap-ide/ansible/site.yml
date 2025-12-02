@@ -1,0 +1,251 @@
+---
+# DMC4.6.18 Installation Playbook
+# Play execution order - each play includes only its specific role
+# Real logic implementation comes later in individual roles
+
+# a) Preflight checks on all hosts
+- name: Preflight system checks
+  hosts: all
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - common
+  tags:
+    - preflight
+
+# b) PostgreSQL database installation
+- name: Install and configure PostgreSQL
+  hosts: postgres
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - db_postgres
+  tags:
+    - postgres
+
+# c) Elasticsearch installation
+- name: Install and configure Elasticsearch
+  hosts: elasticsearch
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - elasticsearch
+  tags:
+    - elasticsearch
+
+# d) Logstash installation
+- name: Install and configure Logstash
+  hosts: logstash
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - logstash
+  tags:
+    - logstash
+
+# e) Kibana installation
+- name: Install and configure Kibana
+  hosts: kibana
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - kibana
+  tags:
+    - kibana
+
+# e1) OpenSearch installation
+- name: Install and configure OpenSearch
+  hosts: opensearch
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - opensearch
+  tags:
+    - opensearch
+
+# e2) Logstash OSS installation for OpenSearch stack
+- name: Install and configure Logstash OSS
+  hosts: logstash_oss
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - logstash_oss
+  tags:
+    - logstash-oss
+
+# e2.1) ELK Statistics Stack installation for CSV export generation
+- name: Install and configure ELK Statistics Stack
+  hosts: elkstatistic
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - elkstatistic
+  tags:
+    - elkstatistic
+
+# e2.2) Zabbix monitoring installation (server + web)
+- name: Install and configure Zabbix server and web
+  hosts: zabbix
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - zabbix
+  tags:
+    - zabbix
+
+# e2.3) Zabbix agents and Java Gateway installation (all hosts)
+- name: Install Zabbix agents and Java Gateway on all hosts
+  hosts: all
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  tasks:
+    - name: Include Zabbix agent installation tasks
+      include_tasks: roles/zabbix/tasks/install_agents_only.yml
+      tags: [zabbix, install]
+
+    - name: Include Zabbix agent configuration tasks
+      include_tasks: roles/zabbix/tasks/configure_agents_only.yml
+      tags: [zabbix, config]
+
+    - name: Include Zabbix agent service configuration tasks
+      include_tasks: roles/zabbix/tasks/configure_agent_services.yml
+      tags: [zabbix, service]
+  tags:
+    - zabbix-agents
+
+# e3) OpenSearch Dashboards installation
+- name: Install and configure OpenSearch Dashboards
+  hosts: opensearch_dashboards
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - opensearch_dashboards
+  tags:
+    - opensearch_dashboards
+
+# f) DMC installation on first node (with DRS and Logstash)
+- name: Install and configure DMC (Node 1)
+  hosts: dmc1
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - dmc
+    - drs
+    - logstash
+    - zabbix
+  tags:
+    - dmc1
+
+# g) DMC installation on second node (with DRS and Logstash)
+- name: Install and configure DMC (Node 2)
+  hosts: dmc2
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - dmc
+    - drs
+    - logstash
+    - zabbix
+  tags:
+    - dmc2
+
+# h) MMG installation
+- name: Install and configure MMG
+  hosts: mmg
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - mmg
+  tags:
+    - mmg
+
+# j) MMSOAP installation (REQUIRED)
+- name: Install and configure MMSOAP
+  hosts: mmsoap
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - mmsoap
+  tags:
+    - mmsoap
+
+# k) SMPPC installation
+- name: Install and configure SMPPC
+  hosts: smppc
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - smppc
+  tags:
+    - smppc
+
+# l) SLS installation (REQUIRED - Core Service)
+- name: Install and configure SLS
+  hosts: sls
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - sls
+  tags:
+    - sls
+
+- name: SLS License Upload Pause
+  hosts: sls
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  tags:
+    - sls
+  # Add a pause here for manual license upload
+  tasks:
+    - name: SLS Installation Complete - Manual License Upload Required
+      pause:
+        prompt: |
+          ================================================
+          SLS INSTALLATION COMPLETE
+          ================================================
+          
+          Next steps:
+          1. Open browser and go to: http://{{ ansible_host }}:50420
+          2. Upload all required licenses via the web interface
+          3. Verify SLS is working properly
+          4. Run the remaining services installation:
+             
+             make install-tag TAG=sicap-services
+          
+          Press ENTER when licenses are uploaded and SLS is verified...
+      when: inventory_hostname in groups['sls']
+
+# m) HAProxy load balancer installation
+- name: Install and configure HAProxy
+  hosts: haproxy
+  gather_facts: yes
+  vars_files:
+    - "../config/values.yaml"
+  roles:
+    - haproxy
+  tags:
+    - haproxy
+
+# IMPORTANT NOTES:
+# - All roles must read versions.* and package_globs.* from values.yaml
+# - RPM discovery is handled via glob patterns (checked in preflight)
+# - Roles later consume exact filenames or use with_fileglob for package installation
+# - Package paths are constructed as: paths.offline_dir + resolved filenames

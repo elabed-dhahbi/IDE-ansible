@@ -1,0 +1,76 @@
+---
+# ELK Statistics Stack Installation Tasks
+
+- name: Create ELK Statistics directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ elkstack_user }}"
+    group: "{{ elkstack_group }}"
+    mode: '0755'
+  become: true
+  loop:
+    - "{{ elkstack_install_dir }}"
+    - "{{ elkstack_logs_dir }}"
+    - "{{ elkstack_csv_dir }}"
+    - "{{ elkstack_csv_logstash_dir }}"
+  tags: [elkstatistic, install, directories]
+
+- name: Find ELK Statistics package
+  find:
+    paths: "{{ elkstack_package.source_dir }}"
+    patterns: "{{ elkstack_package.name }}"
+  register: elkstack_package_files
+  tags: [elkstatistic, install, packages]
+
+- name: Fail if ELK Statistics package not found
+  fail:
+    msg: "ELK Statistics package not found. Expected: {{ elkstack_package.name }}"
+  when: elkstack_package_files.matched == 0
+  tags: [elkstatistic, install, packages]
+
+- name: Copy ELK Statistics package to target
+  copy:
+    src: "{{ elkstack_package_files.files[0].path }}"
+    dest: "{{ elkstack_install_dir }}/{{ elkstack_package.name }}"
+    mode: '0644'
+  become: true
+  tags: [elkstatistic, install, packages]
+
+- name: Extract ELK Statistics package
+  unarchive:
+    src: "{{ elkstack_install_dir }}/{{ elkstack_package.name }}"
+    dest: "{{ elkstack_install_dir }}"
+    owner: "{{ elkstack_user }}"
+    group: "{{ elkstack_group }}"
+    mode: '0755'
+  become: true
+  tags: [elkstatistic, install, extract]
+
+- name: Create current symbolic link
+  file:
+    src: "{{ elkstack_install_dir }}/{{ elkstack_version }}"
+    dest: "{{ elkstack_install_dir }}/current"
+    state: link
+    owner: "{{ elkstack_user }}"
+    group: "{{ elkstack_group }}"
+  become: true
+  tags: [elkstatistic, install, symlink]
+
+- name: Extract CSV export archive
+  unarchive:
+    src: "{{ elkstack_install_dir }}/current/csv_export.zip"
+    dest: "{{ elkstack_install_dir }}/current/"
+    owner: "{{ elkstack_user }}"
+    group: "{{ elkstack_group }}"
+    mode: '0755'
+  become: true
+  tags: [elkstatistic, install, csv_export]
+
+- name: Set executable permissions for scripts
+  file:
+    path: "{{ elkstack_install_dir }}/current/csv_export/launcher"
+    mode: '0755'
+    recurse: true
+  become: true
+  tags: [elkstatistic, install, permissions]

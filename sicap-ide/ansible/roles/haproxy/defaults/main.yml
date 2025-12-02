@@ -1,0 +1,203 @@
+---
+# HAProxy configuration defaults
+
+# Offline installation settings
+haproxy_offline_install: false
+haproxy_offline_package_path: "/tmp/offline/haproxy-1.8.27-5.el8.x86_64.rpm"
+
+# HAProxy chroot directory
+haproxy_chroot_dir: /var/opt/haproxy
+
+# HAProxy global settings
+haproxy_global:
+  log: "/dev/log local0"
+  chroot: "/var/opt/haproxy"
+  pidfile: "/var/opt/haproxy/run/haproxy.pid"
+  maxconn: 2000
+  daemon: true
+  ssl_server_verify: "none"
+  tune_ssl_default_dh_param: 2048
+  stats_socket: "/var/opt/haproxy/run/haproxy.stat mode 600 level admin"
+  unix_bind_prefix: "/var/opt/haproxy/run/stunnel/sockets mode 660 user root group root"
+
+# HAProxy defaults section
+haproxy_defaults:
+  log: "global"
+  mode: "http"
+  option_httplog: true
+  option_dontlognull: true
+  option_forwardfor: true
+  option_http_server_close: true
+  option_contstats: true
+  option_redispatch: true
+  retries: 3
+  timeout_http_request: "15s"
+  timeout_queue: "30s"
+  timeout_connect: "5s"
+  timeout_http_keep_alive: "60s"
+  timeout_tarpit: "1m"
+  backlog: 10000
+
+# DMC Backend/CC Frontend (Port 50400)
+haproxy_dmc_bo_cc:
+  frontend_name: "ft_DMC_L7_HTTP_50400"
+  bind_address: "0.0.0.0:50400"
+  mode: "http"
+  timeout_client: "900s"
+  maxconn: 2000
+  backend_name: "bk_DMC_L7_HTTP_50400"
+  allowed_uris: "^/(cc|dmc|sicap|xdrs)"
+  balance: "roundrobin"
+  cookie_persistence: "JSESSIONID prefix nocache"
+  http_check: "HEAD /dmc HTTP/1.0"
+  http_check_fo: "HEAD /fo HTTP/1.0"
+  timeout_server: "120s"
+  servers:
+    - name: "sicap-dmc-01"
+      address: "sicap-dmc-01:50400"
+      maxconn: 2000
+      weight: 10
+      cookie: "E1"
+      check: true
+    - name: "sicap-dmc-02"
+      address: "sicap-dmc-02:50400"
+      maxconn: 2000
+      weight: 10
+      cookie: "E2"
+      check: true
+
+# DMC Frontend/FO (Port 50501)
+haproxy_dmc_fo:
+  frontend_name: "ft_DMC_L7_HTTP_50501"
+  bind_address: "0.0.0.0:50501"
+  mode: "http"
+  timeout_client: "900s"
+  maxconn: 2000
+  backend_name: "bk_DMC_L7_HTTP_50501"
+  allowed_uris: "^/(fo|/fo|rest-api)"
+  balance: "roundrobin"
+  cookie_persistence: "FOGUI insert nocache"
+  http_check: "HEAD /fo HTTP/1.0"
+  timeout_server: "120s"
+  servers:
+    - name: "sicap-dmc-01"
+      address: "sicap-dmc-01:50400"
+      maxconn: 2000
+      weight: 10
+      cookie: "E1"
+      check: true
+    - name: "sicap-dmc-02"
+      address: "sicap-dmc-02:50400"
+      maxconn: 2000
+      weight: 10
+      cookie: "E2"
+      check: true
+
+# DM iOS Enabler (Port 50452)
+haproxy_dm_ios_enabler:
+  frontend_name: "ft_DMC_L7_HTTP_50452"
+  bind_address: "0.0.0.0:50452"
+  ssl_cert: ""
+  mode: "http"
+  maxconn: 2000
+  timeout_client: "25s"
+  backend_name: "bk_DMC_L7_HTTP_50452"
+  allowed_uris: "^/(dmiosenabler)/"
+  http_check: "GET /dmiosenabler HTTP/1.0"
+  timeout_server: "25s"
+  timeout_connect: "10s"
+  servers:
+    - name: "sicap-dmc-01"
+      address: "sicap-dmc-01:50400"
+      maxconn: 2000
+      check: true
+    - name: "sicap-dmc-02"
+      address: "sicap-dmc-02:50400"
+      maxconn: 2000
+      check: true
+
+# Certificate Authority Server (Port 50455)
+haproxy_ca_server:
+  frontend_name: "ft_DMC_L7_HTTP_50455"
+  bind_address: "0.0.0.0:50455"
+  ssl_cert: ""
+  mode: "http"
+  maxconn: 2000
+  timeout_client: "25s"
+  allowed_uris: "^/(node01|node02)/(sicap-ca)/"
+  backend_node1_name: "bk_DMC_L7_HTTP_50455_node1"
+  backend_node2_name: "bk_DMC_L7_HTTP_50455_node2"
+  node1_uri: "^/(node01)/"
+  node2_uri: "^/(node02)/"
+  http_check: "HEAD / HTTP/1.0"
+  timeout_server: "25s"
+  timeout_connect: "10s"
+  servers:
+    - name: "sicap-dmc-01"
+      address: "sicap-dmc-01:50400"
+      maxconn: 2000
+      check: true
+    - name: "sicap-dmc-02"
+      address: "sicap-dmc-02:50400"
+      maxconn: 2000
+      check: true
+
+# DRS (Port 18080)
+haproxy_drs:
+  frontend_name: "ft_DRS_L7_HTTP_18080"
+  bind_address: "0.0.0.0:18080"
+  mode: "http"
+  timeout_client: "25s"
+  maxconn: 2000
+  backend_name: "bk_DRS_L7_HTTP_18080"
+  allowed_uris: "^/(drs)"
+  balance: "roundrobin"
+  http_check: "GET /drs HTTP/1.0"
+  timeout_server: "25s"
+  timeout_connect: "10s"
+  servers:
+    - name: "sicap-dmc-01"
+      address: "sicap-dmc-01:8080"
+      maxconn: 2000
+      weight: 10
+      check: true
+    - name: "sicap-dmc-02"
+      address: "sicap-dmc-02:8080"
+      maxconn: 2000
+      weight: 10
+      check: true
+
+# Main 5G Frontend (Port 8686)
+haproxy_main_5g:
+  frontend_name: "main"
+  bind_address: "0.0.0.0:8686"
+  mode: "http"
+  proto: "h2"
+  timeout_client: "900s"
+  maxconn: 2000
+  backend_name: "ADD5GFE"
+  balance: "roundrobin"
+  proto_backend: "h2"
+  timeout_server: "25s"
+  servers:
+    - name: "sicap-add-01"
+      address: "sicap-add-01:8688"
+      proto: "h2"
+    - name: "sicap-add-02-jhb"
+      address: "sicap-add-02-jhb:8688"
+      proto: "h2"
+
+# HAProxy Statistics
+haproxy_stats:
+  listen_name: "stats"
+  bind_address: "0.0.0.0:51400"
+  mode: "http"
+  timeout_client: "5000"
+  timeout_connect: "4000"
+  timeout_server: "30000"
+  stats_enable: true
+  stats_hide_version: true
+  stats_realm: "HAProxy\\ Statistics"
+  stats_uri: "/hastats"
+  stats_auth: "system:sicap"
+  stats_admin: true

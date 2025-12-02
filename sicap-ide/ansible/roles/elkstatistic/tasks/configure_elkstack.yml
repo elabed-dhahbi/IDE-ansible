@@ -1,0 +1,42 @@
+---
+# ELK Statistics Configuration Tasks
+
+- name: Create DMC4_Stats.properties configuration
+  template:
+    src: DMC4_Stats.properties.j2
+    dest: "{{ elkstack_install_dir }}/current/conf/DMC4_Stats.properties"
+    owner: "{{ elkstack_user }}"
+    group: "{{ elkstack_group }}"
+    mode: '0644'
+  become: true
+  tags: [elkstatistic, config, properties]
+
+- name: Create customer CSV export launch script
+  template:
+    src: customer_launch_csv_export.sh.j2
+    dest: "{{ elkstack_install_dir }}/current/csv_export/launcher/{{ system_config.customer_name | default('sicap') }}_launch_csv_export.sh"
+    owner: "{{ elkstack_user }}"
+    group: "{{ elkstack_group }}"
+    mode: '0755'
+  become: true
+  tags: [elkstatistic, config, scripts]
+
+- name: Create file cleanup script
+  template:
+    src: launch_file_cleanup.sh.j2
+    dest: "{{ elkstack_install_dir }}/current/csv_export/launcher/launch_file_cleanup.sh"
+    owner: "{{ elkstack_user }}"
+    group: "{{ elkstack_group }}"
+    mode: '0755'
+  become: true
+  tags: [elkstatistic, config, scripts]
+
+- name: Create edit_crontab script
+  template:
+    src: edit_crontab.j2
+    dest: "{{ elkstack_install_dir }}/current/conf/edit_crontab"
+    owner: "{{ elkstack_user }}"
+    group: "{{ elkstack_group }}"
+    mode: '0755'
+  become: true
+  tags: [elkstatistic, config, scripts]

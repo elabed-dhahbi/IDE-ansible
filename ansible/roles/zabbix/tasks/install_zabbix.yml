@@ -1,0 +1,753 @@
+---
+# Zabbix Installation Tasks
+# Simple RPM installation only
+
+- name: Ensure offline directory exists on target
+  file:
+    path: "{{ paths.offline_dir }}"
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [zabbix, install, packages]
+
+- name: Find Zabbix packages using package_globs patterns
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "{{ package_globs.zabbix_agent2_rpm }}"
+      - "{{ package_globs.zabbix_agent2_plugin_mongodb_rpm }}"
+      - "{{ package_globs.zabbix_agent2_plugin_mssql_rpm }}"
+      - "{{ package_globs.zabbix_agent2_plugin_postgresql_rpm }}"
+      - "{{ package_globs.zabbix_apache_conf_rpm }}"
+      - "{{ package_globs.zabbix_java_gateway_rpm }}"
+      - "{{ package_globs.zabbix_selinux_policy_rpm }}"
+      - "{{ package_globs.zabbix_server_pgsql_rpm }}"
+      - "{{ package_globs.zabbix_sql_scripts_rpm }}"
+      - "{{ package_globs.zabbix_web_rpm }}"
+      - "{{ package_globs.zabbix_web_deps_rpm }}"
+      - "{{ package_globs.zabbix_web_pgsql_rpm }}"
+      - "zabbix-agent-*.rpm"
+      - "zabbix-agent2-*.rpm"
+      - "fping-*.rpm"
+  register: zabbix_packages_local
+  delegate_to: localhost
+  tags: [zabbix, install, packages]
+
+- name: Debug - Show found Zabbix packages
+  debug:
+    msg: "Found Zabbix packages: {{ zabbix_packages_local.files | map(attribute='path') | map('basename') | list }}"
+  tags: [zabbix, install, packages]
+
+- name: Copy Zabbix packages to target server
+  copy:
+    src: "{{ item.path }}"
+    dest: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    mode: '0644'
+  loop: "{{ zabbix_packages_local.files }}"
+  become: yes
+  when: zabbix_packages_local.files | length > 0
+  register: copy_result
+  tags: [zabbix, install, packages]
+
+- name: Warn if no Zabbix packages found
+  debug:
+    msg: "WARNING: No Zabbix packages found in {{ paths.offline_dir }}. Check package_globs in config/packages.yaml"
+  when: zabbix_packages_local.files | length == 0
+  tags: [zabbix, install, packages]
+
+- name: Remove any existing Zabbix packages to avoid conflicts
+  dnf:
+    name:
+      - zabbix-server
+      - zabbix-server-mysql
+      - zabbix-server-pgsql
+      - zabbix-web
+      - zabbix-web-mysql
+      - zabbix-web-pgsql
+      - zabbix-agent
+      - zabbix-agent2
+      - zabbix-java-gateway
+      - zabbix-sql-scripts
+      - zabbix-apache-conf
+      - zabbix-selinux-policy
+      - zabbix-web-deps
+    state: absent
+    autoremove: yes
+  become: yes
+  ignore_errors: yes
+  tags: [zabbix, install, cleanup]
+
+- name: Debug - Show copy results
+  debug:
+    msg: "Copy result for {{ item.item }}: changed={{ item.changed }}, failed={{ item.failed }}"
+  loop: "{{ copy_result.results }}"
+  tags: [zabbix, install, packages]
+
+- name: Find createrepo_c packages in offline directory on controller
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "createrepo_c-*.el9.x86_64.rpm"
+      - "createrepo_c-libs-*.el9.x86_64.rpm"
+  register: createrepo_packages_local
+  delegate_to: localhost
+  tags: [zabbix, install, createrepo]
+
+- name: Copy createrepo_c packages to target server
+  copy:
+    src: "{{ item.path }}"
+    dest: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    mode: '0644'
+  loop: "{{ createrepo_packages_local.files }}"
+  become: yes
+  when: createrepo_packages_local.files | length > 0
+  tags: [zabbix, install, createrepo]
+
+- name: Install createrepo_c-libs first (dependency for createrepo_c)
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ createrepo_packages_local.files | selectattr('path', 'match', '.*createrepo_c-libs.*') | list }}"
+  become: yes
+  when: createrepo_packages_local.files | length > 0
+  tags: [zabbix, install, createrepo]
+
+- name: Install createrepo_c after libs (requires createrepo_c-libs)
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ createrepo_packages_local.files | rejectattr('path', 'match', '.*createrepo_c-libs.*') | list }}"
+  become: yes
+  when: createrepo_packages_local.files | length > 0
+  tags: [zabbix, install, createrepo]
+
+- name: Install createrepo_c from system repositories (fallback if not in offline dir)
+  yum:
+    name: createrepo_c
+    state: present
+  become: yes
+  when: createrepo_packages_local.files | length == 0
+  tags: [zabbix, install, createrepo]
+
+- name: Find fping package
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns: "fping-*.el9.x86_64.rpm"
+  register: fping_package
+  tags: [zabbix, install, final]
+
+- name: Build dependency package patterns list
+  set_fact:
+    zabbix_dep_patterns: "{{ offline_packages | map(attribute='packages') | flatten | list }}"
+  tags: [zabbix, install, dependencies]
+
+- name: Find Zabbix dependency packages from offline_packages list
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns: "{{ item }}"
+  loop: "{{ zabbix_dep_patterns }}"
+  register: zabbix_deps_found
+  delegate_to: localhost
+  tags: [zabbix, install, dependencies]
+
+- name: Flatten dependency packages list
+  set_fact:
+    zabbix_deps_local:
+      files: "{{ zabbix_deps_found.results | map(attribute='files') | flatten | list | unique }}"
+  tags: [zabbix, install, dependencies]
+
+- name: Debug - Show found dependency packages
+  debug:
+    msg: "Found dependency packages: {{ zabbix_deps_local.files | map(attribute='path') | map('basename') | list }}"
+  tags: [zabbix, install, dependencies]
+
+- name: Copy system dependencies to target server
+  copy:
+    src: "{{ item.path }}"
+    dest: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    mode: '0644'
+  loop: "{{ zabbix_deps_local.files }}"
+  become: yes
+  when: zabbix_deps_local.files | length > 0
+  tags: [zabbix, install, dependencies]
+
+- name: Debug - Check if fping package exists
+  debug:
+    msg: "fping package found: {{ fping_package.files | length > 0 }}"
+  tags: [zabbix, install, final]
+
+- name: Create local YUM repository with all packages (Zabbix + dependencies)
+  command: createrepo {{ paths.offline_dir }}
+  become: yes
+  tags: [zabbix, install, final]
+
+- name: Create local repository configuration
+  copy:
+    content: |
+      [offline-repo]
+      name=Offline Repository
+      baseurl=file://{{ paths.offline_dir }}
+      enabled=1
+      gpgcheck=0
+    dest: /etc/yum.repos.d/offline.repo
+    mode: '0644'
+  become: yes
+  tags: [zabbix, install, final]
+
+- name: Clean YUM cache
+  command: yum clean all
+  become: yes
+  tags: [zabbix, install, final]
+
+- name: Install nginx-filesystem first (required by php-fpm)
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ zabbix_deps_local.files | selectattr('path', 'match', '.*nginx-filesystem.*') | list }}"
+  become: yes
+  when: zabbix_deps_local.files | length > 0
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Install PHP packages first (required by Zabbix web, install php-common first, skip php-fpm if nginx-filesystem missing)
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ zabbix_deps_local.files | selectattr('path', 'match', '.*php-common.*') | list + (zabbix_deps_local.files | selectattr('path', 'match', '.*php.*') | rejectattr('path', 'match', '.*php-common.*') | rejectattr('path', 'match', '.*php-fpm.*') | list) }}"
+  become: yes
+  when: zabbix_deps_local.files | length > 0
+  ignore_errors: yes
+  register: php_install_result
+  tags: [zabbix, install, dependencies]
+
+- name: Try to install php-fpm if nginx-filesystem is available
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ zabbix_deps_local.files | selectattr('path', 'match', '.*php-fpm.*') | list }}"
+  become: yes
+  when: zabbix_deps_local.files | length > 0
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Debug - Show PHP installation results
+  debug:
+    msg: "PHP installation: {{ php_install_result.results | map(attribute='item.path') | map('basename') | list }}"
+  when: zabbix_deps_local.files | length > 0 and php_install_result is defined
+  tags: [zabbix, install, dependencies]
+
+- name: Check if APR is already installed
+  command: rpm -q apr
+  register: apr_installed_check
+  failed_when: false
+  changed_when: false
+  become: yes
+  when: inventory_hostname in groups['zabbix'] | default([])
+  tags: [zabbix, install, dependencies]
+
+- name: Find APR packages in offline directory
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "apr-*.rpm"
+      - "apr-util-*.rpm"
+  register: apr_packages_offline
+  delegate_to: localhost
+  tags: [zabbix, install, dependencies]
+
+- name: Debug - Show found APR packages
+  debug:
+    msg: "Found APR packages: {{ apr_packages_offline.files | map(attribute='path') | map('basename') | list }}"
+  when: inventory_hostname in groups['zabbix'] | default([])
+  tags: [zabbix, install, dependencies]
+
+- name: Filter APR packages (not apr-util)
+  set_fact:
+    apr_only_packages: "{{ apr_packages_offline.files | selectattr('path', 'match', '.*/apr-[0-9].*rpm') | rejectattr('path', 'match', '.*apr-util.*') | list }}"
+  when: apr_packages_offline.files | length > 0
+  tags: [zabbix, install, dependencies]
+
+- name: Install APR from offline directory first (required before apr-util)
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ apr_only_packages | default([]) }}"
+  become: yes
+  when: 
+    - apr_only_packages | default([]) | length > 0
+    - inventory_hostname in groups['zabbix'] | default([])
+    - apr_installed_check.rc != 0
+  register: apr_install_offline
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Install APR from system repositories if not in offline directory and not already installed
+  yum:
+    name: apr
+    state: present
+  become: yes
+  when: 
+    - inventory_hostname in groups['zabbix'] | default([])
+    - apr_only_packages | default([]) | length == 0
+    - apr_installed_check.rc != 0
+  register: apr_system_install
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Install APR-util from offline directory after APR
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ apr_packages_offline.files | selectattr('path', 'match', '.*apr-util.*rpm') | rejectattr('path', 'match', '.*apr-util-bdb.*') | rejectattr('path', 'match', '.*apr-util-openssl.*') | list }}"
+  become: yes
+  when: 
+    - apr_packages_offline.files | length > 0
+    - inventory_hostname in groups['zabbix'] | default([])
+  register: apr_util_install_offline
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Install APR-util from system repositories if not in offline directory
+  yum:
+    name: apr-util
+    state: present
+  become: yes
+  when: 
+    - inventory_hostname in groups['zabbix'] | default([])
+    - apr_packages_offline.files | selectattr('path', 'match', '.*apr-util.*rpm') | rejectattr('path', 'match', '.*apr-util-bdb.*') | rejectattr('path', 'match', '.*apr-util-openssl.*') | list | length == 0
+  register: apr_util_system_install
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Install Java dependencies first (required by java-17-openjdk-headless)
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ zabbix_deps_local.files | selectattr('path', 'match', '.*(javapackages-filesystem|tzdata-java|copy-jdk-configs|lksctp-tools).*') | list }}"
+  become: yes
+  when: zabbix_deps_local.files | length > 0
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Install other system dependencies from offline directory
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ zabbix_deps_local.files | rejectattr('path', 'match', '.*php.*') | rejectattr('path', 'match', '.*apr.*') | rejectattr('path', 'match', '.*(javapackages-filesystem|tzdata-java|copy-jdk-configs|lksctp-tools).*') | list }}"
+  become: yes
+  when: zabbix_deps_local.files | length > 0
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Find zabbix-agent or zabbix-agent2 package in offline directory
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "zabbix-agent2-*.el9.x86_64.rpm"
+      - "zabbix-agent-*.el9.x86_64.rpm"
+  register: zabbix_agent_package
+  tags: [zabbix, install, dependencies]
+
+- name: Copy zabbix-agent package to target server
+  copy:
+    src: "{{ item.path }}"
+    dest: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    mode: '0644'
+  loop: "{{ zabbix_agent_package.files }}"
+  become: yes
+  when: zabbix_agent_package.files | length > 0
+  tags: [zabbix, install, dependencies]
+
+- name: Install zabbix-agent from offline directory if found
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ zabbix_agent_package.files }}"
+  become: yes
+  when: zabbix_agent_package.files | length > 0
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Verify PHP packages are installed (php-fpm is optional)
+  command: rpm -q php-common php-pgsql php-bcmath php-gd php-ldap php-mbstring php-xml
+  register: php_installed_check
+  failed_when: false
+  changed_when: false
+  become: yes
+  tags: [zabbix, install, final]
+
+- name: Debug - Show PHP installation status
+  debug:
+    msg: "Required PHP packages installed: {{ php_installed_check.rc == 0 }}"
+  tags: [zabbix, install, final]
+
+- name: Find httpd packages in offline directory
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "httpd-*.rpm"
+      - "*logos-httpd*.rpm"
+  register: httpd_packages_offline
+  delegate_to: localhost
+  tags: [zabbix, install, dependencies]
+
+- name: Check if APR is installed before installing httpd
+  command: rpm -q apr
+  register: apr_check_before_httpd
+  failed_when: false
+  changed_when: false
+  become: yes
+  when: inventory_hostname in groups['zabbix'] | default([])
+  tags: [zabbix, install, dependencies]
+
+- name: Warn if APR is not installed (required for httpd)
+  debug:
+    msg: "WARNING: APR package is not installed. httpd installation may fail. Please ensure apr package is in offline directory or already installed on the system."
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - apr_check_before_httpd.rc != 0
+  tags: [zabbix, install, dependencies]
+
+- name: Debug - Show found httpd logo packages
+  debug:
+    msg: "Found httpd logo packages: {{ httpd_packages_offline.files | selectattr('path', 'match', '.*logos-httpd.*') | map(attribute='path') | map('basename') | list }}"
+  when: inventory_hostname in groups['zabbix'] | default([])
+  tags: [zabbix, install, dependencies]
+
+- name: Copy httpd logo packages to target server
+  copy:
+    src: "{{ item.path }}"
+    dest: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    mode: '0644'
+  loop: "{{ httpd_packages_offline.files | selectattr('path', 'match', '.*logos-httpd.*') | list }}"
+  become: yes
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - httpd_packages_offline.files | length > 0
+  tags: [zabbix, install, dependencies]
+
+- name: Install system-logos-httpd first (required by httpd) - try all logo packages
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ httpd_packages_offline.files | selectattr('path', 'match', '.*logos-httpd.*') | list }}"
+  become: yes
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - httpd_packages_offline.files | length > 0
+  register: logos_install_result
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Install system-logos-httpd from system repositories if not in offline directory
+  yum:
+    name: system-logos-httpd
+    state: present
+  become: yes
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - httpd_packages_offline.files | selectattr('path', 'match', '.*(system-logos-httpd|redhat-logos-httpd|rocky-logos-httpd).*') | list | length == 0
+  register: logos_system_install
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Install httpd-core first (required by httpd and httpd-tools)
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ httpd_packages_offline.files | selectattr('path', 'match', '.*httpd-core.*') | list }}"
+  become: yes
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - httpd_packages_offline.files | length > 0
+  register: httpd_core_install
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Install httpd package (after httpd-core)
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ httpd_packages_offline.files | selectattr('path', 'match', '.*httpd-[0-9].*rpm') | rejectattr('path', 'match', '.*httpd-core.*') | rejectattr('path', 'match', '.*httpd-tools.*') | rejectattr('path', 'match', '.*httpd-filesystem.*') | list }}"
+  become: yes
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - httpd_packages_offline.files | length > 0
+  register: httpd_install
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Install httpd-tools (after httpd-core and httpd)
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ httpd_packages_offline.files | selectattr('path', 'match', '.*httpd-tools.*') | list }}"
+  become: yes
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - httpd_packages_offline.files | length > 0
+  register: httpd_tools_install
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Verify httpd is installed
+  command: rpm -q httpd
+  register: httpd_installed_check
+  failed_when: false
+  changed_when: false
+  become: yes
+  when: inventory_hostname in groups['zabbix'] | default([])
+  tags: [zabbix, install, dependencies]
+
+
+- name: Install httpd and dependencies from system repositories (fallback if offline installation failed)
+  yum:
+    name:
+      - httpd
+      - httpd-tools
+      - system-logos-httpd
+    state: present
+  become: yes
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - httpd_installed_check.rc != 0
+  register: httpd_system_install
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Final check - verify httpd is installed
+  command: rpm -q httpd
+  register: httpd_final_check
+  failed_when: false
+  changed_when: false
+  become: yes
+  when: inventory_hostname in groups['zabbix'] | default([])
+  tags: [zabbix, install, dependencies]
+
+- name: Warn if httpd installation failed
+  debug:
+    msg: "WARNING: httpd installation failed. Required dependencies: apr, system-logos-httpd. Please ensure these packages are in offline directory or already installed."
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - httpd_final_check.rc != 0
+  tags: [zabbix, install, dependencies]
+
+- name: Find nginx-filesystem package in offline directory (required for php-fpm and zabbix-web-deps)
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "nginx-filesystem-*.el9.noarch.rpm"
+  register: nginx_filesystem_offline
+  delegate_to: localhost
+  when: inventory_hostname in groups['zabbix'] | default([])
+  tags: [zabbix, install, dependencies]
+
+- name: Install nginx-filesystem from offline directory if found
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ nginx_filesystem_offline.files }}"
+  become: yes
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - nginx_filesystem_offline.files | length > 0
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Install nginx-filesystem from system repositories if not in offline directory
+  yum:
+    name: nginx-filesystem
+    state: present
+  become: yes
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - nginx_filesystem_offline.files | length == 0
+  register: nginx_filesystem_system_install
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Verify nginx-filesystem is installed
+  command: rpm -q nginx-filesystem
+  register: nginx_filesystem_check
+  failed_when: false
+  changed_when: false
+  become: yes
+  when: inventory_hostname in groups['zabbix'] | default([])
+  tags: [zabbix, install, dependencies]
+
+- name: Debug - nginx-filesystem installation status
+  debug:
+    msg: "nginx-filesystem installed: {{ nginx_filesystem_check.rc == 0 }}, offline files: {{ nginx_filesystem_offline.files | length }}, system install failed: {{ nginx_filesystem_system_install.failed | default(false) }}"
+  when: inventory_hostname in groups['zabbix'] | default([])
+  tags: [zabbix, install, dependencies]
+
+- name: Install php-fpm if nginx-filesystem is available (required by zabbix-web-deps)
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ zabbix_deps_local.files | selectattr('path', 'match', '.*php-fpm.*rpm') | list }}"
+  become: yes
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - zabbix_deps_local.files | length > 0
+    - nginx_filesystem_check.rc == 0
+  register: php_fpm_install_result
+  ignore_errors: yes
+  tags: [zabbix, install, dependencies]
+
+- name: Check if php-fpm is installed
+  command: rpm -q php-fpm
+  register: php_fpm_check
+  failed_when: false
+  changed_when: false
+  become: yes
+  when: inventory_hostname in groups['zabbix'] | default([])
+  tags: [zabbix, install, dependencies]
+
+- name: Install Zabbix server core packages (without zabbix-apache-conf if httpd unavailable)
+  dnf:
+    name:
+      - zabbix-server-pgsql
+      - zabbix-sql-scripts
+      - zabbix-selinux-policy
+    state: present
+    enablerepo: offline-repo
+    disablerepo: epel,epel-modular
+    disable_gpg_check: yes
+  become: yes
+  when: inventory_hostname in groups['zabbix'] | default([])
+  register: zabbix_server_core_install_result
+  tags: [zabbix, install, final]
+
+- name: Install zabbix-apache-conf only if httpd is installed
+  dnf:
+    name: zabbix-apache-conf
+    state: present
+    enablerepo: offline-repo
+    disablerepo: epel,epel-modular
+    disable_gpg_check: yes
+  become: yes
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - httpd_final_check.rc == 0
+  register: zabbix_apache_conf_install_result
+  ignore_errors: yes
+  tags: [zabbix, install, final]
+
+- name: Warn if zabbix-apache-conf could not be installed
+  debug:
+    msg: "WARNING: zabbix-apache-conf could not be installed because httpd is not available. Zabbix web interface will still work, but you may need to configure Apache manually."
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - httpd_final_check.rc != 0
+  tags: [zabbix, install, final]
+
+- name: Install zabbix-web-pgsql (try with zabbix-web-deps if php-fpm is available)
+  block:
+    - name: Install zabbix-web-deps first if php-fpm is installed
+      dnf:
+        name: zabbix-web-deps
+        state: present
+        enablerepo: offline-repo
+        disablerepo: epel,epel-modular
+        disable_gpg_check: yes
+      become: yes
+      when: php_fpm_check.rc == 0
+      ignore_errors: yes
+      register: zabbix_web_deps_install_result
+
+    - name: Try to install zabbix-web-pgsql with zabbix-web-deps
+      dnf:
+        name: zabbix-web-pgsql
+        state: present
+        enablerepo: offline-repo
+        disablerepo: epel,epel-modular
+        disable_gpg_check: yes
+      become: yes
+      when: php_fpm_check.rc == 0
+      register: zabbix_web_install_result
+      ignore_errors: yes
+
+    - name: Try to install zabbix-web-pgsql without zabbix-web-deps (using --nodeps workaround)
+      shell: |
+        cd {{ paths.offline_dir }}
+        rpm -Uvh --nodeps zabbix-web-pgsql-*.rpm 2>/dev/null || true
+      become: yes
+      when:
+        - php_fpm_check.rc != 0
+        - zabbix_web_install_result.failed | default(true)
+      register: zabbix_web_force_install
+      ignore_errors: yes
+
+    - name: Verify zabbix-web-pgsql installation
+      command: rpm -q zabbix-web-pgsql
+      register: zabbix_web_verify
+      failed_when: false
+      changed_when: false
+      become: yes
+      when: inventory_hostname in groups['zabbix'] | default([])
+      tags: [zabbix, install, final]
+  when: inventory_hostname in groups['zabbix'] | default([])
+  tags: [zabbix, install, final]
+
+- name: Debug - Show Zabbix server core installation result
+  debug:
+    msg: "Zabbix server core installation: {{ 'SUCCESS' if zabbix_server_core_install_result.rc == 0 else 'FAILED' }} - {{ zabbix_server_core_install_result.msg | default('No message') }}"
+  when: 
+    - inventory_hostname in groups['zabbix'] | default([])
+    - zabbix_server_core_install_result is defined
+  tags: [zabbix, install, final]
+
+- name: Debug - Show Zabbix web installation result
+  debug:
+    msg: "Zabbix web installation: {{ 'SUCCESS' if (zabbix_web_verify.rc == 0 if zabbix_web_verify is defined else false) else 'FAILED' }} - Package installed: {{ zabbix_web_verify.stdout if zabbix_web_verify is defined else 'Unknown' }}"
+  when: 
+    - inventory_hostname in groups['zabbix'] | default([])
+    - zabbix_web_verify is defined
+  tags: [zabbix, install, final]
+
+- name: Fail if Zabbix server core installation failed
+  fail:
+    msg: "Failed to install Zabbix server core packages. Check dependencies and package availability. Error: {{ zabbix_server_core_install_result.msg | default('Unknown error') }}"
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - zabbix_server_core_install_result.rc is defined
+    - zabbix_server_core_install_result.rc != 0
+  tags: [zabbix, install, final]
+
+- name: Fail if Zabbix web installation failed
+  fail:
+    msg: "Failed to install Zabbix web packages. Check dependencies (httpd, php-fpm, nginx-filesystem) and package availability."
+  when:
+    - inventory_hostname in groups['zabbix'] | default([])
+    - zabbix_web_verify is defined
+    - zabbix_web_verify.rc != 0
+  tags: [zabbix, install, final]
+
+- name: Try to install zabbix-web-deps (optional, requires php-fpm)
+  dnf:
+    name: zabbix-web-deps
+    state: present
+    enablerepo: offline-repo
+    disablerepo: epel,epel-modular
+    disable_gpg_check: yes
+  become: yes
+  when: inventory_hostname in groups['zabbix'] | default([])
+  ignore_errors: yes
+  tags: [zabbix, install, final]

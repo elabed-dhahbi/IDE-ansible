@@ -1,0 +1,38 @@
+---
+# MMG Role Default Variables
+
+# MMG version (inherited from main configuration)
+mmg_version: "{{ versions.mmg }}"
+
+# Service configuration
+mmg_service_name: "mmg"
+mmg_user: "mmg"
+mmg_group: "mmg"
+
+# Directory configuration
+mmg_home: "/opt/mmg"
+mmg_install_dir: "{{ install_paths.mmg_home }}"
+mmg_config_dir: "/etc/mmg"
+mmg_logs_dir: "/var/log/mmg"
+mmg_data_dir: "/var/lib/mmg"
+
+# MMG configuration
+mmg_config:
+  http_port: "{{ service_ports.mmg_http }}"
+  http_host: "0.0.0.0"
+  node_id: "{{ ansible_hostname }}"
+  
+  # Database configuration
+  database:
+    host: "{{ service_ips.postgres }}"
+    port: "{{ service_ports.postgres }}"
+    name: "{{ postgresql_config.databases.mmg.name }}"
+    user: "{{ postgresql_config.users.mmg.name | default('mmg') }}"
+    password: "{{ postgresql_config.users.mmg.password }}"
+
+# Package configuration
+mmg_package: "{{ package_globs.mmg_rpm }}"
+
+
+
+

@@ -1,0 +1,336 @@
+# General logstash configuration file template for OpenSearch Stack
+input {
+    file {
+        path => "{{ logstash_oss_config.dmc_log_base_path }}/eir.log*"
+        start_position => "end"
+        type => "eir"
+        tags => "dmc-opensearch"
+    }
+
+    file {
+        path => "{{ logstash_oss_config.dmc_log_base_path }}/activity.log"
+        start_position => "end"
+        type => "activity"
+        tags => "dmc-opensearch"
+    }
+
+    file {
+        path => "{{ logstash_oss_config.dmc_log_base_path }}/add_backend.log"
+        start_position => "end"
+        type => "add_backend"
+        tags => "dmc-opensearch"
+    }
+
+    file {
+        path => "{{ logstash_oss_config.dmc_log_base_path }}/delivered_content.log"
+        start_position => "end"
+        type => "delivered_content"
+        tags => "dmc-opensearch"
+    }
+
+    file {
+        path => "{{ logstash_oss_config.dmc_log_base_path }}/gui_page_leave.log"
+        start_position => "end"
+        type => "gui_page_leave"
+        tags => "dmc-opensearch"
+    }
+
+    file {
+        path => "{{ logstash_oss_config.dmc_log_base_path }}/profile_association.log"
+        start_position => "end"
+        type => "profile_association"
+        tags => "dmc-opensearch"
+    }
+
+    file {
+        path => "{{ logstash_oss_config.dmc_log_base_path }}/scenario_op_delivered.log"
+        start_position => "end"
+        type => "scenario_op_delivered"
+        tags => "dmc-opensearch"
+    }
+
+    file {
+        path => "{{ logstash_oss_config.dmc_log_base_path }}/mobile_binding_change.log"
+        start_position => "end"
+        type => "mobile_binding_change"
+        tags => "dmc-opensearch"
+    }
+
+    file {
+        path => "{{ logstash_oss_config.csv_export_path }}/DMC_CSV_export_*.csv"
+        mode => "read"
+        file_completed_action => "log" 
+        file_completed_log_path => "{{ logstash_oss_logs_dir }}/csvexport.log" 		      
+        type => "csvexport"
+        tags => "csvexport"
+    }
+}
+
+filter {
+    if [type] == "eir" {
+        grok {
+            patterns_dir => "{{ logstash_oss_patterns_dir }}"
+            match => { "message" => '%{TIMESTAMP_DMC:timestamp},(%{DATA:author})?,(%{WORD:channel})?,(%{WORD:providerId})?,(%{WORD:entity})?,(%{WORD:action})?,(%{WORD:IMEIFROM})?,(%{WORD:IMEITO})?,(%{WORD:status})?,(%{WORD:code})?,(%{DATA:clarification})?,(%{DATA:source})?,(%{GREEDYDATA:comments})?' }
+        }
+    }
+
+    if [type] == "activity" {
+        csv {
+            separator => ","
+            columns => ["timestamp", "author", "channel", "providerId", "entity", "user", "ip", "site", "action", "MSISDN", "scenario", "unknown", "status"]
+        }
+    }
+
+    if [type] == "add_backend" {
+        csv {
+            separator => ","
+            columns => ["timestamp", "author", "channel", "providerId", "entity", "IMSI", "IMEI", "MSISDN", "source", "fename"]
+        }
+    }
+
+    if [type] == "delivered_content" {
+        csv {
+            separator => ","
+            columns => ["timestamp", "author", "channel", "providerId", "entity", "sessionid", "scenariooperationid", "contentType", "deliveredContentStatus", "protocol", "MSISDN", "IMEI", "region", "contentName", "executiontime", "initiationtime"]
+        }
+    }
+
+    if [type] == "gui_page_leave" {
+        csv {
+            separator => ","
+            columns => ["timestamp", "author", "channel", "providerId", "entity", "MSISDN", "secondSpent", "numberHits"]
+        }
+    }
+
+    if [type] == "profile_association" {
+        csv {
+            separator => ","
+            columns => ["timestamp", "author", "channel", "providerId", "entity", "IMSI", "IMEI", "MSISDN", "subscriptionOptions", "profileName", "region"]
+        }
+    }
+
+    if [type] == "scenario_op_delivered" {
+        csv {
+            separator => ","
+            columns => ["timestamp", "author", "channel", "providerId", "entity", "sessionid", "scenarioOperationId", "operationType", "scenarioType", "scenario", "number", "operation", "status", "IMSI", "IMEI", "MSISDN", "protocolPlugin", "packagesDataSize", "contentType", "protocol", "profileID", "profileName"]
+        }
+    }
+
+    if [type] == "mobile_binding_change" {
+        csv {
+            separator => ","
+            columns => ["timestamp", "author", "channel", "providerid", "entity", "operationType", "providerName", "IMSI", "IMEI", "MSISDN", "previousValue", "region", "regionFromOptions"]
+        }
+
+        if [IMEI] =~ /^(s_.*|S_.*|\d{14,17})$/ {
+            rest {
+                request => {
+                    url => "{{ logstash_oss_config.drs_base_url }}/characteristics/1_4/Generic/marketing?imei=%{IMEI}"
+                    method => "get"
+                    response_key => "temp"
+                }
+                json => true
+                sprintf => true
+                target => "rest"
+            }
+            mutate {
+                add_field => {"drs" => "%{[rest][result][devices][0]}"}
+            }
+        }
+    }
+
+    if [type] == "csvexport" {
+        csv {
+            separator => ";"
+            columns => ["MSISDN", "IMSI", "IMEI", "DetectionDate", "Brand", "Model", "2G", "3G", "4G", "5G", "SupportedBearer", "LTEBands", "Bluetooth", "EAPSIM", "Email", "GPS", "IMEIBands", "MMS", "multiSIM", "NFC", "OSName", "OSVendor", "OSVersion", "OTA", "DATA_GPRS", "MMS_GPRS", "WAP_GPRS", "WAP_PUSH", "DeviceType", "VoLTE", "WAPVersion", "WIFI", "providerId", "providerName","SIMType", "Status", "GPRS", "highestBand"]
+        }
+        
+        if ([IMEI] == "IMEI") {
+            drop {}
+        }
+
+        mutate {
+            add_field => { "brand_model" => "%{Brand} %{Model}" }
+        }  
+    }
+
+    if([IMEI] and !("{{ logstash_oss_config.csv_export_path }}/" in [path]) and !([IMEI] == "")) {
+        if [IMEI] =~ /^(s_.*|S_.*|\d{14,17})$/ {
+            rest {
+                request => {
+                    url => "{{ logstash_oss_config.drs_base_url }}/characteristics/1_4/Generic/RAW?imei=%{IMEI}"
+                    method => "get"
+                    response_key => "temp"
+                }
+                json => true
+                sprintf => true
+                target => "rest"
+            }
+
+            ruby {
+                code => '
+                    fields = {
+                        "brand" => "[rest][result][devices][0][brand]",
+                        "model" => "[rest][result][devices][0][model]",
+                        "oSName" => "[rest][result][devices][0][characteristics][SoftwarePlatform.oSName]",
+                        "deviceType" => "[rest][result][devices][0][characteristics][HardwareExt.deviceType]",
+                        "radioStack" => "[rest][result][devices][0][characteristics][HardwareExt.radioStack]",
+                        "volte" => "[rest][result][devices][0][characteristics][GSMA Rule Characteristics.volte]",
+                        "supportedBearers" => "[rest][result][devices][0][characteristics][NetworkCharacteristics.supportedBearers]",
+                        "5gBands" => "[rest][result][devices][0][characteristics][NetworkCharacteristics.5gBands]",
+                        "nfc" => "[rest][result][devices][0][characteristics][GSMA Rule Characteristics.nfc]",
+                        "bluetooth" => "[rest][result][devices][0][characteristics][GSMA Rule Characteristics.bluetooth]",
+                        "wlan" => "[rest][result][devices][0][characteristics][GSMA Rule Characteristics.wlan]",
+                        "eapSIM" => "[rest][result][devices][0][characteristics][NetworkExt.eapSIM]",
+                        "email" => "[rest][result][devices][0][characteristics][SoftwarePlatform.email]",
+                        "javaEnabled" => "[rest][result][devices][0][characteristics][SoftwarePlatform.javaEnabled]",
+                        "mms" => "[rest][result][devices][0][characteristics][MmsCharacteristics.mms]",
+                        "wapVersion" => "[rest][result][devices][0][characteristics][WapCharacteristics.wapVersion]"
+                    }
+
+                    fields.each do |key, path|
+                        if event.get(path).nil? || event.get(path).empty?
+                            event.set(key, "Unknown")
+                        else
+                            event.set(key, event.get(path))
+                        end
+                    end
+                '
+            }
+
+            mutate {
+                add_field => { "brand_model" => "%{brand} %{model}" }
+            }
+        }
+    }
+
+    # Index splitting process
+    if [type] in ["eir", "activity", "add_backend", "delivered_content", "gui_page_leave", "profile_association", "scenario_op_delivered", "mobile_binding_change", "feedback_loop"] {
+        mutate {
+             add_field => { "[@metadata][index_name]" => "{{ logstash_oss_config.dmc_index_name }}" }
+        }
+    } else {
+        mutate {
+             add_field => { "[@metadata][index_name]" => "{{ logstash_oss_config.csv_index_name }}" }
+        }
+    }
+
+    # Date manipulation process
+    if [type] in ["eir", "activity", "add_backend", "delivered_content", "gui_page_leave", "profile_association", "scenario_op_delivered", "mobile_binding_change", "feedback_loop"] {
+        date {
+           match => ["timestamp", "MM/dd/YYYY HH:mm:ss.SSS", "ISO8601"]
+           target => "@timestamp"
+           timezone => "UTC"
+        }
+        date {
+           match => [ "initiationtime" , "MM/dd/yyyy HH:mm:ss.SSS" ]
+           target => "initiationtime"
+        }
+    } else {
+        date {
+           match => [ "DetectionDate" , "yyyyMMdd-HHmmss" ]
+           target => "DetectionDate"
+           timezone => "UTC"
+        }
+
+        ruby {
+            code => '
+               newTimestamp = event.get("@timestamp").time.strftime("%m/%d/%Y %H:%M:%S")
+              event.set("csvexport_time", newTimestamp)
+            '
+         }
+         date {
+           match => [ "csvexport_time" , "MM/dd/yyyy HH:mm:ss" ]
+           timezone => "Etc/GMT-0"
+           remove_field => "csvexport_time"
+        }
+    }
+
+    # Use the section if need to parse date and save in convenient way as strings
+    ruby {
+        code => '
+            event.set("formatted_date", event.get("@timestamp").time.strftime("%Y-%b-%d"))
+            event.set("formatted_year", event.get("@timestamp").time.strftime("%Y"))
+            event.set("formatted_month", event.get("@timestamp").time.strftime("%B"))
+            event.set("formatted_day", event.get("@timestamp").time.strftime("%A"))
+            event.set("formatted_hour", event.get("@timestamp").time.utc.strftime("%H"))
+        '
+    }
+
+    mutate {
+        add_field => { "customer" => "{{ logstash_oss_config.customer_name }}" }
+    }
+
+    mutate {
+        remove_field => [ "[drs][imei]",
+                                            "[drs][characteristics][wap][version1.x]",
+                                            "[drs][characteristics][wap][version2.x]"]
+    }
+
+    mutate {
+        remove_field => ["[message]"]
+        remove_field => ["[json]"]
+        remove_field => ["[timestamp]"]
+        remove_field => ["[host]"]
+        remove_field => ["[offset]"]
+        remove_field => ["[@version]"]
+        remove_field => ["[rest]"]
+        remove_field => ["[beat]"]
+        remove_field => ["[tags]"]
+        remove_field => ["[input]"]
+        remove_field => ["[log]"]
+        remove_field => ["[ecs]"]
+        remove_field => ["[agent]"]
+    }
+}
+
+output {
+    if [type] == "csvexport" {
+        opensearch {
+            action => "update"
+            doc_as_upsert => true
+            document_id => "%{MSISDN}"
+            hosts => {{ logstash_oss_config.opensearch_hosts | to_json }}
+            ssl_certificate_verification => false
+            user => "{{ logstash_oss_config.opensearch_user }}"
+            password => "{{ logstash_oss_config.opensearch_password }}"
+            index => "%{[@metadata][index_name]}-%{+YYYY.MM}"
+        }
+    } else {
+        opensearch {
+            hosts => {{ logstash_oss_config.opensearch_hosts | to_json }}
+            ssl_certificate_verification => false
+            user => "{{ logstash_oss_config.opensearch_user }}"
+            password => "{{ logstash_oss_config.opensearch_password }}"
+            index => "%{[@metadata][index_name]}-%{+YYYY.MM}"
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

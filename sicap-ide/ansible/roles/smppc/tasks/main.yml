@@ -1,0 +1,26 @@
+---
+# SMPPC Installation and Configuration
+
+- name: Include SMPPC installation tasks
+  include_tasks: install_smppc.yml
+  tags: [smppc, install]
+
+- name: Include SMPPC user configuration tasks
+  include_tasks: configure_user.yml
+  tags: [smppc, user]
+
+- name: Include SMPPC directory setup tasks
+  include_tasks: configure_directories.yml
+  tags: [smppc, directories]
+
+- name: Include SMPPC configuration tasks
+  include_tasks: configure_smppc.yml
+  tags: [smppc, config]
+
+- name: Include SMPPC service configuration tasks
+  include_tasks: configure_service.yml
+  tags: [smppc, service]
+
+
+
+

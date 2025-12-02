@@ -1,0 +1,63 @@
+---
+# MMSOAP Installation Tasks
+
+- name: Ensure offline directory exists on target
+  file:
+    path: "{{ paths.offline_dir }}"
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [mmsoap, install, packages]
+
+- name: Get MMSOAP files using fileglob
+  set_fact:
+    mmsoap_files: "{{ lookup('fileglob', paths.offline_dir + '/' + package_globs.mmsoap_rpm, wantlist=True, errors='ignore') }}"
+  tags: [mmsoap, install, debug]
+
+- name: Copy MMSOAP package to target
+  copy:
+    src: "{{ item }}"
+    dest: "{{ paths.offline_dir }}/"
+    mode: '0644'
+  loop: "{{ mmsoap_files }}"
+  become: yes
+  tags: [mmsoap, install, packages]
+
+- name: Display MMSOAP files found
+  debug:
+    msg: "MMSOAP files found: {{ mmsoap_files }}"
+  tags: [mmsoap, install, debug]
+
+- name: Fix ownership of MMSOAP RPM files
+  file:
+    path: "{{ paths.offline_dir }}/{{ item | basename }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ mmsoap_files }}"
+  become: yes
+  tags: [mmsoap, install, fix_permissions]
+
+- name: Install MMSOAP package
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item | basename }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ mmsoap_files }}"
+  become: yes
+  tags: [mmsoap, install, packages]
+
+- name: Check if MMSOAP is already installed
+  stat:
+    path: "{{ mmsoap_home }}"
+  register: mmsoap_installed
+  tags: [mmsoap, install, check]
+
+- name: Display MMSOAP installation status
+  debug:
+    msg: "MMSOAP installation directory {{ mmsoap_home }} exists: {{ mmsoap_installed.stat.exists }}"
+  tags: [mmsoap, install, check]
+
+
+
+

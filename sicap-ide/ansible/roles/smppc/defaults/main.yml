@@ -1,0 +1,36 @@
+---
+# SMPPC Role Default Variables
+
+# SMPPC version (inherited from main configuration)
+smppc_version: "{{ versions.smppc }}"
+
+# Service configuration
+smppc_service_name: "smppc"
+smppc_user: "smppc"
+smppc_group: "smppc"
+
+# Directory configuration (let RPM handle most of this)
+smppc_home: "/opt/smppc"
+smppc_install_dir: "{{ smppc_home }}"
+smppc_current_dir: "{{ smppc_home }}/current"
+smppc_config_dir: "{{ smppc_current_dir }}/conf"
+smppc_logs_dir: "/var/opt/smppc/{{ smppc_version }}/log"
+smppc_data_dir: "/var/lib/smppc"
+
+# Java configuration (similar to SLS pattern)
+java_home: "/usr/j2se/current"
+
+# SMPPC configuration
+smppc_config:
+  http_port: "{{ service_ports.smppc_http | default('50430') }}"
+  http_host: "0.0.0.0"
+  node_id: "{{ ansible_hostname }}"
+  sls_host: "{{ hostvars[groups['sls'][0]]['ansible_host'] if groups['sls'] is defined and groups['sls'] | length > 0 else 'localhost' }}"
+  sls_port: "{{ service_ports.sls_http | default('50420') }}"
+
+# Package configuration
+smppc_package: "{{ package_globs.smppc_rpm }}"
+
+
+
+

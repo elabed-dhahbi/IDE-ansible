@@ -1,0 +1,119 @@
+---
+# Zabbix Agent Installation Tasks for Non-Server Hosts
+
+- name: Install Zabbix agent packages
+  yum:
+    name: "{{ paths.offline_dir | default('/tmp/offline') }}/{{ item }}"
+    state: present
+    disable_gpg_check: true
+  loop: "{{ zabbix_packages.agent }}"
+  become: true
+  tags: [zabbix, install, agent]
+
+- name: Install Zabbix agent2 packages
+  yum:
+    name: "{{ paths.offline_dir | default('/tmp/offline') }}/{{ item }}"
+    state: present
+    disable_gpg_check: true
+  loop: "{{ zabbix_packages.agent2 }}"
+  become: true
+  tags: [zabbix, install, agent2]
+
+- name: Install Zabbix Java Gateway packages
+  yum:
+    name: "{{ paths.offline_dir | default('/tmp/offline') }}/{{ item }}"
+    state: present
+    disable_gpg_check: true
+  loop: "{{ zabbix_packages.java_gateway }}"
+  become: true
+  tags: [zabbix, install, java_gateway]
+
+- name: Create Zabbix directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ zabbix_user }}"
+    group: "{{ zabbix_group }}"
+    mode: '0755'
+  loop:
+    - "{{ zabbix_log_dir }}"
+    - "{{ zabbix_run_dir }}"
+  become: true
+  tags: [zabbix, install, directories]
+
+- name: Create Zabbix agent configuration
+  template:
+    src: zabbix_agentd.conf.j2
+    dest: "{{ zabbix_conf_dir }}/zabbix_agentd.conf"
+    owner: "{{ zabbix_user }}"
+    group: "{{ zabbix_group }}"
+    mode: '0640'
+  become: true
+  tags: [zabbix, config, agent]
+
+- name: Create Zabbix agent2 configuration
+  template:
+    src: zabbix_agent2.conf.j2
+    dest: "{{ zabbix_conf_dir }}/zabbix_agent2.conf"
+    owner: "{{ zabbix_user }}"
+    group: "{{ zabbix_group }}"
+    mode: '0640'
+  become: true
+  tags: [zabbix, config, agent2]
+
+- name: Create Zabbix Java Gateway configuration
+  template:
+    src: zabbix_java_gateway.conf.j2
+    dest: "{{ zabbix_conf_dir }}/zabbix_java_gateway.conf"
+    owner: "{{ zabbix_user }}"
+    group: "{{ zabbix_group }}"
+    mode: '0640'
+  become: true
+  tags: [zabbix, config, java_gateway]
+
+- name: Create Zabbix agent include directory
+  file:
+    path: "{{ zabbix_agent.include_dir }}"
+    state: directory
+    owner: "{{ zabbix_user }}"
+    group: "{{ zabbix_group }}"
+    mode: '0755'
+  become: true
+  tags: [zabbix, config, agent]
+
+- name: Create Zabbix agent2 plugins directory
+  file:
+    path: "{{ zabbix_agent2.plugins_dir }}"
+    state: directory
+    owner: "{{ zabbix_user }}"
+    group: "{{ zabbix_group }}"
+    mode: '0755'
+  become: true
+  tags: [zabbix, config, agent2]
+
+- name: Start and enable Zabbix agent
+  systemd:
+    name: "{{ zabbix_services.agent }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+  tags: [zabbix, service, agent]
+
+- name: Start and enable Zabbix agent2
+  systemd:
+    name: "{{ zabbix_services.agent2 }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+  tags: [zabbix, service, agent2]
+
+- name: Start and enable Zabbix Java Gateway
+  systemd:
+    name: "{{ zabbix_services.java_gateway }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+  tags: [zabbix, service, java_gateway]

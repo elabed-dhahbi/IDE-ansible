@@ -1,0 +1,59 @@
+---
+# PostgreSQL Service Configuration Tasks
+# Updates systemd service file and PostgreSQL configuration for custom directories
+
+- name: Update PostgreSQL systemd service file with custom data directory
+  lineinfile:
+    path: "{{ postgresql_config.systemd_service_file }}"
+    regexp: '^Environment=PGDATA='
+    line: "Environment=PGDATA={{ postgresql_config.data_directory }}"
+    backup: yes
+  tags: [postgres, service, systemd]
+
+- name: Update PostgreSQL configuration file with custom data directory
+  lineinfile:
+    path: "{{ postgresql_config.data_directory }}/postgresql.conf"
+    regexp: '^#?data_directory\s*='
+    line: "data_directory = '{{ postgresql_config.data_directory }}'"
+    backup: yes
+  when: postgres_initialized.stat.exists
+  tags: [postgres, service, config]
+
+- name: Update PostgreSQL user bash profile with PGDATA
+  lineinfile:
+    path: "{{ postgresql_config.home_directory }}/.bash_profile"
+    regexp: '^export PGDATA='
+    line: "export PGDATA={{ postgresql_config.data_directory }}"
+    create: yes
+    owner: postgres
+    group: postgres
+    mode: '0644'
+  tags: [postgres, service, profile]
+
+- name: Initialize PostgreSQL database if not already initialized
+  shell: |
+    /usr/pgsql-{{ versions.postgres }}/bin/postgresql-{{ versions.postgres }}-setup initdb
+  become_user: postgres
+  when: not postgres_initialized.stat.exists
+  tags: [postgres, service, init]
+
+- name: Reload systemd daemon configuration
+  systemd:
+    daemon_reload: yes
+  tags: [postgres, service, systemd]
+
+- name: Start and enable PostgreSQL service
+  systemd:
+    name: "{{ postgresql_config.service_name }}"
+    state: started
+    enabled: yes
+  tags: [postgres, service]
+
+- name: Wait for PostgreSQL to be ready
+  wait_for:
+    port: "{{ service_ports.postgres }}"
+    host: "{{ ansible_host }}"
+    delay: 5
+    timeout: 60
+  tags: [postgres, service, wait]
+

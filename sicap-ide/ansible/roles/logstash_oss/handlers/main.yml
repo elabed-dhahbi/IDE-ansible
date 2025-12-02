@@ -1,0 +1,24 @@
+---
+# Logstash OSS handlers
+
+- name: reload systemd
+  systemd:
+    daemon_reload: true
+  ignore_errors: true
+
+- name: restart logstash-oss
+  systemd:
+    name: "{{ logstash_oss_service_name }}"
+    state: restarted
+  ignore_errors: true
+
+- name: start logstash-oss
+  systemd:
+    name: "{{ logstash_oss_service_name }}"
+    state: started
+    enabled: true
+
+- name: stop logstash-oss
+  systemd:
+    name: "{{ logstash_oss_service_name }}"
+    state: stopped

@@ -1,0 +1,35 @@
+---
+# Elasticsearch Installation Tasks
+
+- name: Ensure offline directory exists on target
+  file:
+    path: "{{ paths.offline_dir }}"
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [elasticsearch, install, packages]
+
+- name: Copy Elasticsearch packages to target
+  copy:
+    src: "{{ item }}"
+    dest: "{{ paths.offline_dir }}/"
+    mode: '0644'
+  loop: "{{ lookup('fileglob', paths.offline_dir + '/' + package_globs.es_rpm, wantlist=True, errors='ignore') }}"
+  become: yes
+  tags: [elasticsearch, install, packages]
+
+- name: Install Elasticsearch package
+  yum:
+    name: "{{ item }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ lookup('fileglob', paths.offline_dir + '/' + package_globs.es_rpm, wantlist=True, errors='ignore') }}"
+  become: yes
+  tags: [elasticsearch, install, packages]
+
+- name: Check if Elasticsearch is already installed
+  stat:
+    path: "{{ elasticsearch_install_dir }}"
+  register: elasticsearch_installed
+  tags: [elasticsearch, install, check]
+

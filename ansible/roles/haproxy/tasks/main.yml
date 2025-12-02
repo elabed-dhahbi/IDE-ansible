@@ -1,0 +1,139 @@
+---
+- name: Check if HAProxy offline package exists
+  stat:
+    path: "{{ haproxy_offline_package_path }}"
+  register: haproxy_rpm_file
+  when: haproxy_offline_install
+
+- name: Fail if offline package not found
+  fail:
+    msg: "HAProxy offline package not found at {{ haproxy_offline_package_path }}"
+  when: haproxy_offline_install and not haproxy_rpm_file.stat.exists
+
+- name: Install HAProxy package (online)
+  package:
+    name: haproxy
+    state: present
+  become: yes
+  when: not haproxy_offline_install
+
+- name: Install HAProxy package (offline)
+  yum:
+    name: "{{ haproxy_offline_package_path }}"
+    state: present
+  become: yes
+  when: haproxy_offline_install
+
+- name: Create HAProxy directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: haproxy
+    group: haproxy
+    mode: '0755'
+  become: yes
+  loop:
+    - "{{ haproxy_chroot_dir }}"
+    - "{{ haproxy_chroot_dir }}/dev"
+    - "{{ haproxy_chroot_dir }}/run"
+    - "{{ haproxy_chroot_dir }}/run/stunnel"
+    - "{{ haproxy_chroot_dir }}/run/stunnel/sockets"
+
+- name: Create SSL certificate directory
+  file:
+    path: /etc/pki/tls/certs
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: yes
+
+- name: Clean up old SSL certificate files
+  file:
+    path: "{{ item }}"
+    state: absent
+  become: yes
+  loop:
+    - /etc/pki/tls/certs/haproxy.pem
+    - /etc/pki/tls/certs/haproxy.pem.key
+    - /etc/pki/tls/certs/haproxy.crt
+    - /etc/pki/tls/certs/haproxy.key
+
+- name: Generate demo SSL certificate and key for HAProxy (combined PEM)
+  shell: |
+    openssl req -x509 -newkey rsa:2048 -keyout /tmp/haproxy.key -out /tmp/haproxy.crt -days 365 -nodes -subj "/C=US/ST=State/L=City/O=Organization/CN={{ ansible_fqdn | default(ansible_hostname) }}"
+    cat /tmp/haproxy.crt /tmp/haproxy.key > /etc/pki/tls/certs/haproxy.pem
+    rm -f /tmp/haproxy.key /tmp/haproxy.crt
+  become: yes
+
+- name: Set proper permissions on SSL certificate
+  file:
+    path: /etc/pki/tls/certs/haproxy.pem
+    mode: '0644'
+    owner: root
+    group: root
+  become: yes
+
+- name: Configure HAProxy
+  template:
+    src: haproxy.cfg.j2
+    dest: /etc/haproxy/haproxy.cfg
+    owner: root
+    group: root
+    mode: '0644'
+    backup: yes
+  become: yes
+  notify: restart haproxy
+
+- name: Ensure HAProxy config ends with newline
+  shell: echo >> /etc/haproxy/haproxy.cfg
+  become: yes
+  changed_when: false
+
+- name: Configure rsyslog for HAProxy
+  template:
+    src: 99-haproxy.conf.j2
+    dest: /etc/rsyslog.d/99-haproxy.conf
+    owner: root
+    group: root
+    mode: '0644'
+    backup: yes
+  become: yes
+  notify: restart rsyslog
+
+- name: Verify SSL certificate exists
+  stat:
+    path: /etc/pki/tls/certs/haproxy.pem
+  register: ssl_cert_check
+
+- name: Fail if SSL certificate not found
+  fail:
+    msg: "SSL certificate /etc/pki/tls/certs/haproxy.pem not found"
+  when: not ssl_cert_check.stat.exists
+
+- name: Validate HAProxy configuration
+  command: haproxy -c -f /etc/haproxy/haproxy.cfg
+  register: haproxy_config_check
+  changed_when: false
+  failed_when: haproxy_config_check.rc != 0
+  become: yes
+
+- name: Enable and start HAProxy service
+  systemd:
+    name: haproxy
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  become: yes
+  when: haproxy_config_check.rc == 0
+
+- name: Verify HAProxy is running
+  systemd:
+    name: haproxy
+  register: haproxy_status
+  become: yes
+
+- name: Display HAProxy status
+  debug:
+    msg: "HAProxy is {{ haproxy_status.status.ActiveState }}"
+

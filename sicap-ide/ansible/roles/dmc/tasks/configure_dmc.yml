@@ -1,0 +1,557 @@
+---
+# DMC Configuration Tasks
+
+# Let RPM handle dmcenv configuration - only modify what's absolutely necessary
+
+# Let RPM handle standalone.conf configuration
+
+- name: Update standalone-full.xml HTTP port
+  shell: |
+    sed -i 's/\${jboss.http.port:8080}/\${jboss.http.port:50400}/' {{ dmc_conf_dir }}/standalone-full.xml
+  become: yes
+  tags: [dmc, config, standalone]
+
+- name: Update all database URLs in standalone-full.xml
+  shell: |
+    # Use a simple regex to replace all JDBC URLs with the correct host, port, and database
+    sed -i -E 's#jdbc:postgresql://[a-zA-Z0-9._-]+:[0-9]+/[a-zA-Z0-9._-]+#jdbc:postgresql://{{ dmc_database_host }}:{{ dmc_database_port }}/{{ dmc_database_name }}#g' {{ dmc_conf_dir }}/standalone-full.xml
+  become: yes
+  tags: [dmc, config, database]
+
+- name: Update database usernames in standalone-full.xml
+  replace:
+    path: "{{ dmc_conf_dir }}/standalone-full.xml"
+    regexp: '<user-name>[^<]+</user-name>'
+    replace: '<user-name>{{ dmc_database_user }}</user-name>'
+  become: yes
+  tags: [dmc, config, database]
+
+- name: Update database passwords in standalone-full.xml
+  replace:
+    path: "{{ dmc_conf_dir }}/standalone-full.xml"
+    regexp: '<password>[^<]+</password>'
+    replace: '<password>{{ dmc_database_password }}</password>'
+  become: yes
+  tags: [dmc, config, database]
+
+- name: Check current JAVA_HOME configuration in .profile.sicap
+  shell: |
+    grep "JAVA_HOME=" {{ dmc_home }}/.profile.sicap
+  become: yes
+  register: java_home_before
+  tags: [dmc, config, debug]
+
+- name: Display current JAVA_HOME configuration
+  debug:
+    msg: "Current JAVA_HOME lines: {{ java_home_before.stdout_lines }}"
+  tags: [dmc, config, debug]
+
+- name: Update JAVA_HOME in .profile.sicap
+  shell: |
+    # Remove any existing JAVA_HOME lines that point to /usr/j2se/current
+    sed -i '/export JAVA_HOME=\${JAVA_HOME:-\\/usr\\/j2se\\/current}/d' {{ dmc_home }}/.profile.sicap
+    # Update the main JAVA_HOME line to point to /usr/j2se/current
+    sed -i 's|JAVA_HOME=\${JAVA_HOME:-/usr/java}|JAVA_HOME=\${JAVA_HOME:-/usr/j2se/current}|' {{ dmc_home }}/.profile.sicap
+  become: yes
+  tags: [dmc, config, java]
+
+- name: Verify JAVA_HOME was updated correctly
+  shell: |
+    grep "JAVA_HOME=" {{ dmc_home }}/.profile.sicap
+  become: yes
+  register: java_home_after
+  tags: [dmc, config, debug]
+
+- name: Display updated JAVA_HOME configuration
+  debug:
+    msg: "Updated JAVA_HOME lines: {{ java_home_after.stdout_lines }}"
+  tags: [dmc, config, debug]
+
+- name: Check Java version after configuration
+  shell: |
+    source {{ dmc_home }}/.profile.sicap && java -version
+  become_user: "{{ dmc_user }}"
+  register: java_version_check
+  tags: [dmc, config, debug]
+
+- name: Display Java version check result
+  debug:
+    msg: "{{ java_version_check.stdout_lines }}"
+  tags: [dmc, config, debug]
+
+- name: Check DMC logs for startup errors
+  shell: |
+    tail -50 {{ dmc_logs_dir }}/dmc.log 2>/dev/null || echo "No dmc.log found"
+  become_user: "{{ dmc_user }}"
+  register: dmc_startup_logs
+  tags: [dmc, config, debug]
+
+- name: Display DMC startup logs
+  debug:
+    msg: "{{ dmc_startup_logs.stdout_lines }}"
+  tags: [dmc, config, debug]
+
+- name: Check if DMC process is running
+  shell: |
+    ps aux | grep dmc | grep -v grep || echo "No DMC processes found"
+  become_user: "{{ dmc_user }}"
+  register: dmc_process_check
+  tags: [dmc, config, debug]
+
+- name: Display DMC process check result
+  debug:
+    msg: "{{ dmc_process_check.stdout_lines }}"
+  tags: [dmc, config, debug]
+
+- name: Find DMC license file in offline directory
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns: "licence_DMC*"
+  register: dmc_license_files
+  become: yes
+  tags: [dmc, config, license]
+
+- name: Display DMC license files found
+  debug:
+    msg: "DMC license files found: {{ dmc_license_files.files | map(attribute='path') | list }}"
+  tags: [dmc, config, license]
+
+- name: Copy DMC license file to conf directory
+  copy:
+    src: "{{ item.path }}"
+    dest: "{{ dmc_conf_dir }}/{{ item.path | basename }}"
+    owner: "{{ dmc_user }}"
+    group: "{{ dmc_group }}"
+    mode: '0644'
+    remote_src: yes
+  loop: "{{ dmc_license_files.files }}"
+  become: yes
+  when: dmc_license_files.files | length > 0
+  tags: [dmc, config, license]
+
+- name: Create symbolic link for license file
+  file:
+    src: "{{ dmc_conf_dir }}/{{ dmc_license_files.files[0].path | basename }}"
+    dest: "{{ dmc_conf_dir }}/license"
+    state: link
+    force: yes
+  become: yes
+  when: dmc_license_files.files | length > 0
+  tags: [dmc, config, license]
+
+- name: Display error if no DMC license found
+  debug:
+    msg: "WARNING: No DMC license files found in offline directory!"
+  when: dmc_license_files.files | length == 0
+  tags: [dmc, config, license]
+
+- name: Update license file path in cm-Licensing.properties
+  shell: |
+    sed -i 's|^license\.file\.path.*|license.file.path = {{ dmc_conf_dir }}/license|' {{ dmc_conf_dir }}/cm-Licensing.properties
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Update DMC node ID in cm-sicap-dmc-platform.properties
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/cm-sicap-dmc-platform.properties"
+    regexp: '^dmc\.node\.id\s*='
+    line: 'dmc.node.id = {{ dmc_node_id }}'
+    backup: yes
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Create cm-DRBProvider.properties
+  copy:
+    content: |
+      dmc.DRBProvider.deviceresources.helpURL.rootPart=http://{{ ansible_host }}:{{ dmc_http_port }}
+      dmc.DRBProvider.DRBUpdate.DeviceResources.checkVersion.url=http://{{ ansible_host }}:{{ dmc_http_port }}/sicap-dmc-deviceresources/versionstatus
+      dmc.DRBProvider.DRBUpdate.DeviceResources.rollbackVersion.url=http://{{ ansible_host }}:{{ dmc_http_port }}/sicap-dmc-deviceresources/rollback
+    dest: "{{ dmc_conf_dir }}/cm-DRBProvider.properties"
+    owner: "{{ dmc_user }}"
+    group: "{{ dmc_group }}"
+    mode: '0644'
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Create cm-ADDBackEnd.properties
+  copy:
+    content: |
+      dmc.addbe.businessLogEnabled=true
+      dmc.addbe.defaultSource.ADD_FE1=HLR
+      dmc.addbe.defaultSource.ADD_FE2=CHECK_IMEI
+      dmc.addbe.defaultProvider.ADD_FE1={{ dmc_provider_name }}
+      dmc.addbe.defaultProvider.ADD_FE2={{ customer_config.name | default('PROVIDER_NAME') }}
+    dest: "{{ dmc_conf_dir }}/cm-ADDBackEnd.properties"
+    owner: "{{ dmc_user }}"
+    group: "{{ dmc_group }}"
+    mode: '0644'
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Create cm-DeviceDefinitions.properties
+  copy:
+    content: |
+      dmc.DeviceDefinitions.DRBUpdate.ReloadProcess.performFKValidation=false
+      dmc.DeviceDefinitions.DRBUpdate.ReloadProcess.permitIdempotentReloads=true
+      dmc.DeviceDefinitions.DRBUpdate.ReloadProcess.writeSQLStatementsFile=3
+      dmc.DeviceDefinitions.device.IMEI.checkCRC=NEVER
+      dmc.DeviceDefinitions.device.IMEI.acceptNoCRC=true
+    dest: "{{ dmc_conf_dir }}/cm-DeviceDefinitions.properties"
+    owner: "{{ dmc_user }}"
+    group: "{{ dmc_group }}"
+    mode: '0644'
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Create cm-sicap-enabler-gateway.properties
+  copy:
+    content: |
+      SMS.active=true
+      SMS.trigger.active=true
+      IOS.active=true
+      IOS.trigger.active=true
+    dest: "{{ dmc_conf_dir }}/cm-sicap-enabler-gateway.properties"
+    owner: "{{ dmc_user }}"
+    group: "{{ dmc_group }}"
+    mode: '0644'
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Create cm-DMCProtocolMMG.properties
+  copy:
+    content: |
+      mmg.serviceUrl.default=http://{{ dmc_mmsoap_host }}:{{ dmc_mmsoap_port }}/soapserver/soapserver
+      mmg.dmcNodeId={{ dmc_node_id }}
+      mmg.username.default={{ dmc_mmsoap_username }}
+      mmg.password.default={{ dmc_mmsoap_password }}
+      mmg.serviceId.default={{ dmc_mmsoap_service_id }}
+    dest: "{{ dmc_conf_dir }}/cm-DMCProtocolMMG.properties"
+    owner: "{{ dmc_user }}"
+    group: "{{ dmc_group }}"
+    mode: '0644'
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Create cm-BatchAdvancedDMCCore.properties
+  copy:
+    content: |
+      default.country={{ dmc_country }}
+    dest: "{{ dmc_conf_dir }}/cm-BatchAdvancedDMCCore.properties"
+    owner: "{{ dmc_user }}"
+    group: "{{ dmc_group }}"
+    mode: '0644'
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Create cm-ContentPersonalizeInfo.properties
+  copy:
+    content: |
+      country = {{ dmc_country }}
+    dest: "{{ dmc_conf_dir }}/cm-ContentPersonalizeInfo.properties"
+    owner: "{{ dmc_user }}"
+    group: "{{ dmc_group }}"
+    mode: '0644'
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Set provider ID to default value for initial configuration
+  set_fact:
+    actual_provider_id: "{{ dmc_provider_id }}"
+  tags: [dmc, config, properties, provider_id]
+
+- name: Display actual provider ID
+  debug:
+    msg: "Using provider ID: {{ actual_provider_id }}"
+  tags: [dmc, config, properties, provider_id]
+
+- name: Create cm-EndUser.properties with actual provider ID
+  copy:
+    content: |
+      dmc.core.enduser.mobilehistory.size.provider.{{ actual_provider_id }}=10
+      dmc.core.enduser.log.profile.provider.{{ actual_provider_id }}=true
+      dmc.core.enduser.binding.onChange.writeBizLog.for.Provider.ID.{{ actual_provider_id }}=true
+      dmc.core.enduser.default_password.provider.{{ actual_provider_id }}=12345
+      dmc.core.enduser.listenduser.resultlist.size=1000
+      dmc.tripletchange.businessLogEnabled=false
+    dest: "{{ dmc_conf_dir }}/cm-EndUser.properties"
+    owner: "{{ dmc_user }}"
+    group: "{{ dmc_group }}"
+    mode: '0644'
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Create cm-customer-care.properties
+  copy:
+    content: |
+      customer-care.cc.scenario_prefix=
+      customer-care.cc.show.settings.reference.list=false
+      customer-care.cc.drs.address=http://{{ dmc_drs_host }}:{{ dmc_drs_port }}/drs/
+      customer-care.cc.display.generic.scenarios.if.no.normal.available=true
+      customer-care.cc.restapi.address=http://{{ ansible_host }}:{{ dmc_http_port }}
+    dest: "{{ dmc_conf_dir }}/cm-customer-care.properties"
+    owner: "{{ dmc_user }}"
+    group: "{{ dmc_group }}"
+    mode: '0644'
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Create cm-Scenario.properties
+  copy:
+    content: |
+      dmc.scenario.preSMS.delay=0
+    dest: "{{ dmc_conf_dir }}/cm-Scenario.properties"
+    owner: "{{ dmc_user }}"
+    group: "{{ dmc_group }}"
+    mode: '0644'
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Update RMI provider URL in rest-api.properties
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/rest-api.properties"
+    regexp: '^fo\.rmi\.provider\.url\s*='
+    line: 'fo.rmi.provider.url = {{ ansible_host }}'
+    backup: yes
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Update cache providers list in rest-api.properties
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/rest-api.properties"
+    regexp: '^cache\.providers\.list\s*='
+    line: 'cache.providers.list = {{ actual_provider_id | default(dmc_provider_id) }}'
+    backup: yes
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Update Elasticsearch address in rest-api.properties
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/rest-api.properties"
+    regexp: '^es\.address\s*='
+    line: 'es.address=http://{{ dmc_elasticsearch_host }}:{{ dmc_elasticsearch_port }}/'
+    backup: yes
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Update Elasticsearch size in rest-api.properties
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/rest-api.properties"
+    regexp: '^es\.size\s*='
+    line: 'es.size=1000'
+    backup: yes
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Update Elasticsearch username in rest-api.properties
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/rest-api.properties"
+    regexp: '^es\.username\s*='
+    line: 'es.username={{ dmc_elasticsearch_username }}'
+    backup: yes
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Update Elasticsearch password in rest-api.properties
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/rest-api.properties"
+    regexp: '^es\.password\s*='
+    line: 'es.password={{ dmc_elasticsearch_password }}'
+    backup: yes
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Create cm-DMCDeployMode.properties
+  copy:
+    content: |
+      singleProviderDeployMode=false
+      deployedProviderId={{ actual_provider_id | default(dmc_provider_id) }}
+      decoration=3
+    dest: "{{ dmc_conf_dir }}/cm-DMCDeployMode.properties"
+    owner: "{{ dmc_user }}"
+    group: "{{ dmc_group }}"
+    mode: '0644'
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Update device notification MMG WebService URL
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/dmiosenabler-configuration.properties"
+    regexp: '^device\.notification\.mmg\.ws\.url\s*='
+    line: 'device.notification.mmg.ws.url={{ dmc_ios_enabler.mmg_ws_url }}'
+    backup: yes
+  become: yes
+  when: dmc_ios_enabler.enabled | bool
+  tags: [dmc, config, properties, ios_enabler]
+
+- name: Update device notification MMG WebService username
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/dmiosenabler-configuration.properties"
+    regexp: '^device\.notification\.mmg\.ws\.username\s*='
+    line: 'device.notification.mmg.ws.username={{ dmc_ios_enabler.mmg_username }}'
+    backup: yes
+  become: yes
+  when: dmc_ios_enabler.enabled | bool
+  tags: [dmc, config, properties, ios_enabler]
+
+- name: Update device notification MMG WebService password
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/dmiosenabler-configuration.properties"
+    regexp: '^device\.notification\.mmg\.ws\.password\s*='
+    line: 'device.notification.mmg.ws.password={{ dmc_ios_enabler.mmg_password }}'
+    backup: yes
+  become: yes
+  when: dmc_ios_enabler.enabled | bool
+  tags: [dmc, config, properties, ios_enabler]
+
+- name: Update device notification MMG WebService node ID
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/dmiosenabler-configuration.properties"
+    regexp: '^device\.notification\.mmg\.ws\.nodeId\s*='
+    line: 'device.notification.mmg.ws.nodeId={{ dmc_ios_enabler.node_id }}'
+    backup: yes
+  become: yes
+  when: dmc_ios_enabler.enabled | bool
+  tags: [dmc, config, properties, ios_enabler]
+
+- name: Update enabler frontend host
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/dmiosenabler-configuration.properties"
+    regexp: '^enabler\.frontend\.host\s*='
+    line: 'enabler.frontend.host={{ dmc_ios_enabler.frontend_host }}'
+    backup: yes
+  become: yes
+  when: dmc_ios_enabler.enabled | bool
+  tags: [dmc, config, properties, ios_enabler]
+
+- name: Update session server timeout
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/dmiosenabler-configuration.properties"
+    regexp: '^session\.server\.timeout\s*='
+    line: 'session.server.timeout={{ dmc_ios_enabler.session_timeout }}'
+    backup: yes
+  become: yes
+  when: dmc_ios_enabler.enabled | bool
+  tags: [dmc, config, properties, ios_enabler]
+
+- name: Update session server polling timeout
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/dmiosenabler-configuration.properties"
+    regexp: '^session\.server\.polling\.timeout\s*='
+    line: 'session.server.polling.timeout={{ dmc_ios_enabler.session_polling_timeout }}'
+    backup: yes
+  become: yes
+  when: dmc_ios_enabler.enabled | bool
+  tags: [dmc, config, properties, ios_enabler]
+
+- name: Update session agent timeout
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/dmiosenabler-configuration.properties"
+    regexp: '^session\.agent\.timeout\s*='
+    line: 'session.agent.timeout={{ dmc_ios_enabler.session_agent_timeout }}'
+    backup: yes
+  become: yes
+  when: dmc_ios_enabler.enabled | bool
+  tags: [dmc, config, properties, ios_enabler]
+
+- name: Update session server query expire timeout
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/dmiosenabler-configuration.properties"
+    regexp: '^session\.server\.query\.expire\.timeout\s*='
+    line: 'session.server.query.expire.timeout={{ dmc_ios_enabler.session_query_expire_timeout }}'
+    backup: yes
+  become: yes
+  when: dmc_ios_enabler.enabled | bool
+  tags: [dmc, config, properties, ios_enabler]
+
+- name: Update enabler API provider host
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/dmiosenabler-configuration.properties"
+    regexp: '^enabler\.api\.provider\.host\s*='
+    line: 'enabler.api.provider.host={{ dmc_ios_enabler.api_provider_host }}'
+    backup: yes
+  become: yes
+  when: dmc_ios_enabler.enabled | bool
+  tags: [dmc, config, properties, ios_enabler]
+
+- name: Update connector HTTP base server URL
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/dmiosenabler-configuration.properties"
+    regexp: '^connector\.http\.base\.server\.url\s*='
+    line: 'connector.http.base.server.url={{ dmc_ios_enabler.connector_base_url }}'
+    backup: yes
+  become: yes
+  when: dmc_ios_enabler.enabled | bool
+  tags: [dmc, config, properties, ios_enabler]
+
+- name: Update enrollment retries
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/dmiosenabler-configuration.properties"
+    regexp: '^enrollment\.retries\s*='
+    line: 'enrollment.retries={{ dmc_ios_enabler.enrollment_retries }}'
+    backup: yes
+  become: yes
+  when: dmc_ios_enabler.enabled | bool
+  tags: [dmc, config, properties, ios_enabler]
+
+- name: Update enrollment config timeout
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/dmiosenabler-configuration.properties"
+    regexp: '^enrollment\.config\.timeout\s*='
+    line: 'enrollment.config.timeout={{ dmc_ios_enabler.enrollment_timeout }}'
+    backup: yes
+  become: yes
+  when: dmc_ios_enabler.enabled | bool
+  tags: [dmc, config, properties, ios_enabler]
+
+- name: Update enrollment SCEP payload content URL
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/dmiosenabler-configuration.properties"
+    regexp: '^enrollment\.scep\.payloadcontent\.url\s*='
+    line: 'enrollment.scep.payloadcontent.url={{ dmc_ios_enabler.scep_payload_url }}'
+    backup: yes
+  become: yes
+  when: dmc_ios_enabler.enabled | bool
+  tags: [dmc, config, properties, ios_enabler]
+
+- name: Update enrollment SCEP challenge URL
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/dmiosenabler-configuration.properties"
+    regexp: '^enrollment\.scep\.challenge\.url\s*='
+    line: 'enrollment.scep.challenge.url={{ dmc_ios_enabler.scep_challenge_url }}'
+    backup: yes
+  become: yes
+  when: dmc_ios_enabler.enabled | bool
+  tags: [dmc, config, properties, ios_enabler]
+
+- name: Update iOS header regexp
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/dmiosenabler-configuration.properties"
+    regexp: '^ios4\.header\.regexp\s*='
+    line: 'ios4.header.regexp={{ dmc_ios_enabler.ios_header_regexp }}'
+    backup: yes
+  become: yes
+  when: dmc_ios_enabler.enabled | bool
+  tags: [dmc, config, properties, ios_enabler]
+
+- name: Update iOS 16 header regexp
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/dmiosenabler-configuration.properties"
+    regexp: '^ios16\.header\.regexp\s*='
+    line: 'ios16.header.regexp={{ dmc_ios_enabler.ios16_header_regexp }}'
+    backup: yes
+  become: yes
+  when: dmc_ios_enabler.enabled | bool
+  tags: [dmc, config, properties, ios_enabler]
+
+- name: Update iOS 17 header regexp
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/dmiosenabler-configuration.properties"
+    regexp: '^ios17\.header\.regexp\s*='
+    line: 'ios17.header.regexp={{ dmc_ios_enabler.ios17_header_regexp }}'
+    backup: yes
+  become: yes
+  when: dmc_ios_enabler.enabled | bool
+  tags: [dmc, config, properties, ios_enabler]
+
+
+

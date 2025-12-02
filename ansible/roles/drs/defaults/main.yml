@@ -1,0 +1,53 @@
+---
+# DRS Role Default Variables
+
+# DRS version
+drs_version: "1.7.0"
+
+# Service configuration
+drs_service_name: "drs"
+drs_user: "drs"
+drs_group: "drs"
+
+# Directory configuration
+drs_home: "/opt/drs"
+drs_install_dir: "/opt/drs"
+drs_current_dir: "/opt/drs/current"
+drs_conf_dir: "/opt/drs/current/conf"
+drs_data_dir: "/opt/drs/data"
+drs_drb_file_dir: "/opt/drs/drb_file"
+drs_resources_dir: "/opt/drs/resources"
+drs_resources_tmp_dir: "/opt/drs/resources/tmp"
+drs_scripts_dir: "/opt/drs/scripts"
+drs_logs_dir: "/var/log/drs"
+
+# Java configuration (use same as DMC)
+java_home: "/usr/j2se/current"
+
+# DRS configuration
+drs_http_port: 9292
+drs_http_host: "0.0.0.0"
+
+# DRB configuration
+drs_drb:
+  import_trig_last_id: "Standard4W_DRB_DRS_2025w33_25.08.5.tar"
+  load_media: true
+  load_characteristics_raw: true
+  load_deviceprofile_groups: true
+  load_url: "file:///opt/drs/drb_file/Standard4W_DRB_DRS_2025w33_25.08.5.tar"
+  load_characteristics_groups: true
+
+# DRS properties configuration
+drs_properties:
+  data_directory: "/opt/drs/data/"
+  marketing_script_directory: "/opt/drs/scripts"
+  drb_resources_directory: "/opt/drs/resources"
+  drb_resources_directory_tmp: "/opt/drs/resources/tmp"
+  drb_configuration_file: "/opt/drs/current/conf/drb.properties"
+  drb_configuration_read_execute: true
+  drb_configuration_read_cron_schedule: "0/5 * * * * ?"
+  imei_validation_mode_crc: 1
+
+
+
+

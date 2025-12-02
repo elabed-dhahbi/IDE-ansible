@@ -1,0 +1,277 @@
+# DMC4.6.18 Configuration Values
+# As a Senior SRE, you tune: VERSIONS, PASSWORDS, DATABASE NAMES, and PERFORMANCE
+# Hosts and paths are auto-calculated from inventory
+
+# =============================================================================
+# VERSION NUMBERS - Update when upgrading components
+# =============================================================================
+
+versions:
+  # SICAP applications
+  dmc: "4.6.33"
+  drs: "1.7.0"
+  sls: "2.0.3"
+  mmg: "4.6.21"
+  mmsoap: "5.6.1"
+  smppc: "5.4.9"
+  
+  # Database
+  postgresql: "15.14-1PGDG.rhel9"
+  postgres: "15"
+  libpq: "18.0-1PGDG.rhel9"
+  python3_psycopg2: "2.8.6-6.el9"
+  
+  # ELK Stack (classic)
+  elasticsearch: "7.17.25"
+  kibana: "7.17.25"
+  logstash: "7.17.25"
+  
+  # OpenSearch Stack (modern)
+  opensearch: "3.2.0"
+  logstash_oss: "8.19.4"
+  
+  # Monitoring
+  zabbix: "7.4.3"
+  
+  # Infrastructure
+  haproxy: "1.8.27-5"
+  jdk8: "8u412"
+
+# =============================================================================
+# PASSWORDS - Change these for production!
+# =============================================================================
+
+service_passwords:
+  postgres: "postgres"
+  elasticsearch: "elastic"
+  opensearch: "Ops@#s1cap#"
+
+# =============================================================================
+# DATABASE CONFIGURATION - Your schema/user names
+# =============================================================================
+
+database_config:
+  # External database configuration (if customer provides database)
+  # Set these to point to customer's database server
+  external_host: null  # Set to customer's database host IP/FQDN (e.g., "10.0.0.100")
+  external_port: null  # Set to customer's database port (default: 5432)
+  
+  # DMC database
+  dmc_database: "dmc46"
+  dmc_schema: "dmc4"
+  dmc_user: "dmc4"
+  dmc_password: "dmc4"
+  tablespace_data: "dmc4tab"
+  tablespace_index: "dmc4idx"
+  tablespace_lob: "dmc4tab"
+  
+  # MMG database
+  mmg_database: "mmg"
+  mmg_schema: "mmg"
+  mmg_user: "mmg"
+  mmg_password: "mmg"
+  
+  # MDBA schema (for ELK Statistics)
+  mdba_schema: "mdba"
+  mdba_user: "mdba"
+  mdba_password: "mdba"
+  
+  # PostgreSQL admin (derived from service_passwords)
+  postgres_admin_password: "{{ service_passwords.postgres }}"
+
+# PostgreSQL service configuration (for db_postgres role)
+postgresql_config:
+  data_directory: "/data/pgsql/15/data"
+  home_directory: "/var/lib/pgsql"
+  systemd_service_file: "/usr/lib/systemd/system/postgresql-15.service"
+  service_name: "postgresql-15"
+  
+  # Database configurations
+  databases:
+    dmc46:
+      name: "{{ database_config.dmc_database }}"
+      owner: "{{ database_config.dmc_user }}"
+      schema: "public"
+      tablespaces:
+        data: "{{ database_config.tablespace_data }}"
+        index: "{{ database_config.tablespace_index }}"
+    
+    mmg:
+      name: "{{ database_config.mmg_database }}"
+      owner: "{{ database_config.mmg_user }}"
+      schema: "public"
+      tablespaces:
+        data: "mmgtab"
+        index: "mmgidx"
+  
+  # User configurations
+  users:
+    dmc4:
+      name: "{{ database_config.dmc_user }}"
+      password: "{{ database_config.dmc_password }}"
+    
+    mmg:
+      name: "{{ database_config.mmg_user }}"
+      password: "{{ database_config.mmg_password }}"
+    
+    mdba:
+      name: "{{ database_config.mdba_user }}"
+      password: "{{ database_config.mdba_password }}"
+      schema: "{{ database_config.mdba_schema }}"
+      tablespaces:
+        data: "mdbatab"
+        index: "mdbaidx"
+
+# =============================================================================
+# OPENSEARCH CONFIGURATION
+# =============================================================================
+
+# OpenSearch paths and settings
+opensearch_config:
+  # Basic cluster configuration
+  cluster_name: "opensearch-cluster"
+  node_name: "{{ ansible_hostname }}"
+  network_host: "0.0.0.0"
+  discovery_type: "single-node"
+  
+  # Ports
+  http_port: "{{ service_ports.opensearch_http }}"
+  transport_port: "{{ service_ports.opensearch_transport }}"
+  
+  # Paths
+  path_data: "/var/opt/opensearch/data"
+  path_logs: "/var/opt/opensearch/logs"
+  path_repo: "/var/opt/opensearch/backups"
+  
+  # Security
+  admin_password: "{{ service_passwords.opensearch }}"
+  
+  # Performance settings
+  bootstrap_memory_lock: true
+  indices_memory_index_buffer_size: "30%"
+  indices_queries_cache_size: "10%"
+  indices_fielddata_cache_size: "20%"
+  cluster_routing_allocation_disk_threshold_enabled: false
+  cluster_routing_allocation_disk_watermark_low: "85%"
+  cluster_routing_allocation_disk_watermark_high: "90%"
+  cluster_routing_allocation_disk_watermark_flood_stage: "95%"
+  
+  # JVM settings
+  gc_log_path: "/var/opt/opensearch/logs/gc.log"
+
+# =============================================================================
+# SERVICE PORTS - Only if you need non-standard ports
+# =============================================================================
+
+service_ports:
+  # Database
+  postgres: 5432
+  
+  # Search/Analytics
+  opensearch_http: 9200
+  opensearch_transport: 9300
+  opensearch_dashboards_http: 5601
+  elasticsearch: 9200
+  kibana: 5601
+
+  # SICAP Application Ports
+  dmc_http: 8080
+  dmc_https: 8443
+  drs_http: 50453
+  drs_https: 50454
+  mmg_http: 50434
+  mmg_https: 50435
+  sls_http: 50420
+  sls_https: 50421
+  mmsoap_http: 50425
+  mmsoap_https: 50426
+  smppc_http: 50429
+  smppc_https: 50430
+  
+  # Monitoring
+  zabbix_server: 10051
+  zabbix_agent: 10050
+  zabbix_java_gateway: 10052
+  
+  # Load Balancer
+  haproxy_http: 80
+  haproxy_https: 443
+  haproxy_stats: 8081
+
+# =============================================================================
+# PERFORMANCE TUNING - JVM Memory for all Java components
+# =============================================================================
+
+# DMC Java Memory (main application - heavy load)
+dmc_java:
+  xms: "8192m"
+  xmx: "8192m"
+  perm_size: "512m"
+  max_perm_size: "512m"
+
+# OpenSearch Java Memory (search engine - heavy load)
+opensearch_jvm:
+  heap_size: "1g"
+
+# Elasticsearch Java Memory (classic search - medium load)
+elasticsearch_jvm:
+  heap_size: "1g"
+
+# Logstash Java Memory (data pipeline - medium load)
+logstash_jvm:
+  heap_size: "1g"
+
+# Logstash OSS Java Memory (opensearch pipeline - medium load)
+logstash_oss_jvm:
+  heap_size: "1g"
+
+# System Tuning
+flags:
+  selinux: permissive
+  firewalld: disabled
+  dmc_hugepages_enabled: true
+  dmc_hugepages_pages: 5120
+  es_single_node: true
+
+# Zabbix Performance
+zabbix:
+  server:
+    start_java_pollers: 25
+    timeout: 4
+    log_slow_queries: 3000
+    enable_global_scripts: 0
+  java_gateway:
+    start_pollers: 5
+    timeout: 3
+  web:
+    php_timezone: "Europe/Berlin"
+    php_max_execution_time: 300
+    php_memory_limit: "128M"
+
+# =============================================================================
+# IOS ENABLER CONFIGURATION (Optional - for iOS device management)
+# =============================================================================
+
+# iOS enabler settings (disable if not using iOS device management)
+ios_enabler:
+  enabled: false  # Set to true if you need iOS device management
+  mmg_host: "{{ ansible_host }}"
+  mmg_port: "{{ service_ports.mmg_http }}"
+  mmg_username: "{{ database_config.mmg_user }}"
+  mmg_password: "{{ database_config.mmg_password }}"
+  node_id_dmc1: 1
+  node_id_dmc2: 2
+  public_ip: "{{ ansible_host }}"
+  connector_port: 8443
+  scep_port: 8080
+  challenge_port: 8080
+
+# =============================================================================
+# CUSTOMER/PROJECT NAME
+# =============================================================================
+
+customer_name: "sicapdmc46"
+
+# =============================================================================
+# THAT'S IT! Everything else is in packages.yaml or role defaults
+# =============================================================================

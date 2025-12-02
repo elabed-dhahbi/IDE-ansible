@@ -1,0 +1,331 @@
+---
+# PostgreSQL Service Configuration Tasks for Zabbix
+# Based on db_postgres role configure_service.yml with migration logic
+
+# Handle existing PostgreSQL data directory migration
+- name: Check if default PostgreSQL data directory exists
+  stat:
+    path: "/var/lib/pgsql/{{ versions.postgres }}/data"
+  register: default_postgres_data
+  become: yes
+  tags: [postgres, directories, migration]
+
+- name: Check if custom PostgreSQL data directory exists
+  stat:
+    path: "{{ paths.postgres_data_dir }}/{{ versions.postgres }}/data/postgresql.conf"
+  register: custom_postgres_data
+  become: yes
+  tags: [postgres, directories, migration, check]
+
+- name: Stop PostgreSQL service before migration
+  systemd:
+    name: postgresql-15
+    state: stopped
+  when: 
+    - default_postgres_data.stat.exists 
+    - not custom_postgres_data.stat.exists
+  become: yes
+  tags: [postgres, directories, migration, service]
+
+- name: Create destination directory for migration
+  file:
+    path: "{{ paths.postgres_data_dir }}/{{ versions.postgres }}/data"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0700'
+  become: yes
+  when: 
+    - default_postgres_data.stat.exists 
+    - not custom_postgres_data.stat.exists 
+    - default_postgres_data.stat.size > 6
+  tags: [postgres, directories, migration, data]
+
+- name: Migrate PostgreSQL data directory using rsync
+  shell: |
+    rsync -av /var/lib/pgsql/{{ versions.postgres }}/data/ {{ paths.postgres_data_dir }}/{{ versions.postgres }}/data/
+  become: yes
+  when: 
+    - default_postgres_data.stat.exists 
+    - not custom_postgres_data.stat.exists 
+    - default_postgres_data.stat.size > 6
+  tags: [postgres, directories, migration, data]
+
+- name: Fix ownership of migrated data directory
+  file:
+    path: "{{ paths.postgres_data_dir }}/{{ versions.postgres }}/data"
+    owner: postgres
+    group: postgres
+    recurse: yes
+  become: yes
+  when: 
+    - default_postgres_data.stat.exists 
+    - not custom_postgres_data.stat.exists 
+    - default_postgres_data.stat.size > 6
+  tags: [postgres, directories, migration, data]
+
+- name: Check if postgres home directory already exists
+  stat:
+    path: "{{ paths.postgres_home_dir }}"
+  register: postgres_home_exists
+  become: yes
+  tags: [postgres, directories, migration, user]
+
+- name: Change PostgreSQL user home directory
+  user:
+    name: postgres
+    home: "{{ paths.postgres_home_dir }}"
+    move_home: "{{ not postgres_home_exists.stat.exists }}"
+  when: 
+    - default_postgres_data.stat.exists 
+    - not custom_postgres_data.stat.exists 
+    - default_postgres_data.stat.size > 6
+  become: yes
+  tags: [postgres, directories, migration, user]
+
+- name: Ensure postgres home directory has correct ownership
+  file:
+    path: "{{ paths.postgres_home_dir }}"
+    owner: postgres
+    group: postgres
+    mode: '0755'
+  become: yes
+  when: 
+    - default_postgres_data.stat.exists 
+    - not custom_postgres_data.stat.exists 
+    - default_postgres_data.stat.size > 6
+  tags: [postgres, directories, migration, user]
+
+- name: Update PostgreSQL systemd service file
+  lineinfile:
+    path: "/usr/lib/systemd/system/postgresql-15.service"
+    regexp: '^Environment=PGDATA='
+    line: 'Environment=PGDATA={{ paths.postgres_data_dir }}/{{ versions.postgres }}/data'
+    backup: yes
+  become: yes
+  when: 
+    - default_postgres_data.stat.exists 
+    - not custom_postgres_data.stat.exists
+  tags: [postgres, migration, systemd]
+
+- name: Update postgresql.conf data_directory
+  lineinfile:
+    path: "{{ paths.postgres_data_dir }}/{{ versions.postgres }}/data/postgresql.conf"
+    regexp: '^#?data_directory ='
+    line: "data_directory = '{{ paths.postgres_data_dir }}/{{ versions.postgres }}/data'"
+    backup: yes
+  become: yes
+  when: 
+    - default_postgres_data.stat.exists 
+    - not custom_postgres_data.stat.exists
+  tags: [postgres, migration, config]
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+  become: yes
+  when: 
+    - default_postgres_data.stat.exists 
+    - not custom_postgres_data.stat.exists
+  tags: [postgres, migration, systemd]
+
+# Standard PostgreSQL configuration
+- name: Update postgresql.conf for network access
+  lineinfile:
+    path: "{{ paths.postgres_data_dir }}/{{ versions.postgres }}/data/postgresql.conf"
+    regexp: '^#?listen_addresses ='
+    line: "listen_addresses = '*'"
+    backup: yes
+  become: yes
+  when: custom_postgres_data.stat.exists
+  tags: [postgres, service, config]
+
+- name: Update pg_hba.conf for local connections
+  lineinfile:
+    path: "{{ paths.postgres_data_dir }}/{{ versions.postgres }}/data/pg_hba.conf"
+    regexp: '^local\s+all\s+all\s+peer'
+    line: 'local   all             all                                     md5'
+    backup: yes
+  become: yes
+  when: custom_postgres_data.stat.exists
+  tags: [postgres, service, config, network]
+
+- name: Update pg_hba.conf for localhost connections
+  lineinfile:
+    path: "{{ paths.postgres_data_dir }}/{{ versions.postgres }}/data/pg_hba.conf"
+    regexp: '^host\s+all\s+all\s+127\.0\.0\.1/32\s+ident'
+    line: 'host    all             all             127.0.0.1/32            md5'
+    backup: yes
+  become: yes
+  when: custom_postgres_data.stat.exists
+  tags: [postgres, service, config, auth]
+
+- name: Update pg_hba.conf for network connections
+  lineinfile:
+    path: "{{ paths.postgres_data_dir }}/{{ versions.postgres }}/data/pg_hba.conf"
+    regexp: '^host\s+all\s+all\s+::1/128\s+ident'
+    line: 'host    all             all             ::1/128                 md5'
+    backup: yes
+  become: yes
+  when: custom_postgres_data.stat.exists
+  tags: [postgres, service, config, auth]
+
+- name: Add network access to pg_hba.conf
+  lineinfile:
+    path: "{{ paths.postgres_data_dir }}/{{ versions.postgres }}/data/pg_hba.conf"
+    line: 'host    all             all             0.0.0.0/0               md5'
+    backup: yes
+  become: yes
+  when: custom_postgres_data.stat.exists
+  tags: [postgres, service, config, auth]
+
+- name: Update postgres user .bash_profile
+  lineinfile:
+    path: "{{ paths.postgres_home_dir }}/.bash_profile"
+    regexp: '^export PGDATA='
+    line: 'export PGDATA={{ paths.postgres_data_dir }}/{{ versions.postgres }}/data'
+    create: yes
+    owner: postgres
+    group: postgres
+    mode: '0644'
+    backup: yes
+  become: yes
+  when: custom_postgres_data.stat.exists
+  tags: [postgres, service, config, auth]
+
+- name: Check if PostgreSQL server package is installed
+  command: rpm -q postgresql15-server
+  register: postgres_server_installed
+  failed_when: false
+  changed_when: false
+  become: yes
+  when: not custom_postgres_data.stat.exists
+  tags: [postgres, service, init]
+
+- name: Find PostgreSQL binaries location
+  shell: |
+    if rpm -q postgresql15-server >/dev/null 2>&1; then
+      # Find the actual PostgreSQL installation directory
+      PG_BIN=$(rpm -ql postgresql15-server | grep '/bin/initdb$' | head -1 | xargs dirname)
+      if [ -n "$PG_BIN" ] && [ -f "$PG_BIN/initdb" ]; then
+        echo "$PG_BIN/initdb"
+      fi
+    fi
+  register: initdb_location
+  become: yes
+  when: 
+    - not custom_postgres_data.stat.exists
+    - postgres_server_installed.rc == 0
+  tags: [postgres, service, init]
+
+- name: Debug - Show initdb location
+  debug:
+    msg: "initdb location: {{ initdb_location.stdout }}"
+  when: 
+    - not custom_postgres_data.stat.exists
+    - initdb_location.stdout is defined
+  tags: [postgres, service, init]
+
+- name: Initialize PostgreSQL database if not already done
+  command: "{{ initdb_location.stdout }} -D {{ paths.postgres_data_dir }}/{{ versions.postgres }}/data"
+  become_user: postgres
+  when: 
+    - not custom_postgres_data.stat.exists
+    - postgres_server_installed.rc == 0
+    - initdb_location.stdout is defined
+    - initdb_location.stdout | length > 0
+  tags: [postgres, service, init]
+
+- name: Warn if PostgreSQL server is not installed
+  debug:
+    msg: "WARNING: postgresql15-server is not installed. Cannot initialize database. Please install postgresql15-server first."
+  when: 
+    - not custom_postgres_data.stat.exists
+    - postgres_server_installed.rc != 0
+  tags: [postgres, service, init]
+
+- name: Start and enable PostgreSQL service after initialization
+  systemd:
+    name: postgresql-15
+    state: started
+    enabled: yes
+  become: yes
+  when: 
+    - not custom_postgres_data.stat.exists
+    - postgres_server_installed.rc == 0
+    - initdb_location.stdout is defined
+    - initdb_location.stdout | length > 0
+  tags: [postgres, service, init]
+
+- name: Wait for PostgreSQL to be ready after start
+  wait_for:
+    port: "{{ service_ports.postgres }}"
+    host: 127.0.0.1
+    delay: 5
+    timeout: 60
+  become: yes
+  when: 
+    - not custom_postgres_data.stat.exists
+    - postgres_server_installed.rc == 0
+    - initdb_location.stdout is defined
+    - initdb_location.stdout | length > 0
+  tags: [postgres, service, init, password]
+
+- name: Set postgres user password (using Unix socket)
+  shell: |
+    cd /tmp
+    psql -U postgres -d postgres -c "ALTER USER postgres PASSWORD '{{ database_config.postgres_admin_password }}';"
+  become_user: postgres
+  when: 
+    - not custom_postgres_data.stat.exists
+    - postgres_server_installed.rc == 0
+    - initdb_location.stdout is defined
+    - initdb_location.stdout | length > 0
+  ignore_errors: yes
+  tags: [postgres, service, init, password]
+
+- name: Debug - Show PostgreSQL version variables
+  debug:
+    msg: "versions.postgres={{ versions.postgres }}, versions.postgresql={{ versions.postgresql }}"
+  tags: [postgres, service, systemd, debug]
+
+- name: Create systemd override directory (using postgres version 15, not 15.14)
+  file:
+    path: "/etc/systemd/system/postgresql-15.service.d"
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [postgres, service, systemd]
+
+- name: Create systemd override for custom PGDATA
+  copy:
+    content: |
+      [Service]
+      Environment=PGDATA={{ paths.postgres_data_dir }}/{{ versions.postgres }}/data/
+    dest: "/etc/systemd/system/postgresql-15.service.d/override.conf"
+    mode: '0644'
+  become: yes
+  tags: [postgres, service, systemd]
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+  become: yes
+  tags: [postgres, service, systemd]
+
+- name: Start and enable PostgreSQL service
+  systemd:
+    name: postgresql-15
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: yes
+  tags: [postgres, service]
+
+- name: Wait for PostgreSQL to be ready
+  wait_for:
+    port: "{{ service_ports.postgres }}"
+    host: "{{ ansible_host }}"
+    delay: 5
+    timeout: 60
+  tags: [postgres, service, wait]

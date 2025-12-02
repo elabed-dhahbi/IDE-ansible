@@ -1,0 +1,132 @@
+---
+# Logstash OSS User Configuration Tasks
+
+- name: Change logstash user home directory
+  lineinfile:
+    path: /etc/passwd
+    regexp: '^logstash:.*:/sbin/nologin$'
+    line: 'logstash:x:982:982:logstash:/opt/logstash:/bin/bash'
+    backup: yes
+  become: yes
+  tags: [logstash_oss, user, home]
+
+- name: Add logstash user to wheel group
+  user:
+    name: "{{ logstash_oss_user }}"
+    groups: wheel
+    append: yes
+  become: yes
+  tags: [logstash_oss, user, groups]
+
+- name: Create logstash home directory
+  file:
+    path: "{{ logstash_oss_home }}"
+    state: directory
+    owner: "{{ logstash_oss_user }}"
+    group: "{{ logstash_oss_group }}"
+    mode: '0755'
+  become: yes
+  tags: [logstash_oss, user, home]
+
+- name: Create logstash bash profile
+  copy:
+    content: |
+      # .bash_profile
+      
+      # Get the aliases and functions
+      if [ -f ~/.bashrc ]; then
+          . ~/.bashrc
+      fi
+      
+      # User specific environment and startup programs
+      if [ -f ~/.bash_logstash ]; then
+          . ~/.bash_logstash
+      fi
+    dest: "{{ logstash_oss_home }}/.bash_profile"
+    owner: "{{ logstash_oss_user }}"
+    group: "{{ logstash_oss_group }}"
+    mode: '0644'
+  become: yes
+  tags: [logstash_oss, user, profile]
+
+- name: Create logstash bashrc
+  copy:
+    content: |
+      # .bashrc
+      
+      # Source global definitions
+      if [ -f /etc/bashrc ]; then
+          . /etc/bashrc
+      fi
+      
+      # User specific environment
+      export PATH="/usr/share/logstash/bin:$HOME/.local/bin:$HOME/bin:$PATH"
+      
+      # Uncomment the following line if you don't like systemctl's auto-paging feature:
+      # export SYSTEMD_PAGER=
+      
+      # User specific aliases and functions
+    dest: "{{ logstash_oss_home }}/.bashrc"
+    owner: "{{ logstash_oss_user }}"
+    group: "{{ logstash_oss_group }}"
+    mode: '0644'
+  become: yes
+  tags: [logstash_oss, user, bashrc]
+
+- name: Create logstash environment file
+  copy:
+    content: |
+      # .bash_logstash
+      
+      ############ COLOR ############
+      export GREEN='\033[0;32m'
+      export LGREEN='\033[1;32m'
+      export LBLUE='\033[1;34m'
+      export LCYAN='\033[1;36m'
+      export LPURPLE='\033[1;35m'
+      export NC='\033[0m' # No color
+      
+      ###############################
+      export LS_HOME=/usr/share/logstash
+      export LOG_BASE=/var/opt/logstash/logs
+      export CONF=/etc/logstash
+      export DATA=/var/opt/logstash/data
+      export CONF_CUR=/opt/logstash-curator
+      export LOG_CUR=/var/opt/logstash-curator
+      
+      # env details
+      echo -e " "
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      echo -e " ${LCYAN}Logstash OSS environment variables${NC}"
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      echo -e " \$HOME directory    : $HOME"
+      echo -e " \$LS_HOME directory : $LS_HOME"
+      echo -e " \$LOG_BASE directory: $LOG_BASE"
+      echo -e " \$CONF directory    : $CONF"
+      echo -e " \$DATA directory    : $DATA"
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      echo -e " "
+      
+      # Logstash API examples
+      echo -e " ${LCYAN}API Examples for Logstash OSS {{ logstash_oss_version }}${NC}"
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      
+      # Get node info
+      echo -e " Node Info:"
+      echo -e " ${LPURPLE}curl -X GET \"localhost:9600/_node/pipelines?pretty\" ${NC}"
+      
+      # Get node stats
+      echo -e " Node Stats:"
+      echo -e " ${LPURPLE}curl -X GET \"localhost:9600/_node/stats?pretty\" ${NC}"
+      
+      # Get node hot threads
+      echo -e " Hot Threads:"
+      echo -e " ${LPURPLE}curl -X GET \"localhost:9600/_node/hot_threads?pretty\" ${NC}"
+      
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+    dest: "{{ logstash_oss_home }}/.bash_logstash"
+    owner: "{{ logstash_oss_user }}"
+    group: "{{ logstash_oss_group }}"
+    mode: '0644'
+  become: yes
+  tags: [logstash_oss, user, environment]

@@ -1,0 +1,72 @@
+---
+# PostgreSQL 15 Installation Tasks for Zabbix
+# Copied from db_postgres role, excluding database setup
+
+- name: Ensure offline directory exists on target
+  file:
+    path: "{{ paths.offline_dir }}"
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [postgres, install, packages]
+
+- name: Copy PostgreSQL packages to target
+  copy:
+    src: "{{ item }}"
+    dest: "{{ paths.offline_dir }}/"
+    mode: '0644'
+  loop: "{{ lookup('fileglob', paths.offline_dir + '/postgresql15*.rpm', wantlist=True) + lookup('fileglob', paths.offline_dir + '/libpq5*.rpm', wantlist=True) + lookup('fileglob', paths.offline_dir + '/python3-psycopg2*.rpm', wantlist=True) }}"
+  become: yes
+  tags: [postgres, install, packages]
+
+- name: Check if PostgreSQL packages are already installed
+  command: rpm -q {{ item }}
+  loop:
+    - "postgresql15-libs"
+    - "postgresql15"
+    - "postgresql15-server"
+    - "postgresql15-contrib"
+    - "libpq5"
+    - "python3-psycopg2"
+  register: postgres_packages_check
+  failed_when: false
+  become: yes
+  tags: [postgres, install, packages]
+
+- name: Install PostgreSQL packages in correct order
+  command: rpm -Uvh --force /tmp/offline/{{ item }}
+  loop:
+    - "postgresql15-libs-15.14-1PGDG.rhel9.x86_64.rpm"
+    - "postgresql15-15.14-1PGDG.rhel9.x86_64.rpm"
+    - "postgresql15-server-15.14-1PGDG.rhel9.x86_64.rpm"
+    - "postgresql15-contrib-15.14-1PGDG.rhel9.x86_64.rpm"
+    - "libpq5-17.6-1PGDG.rhel9.x86_64.rpm"
+    - "python3-psycopg2-2.8.6-6.el9.x86_64.rpm"
+  when: postgres_packages_check.results | selectattr('rc', 'ne', 0) | list | length > 0
+  become: yes
+  tags: [postgres, install, packages]
+
+- name: Check if PostgreSQL is already initialized
+  stat:
+    path: "{{ paths.postgres_data_dir }}/{{ versions.postgres }}/data/postgresql.conf"
+  register: postgres_initialized
+  become: yes
+  tags: [postgres, install, init]
+
+- name: Create PostgreSQL data directory with proper ownership
+  file:
+    path: "{{ paths.postgres_data_dir }}/{{ versions.postgres }}/data"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0700'
+  become: yes
+  when: not postgres_initialized.stat.exists
+  tags: [postgres, install, init]
+
+- name: Initialize PostgreSQL database if not already initialized
+  command: /usr/pgsql-{{ versions.postgres }}/bin/initdb -D {{ paths.postgres_data_dir }}/{{ versions.postgres }}/data
+  become: yes
+  become_user: postgres
+  when: not postgres_initialized.stat.exists
+  tags: [postgres, install, init]

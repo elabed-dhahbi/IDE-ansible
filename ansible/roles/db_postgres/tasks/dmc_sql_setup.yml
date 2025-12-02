@@ -1,0 +1,635 @@
+---
+# DMC SQL-Only Setup Tasks
+# These tasks create databases, users, schemas, and grant privileges using ONLY SQL
+# These tasks ALWAYS run, even in skip_postgres_install mode
+# In skip mode: uses psql commands from localhost (Ansible control node)
+# In normal mode: uses Ansible PostgreSQL modules
+
+- name: Set database connection parameters
+  set_fact:
+    db_host: "{{ database_config.external_host | default(ansible_host) }}"
+    db_port: "{{ database_config.external_port | default(service_ports.postgres) }}"
+    db_user: "{{ 'postgres' }}"
+    db_password: "{{ system_config.service_passwords.postgres }}"
+  tags: [postgres, databases, config]
+
+- name: Check if we're in skip mode
+  set_fact:
+    use_psql_commands: "{{ skip_postgres_install | default(false) }}"
+  tags: [postgres, databases, config]
+
+- name: Check if psql is available on localhost (for skip mode)
+  command: which psql
+  register: psql_check
+  delegate_to: localhost
+  failed_when: false
+  changed_when: false
+  when: use_psql_commands | default(false)
+  tags: [postgres, databases, check]
+
+- name: Check if PostgreSQL client is installed on localhost (for skip mode)
+  command: rpm -q postgresql15 || rpm -q postgresql || rpm -q postgresql-client
+  register: postgresql_client_check
+  delegate_to: localhost
+  failed_when: false
+  changed_when: false
+  when: 
+    - use_psql_commands | default(false)
+    - psql_check.rc != 0
+  tags: [postgres, databases, check]
+
+- name: Check if offline directory exists on localhost
+  stat:
+    path: "{{ paths.offline_dir }}"
+  register: offline_dir_check
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - psql_check.rc != 0
+    - postgresql_client_check.rc != 0
+  tags: [postgres, databases, packages]
+
+- name: Find PostgreSQL libs package in offline directory (required dependency)
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "postgresql15-libs-*.rpm"
+      - "postgresql-libs-*.rpm"
+  register: postgresql_libs_package
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - psql_check.rc != 0
+    - postgresql_client_check.rc != 0
+    - offline_dir_check.stat.exists
+  tags: [postgres, databases, packages]
+
+- name: Find PostgreSQL client package in offline directory (for localhost installation)
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "postgresql15-*.rpm"
+      - "postgresql-*.rpm"
+    excludes:
+      - "*server*"
+      - "*libs*"
+      - "*contrib*"
+  register: postgresql_client_package
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - psql_check.rc != 0
+    - postgresql_client_check.rc != 0
+    - offline_dir_check.stat.exists
+  tags: [postgres, databases, packages]
+
+- name: Install PostgreSQL libs from offline package on localhost (required dependency)
+  command: rpm -Uvh --force --nodeps "{{ item.path }}"
+  loop: "{{ postgresql_libs_package.files | default([]) }}"
+  delegate_to: localhost
+  become: yes
+  when:
+    - use_psql_commands | default(false)
+    - psql_check.rc != 0
+    - postgresql_client_check.rc != 0
+    - postgresql_libs_package.files | default([]) | length > 0
+  ignore_errors: yes
+  tags: [postgres, databases, packages]
+
+- name: Install PostgreSQL client from offline package on localhost (for skip mode)
+  command: rpm -Uvh --force "{{ item.path }}"
+  loop: "{{ postgresql_client_package.files | default([]) }}"
+  delegate_to: localhost
+  become: yes
+  when:
+    - use_psql_commands | default(false)
+    - psql_check.rc != 0
+    - postgresql_client_check.rc != 0
+    - postgresql_client_package.files | default([]) | length > 0
+  ignore_errors: yes
+  tags: [postgres, databases, packages]
+
+- name: Install PostgreSQL client from system repositories on localhost (for skip mode)
+  dnf:
+    name: postgresql15
+    state: present
+  delegate_to: localhost
+  become: yes
+  when:
+    - use_psql_commands | default(false)
+    - psql_check.rc != 0
+    - postgresql_client_check.rc != 0
+    - postgresql_client_package.files | default([]) | length == 0
+  ignore_errors: yes
+  tags: [postgres, databases, packages]
+
+- name: Verify psql is now available after installation
+  command: which psql
+  register: psql_check_after_install
+  delegate_to: localhost
+  failed_when: false
+  changed_when: false
+  when:
+    - use_psql_commands | default(false)
+    - psql_check.rc != 0
+  tags: [postgres, databases, packages]
+
+- name: Fail if PostgreSQL client cannot be installed on localhost
+  fail:
+    msg: "PostgreSQL client (psql) is required on localhost for skip mode but could not be installed. Please install postgresql15 or postgresql package manually on the Ansible control node: sudo dnf install -y postgresql15"
+  when:
+    - use_psql_commands | default(false)
+    - psql_check.rc != 0
+    - psql_check_after_install.rc != 0
+  tags: [postgres, databases, packages]
+
+- name: Find psql binary path on localhost (try which first)
+  shell: which psql 2>/dev/null || echo ""
+  register: psql_which_result
+  delegate_to: localhost
+  failed_when: false
+  changed_when: false
+  when: use_psql_commands | default(false)
+  tags: [postgres, databases, config]
+
+- name: Find psql binary path on localhost (fallback to find)
+  shell: find /usr -name psql -type f 2>/dev/null | head -1 || echo ""
+  register: psql_find_result
+  delegate_to: localhost
+  failed_when: false
+  changed_when: false
+  when:
+    - use_psql_commands | default(false)
+    - psql_which_result.stdout | trim == ""
+  tags: [postgres, databases, config]
+
+- name: Set psql binary path (clean single path)
+  set_fact:
+    psql_binary: "{{ (psql_which_result.stdout | trim | split('\n') | first) if psql_which_result.stdout | trim != '' else ((psql_find_result.stdout | trim | split('\n') | first) if psql_find_result.stdout | trim != '' else 'psql') }}"
+  when: use_psql_commands | default(false)
+  tags: [postgres, databases, config]
+
+- name: Debug psql binary path
+  debug:
+    msg: "psql_binary set to: '{{ psql_binary }}'"
+  when: use_psql_commands | default(false)
+  tags: [postgres, databases, config]
+
+# When in skip mode, use psql commands from localhost
+# When in normal mode, use Ansible PostgreSQL modules
+
+- name: Create DMC user (skip mode - using psql)
+  shell: |
+    export PGPASSWORD='{{ db_password }}'
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d postgres -c "CREATE USER {{ postgresql_config.users.dmc4.name | default('dmc4') }} WITH PASSWORD '{{ postgresql_config.users.dmc4.password }}';"
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - postgresql_config.users.dmc4 is defined
+  failed_when: false  # Ignore if user already exists
+  changed_when: false
+  tags: [postgres, databases, users, dmc]
+
+- name: Create DMC user (normal mode - using Ansible module)
+  postgresql_user:
+    name: "{{ postgresql_config.users.dmc4.name | default('dmc4') }}"
+    password: "{{ postgresql_config.users.dmc4.password }}"
+    state: present
+    login_host: "{{ db_host }}"
+    login_port: "{{ db_port }}"
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_password }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - postgresql_config.users.dmc4 is defined
+  tags: [postgres, databases, users, dmc]
+
+- name: Create MMG user (skip mode - using psql)
+  shell: |
+    export PGPASSWORD='{{ db_password }}'
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d postgres -c "CREATE USER {{ postgresql_config.users.mmg.name | default('mmg') }} WITH PASSWORD '{{ postgresql_config.users.mmg.password }}';"
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - postgresql_config.users.mmg is defined
+  failed_when: false  # Ignore if user already exists
+  changed_when: false
+  tags: [postgres, databases, users, mmg]
+
+- name: Create MMG user (normal mode - using Ansible module)
+  postgresql_user:
+    name: "{{ postgresql_config.users.mmg.name | default('mmg') }}"
+    password: "{{ postgresql_config.users.mmg.password }}"
+    state: present
+    login_host: "{{ db_host }}"
+    login_port: "{{ db_port }}"
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_password }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - postgresql_config.users.mmg is defined
+  tags: [postgres, databases, users, mmg]
+
+- name: Create MDBA user (skip mode - using psql)
+  shell: |
+    export PGPASSWORD='{{ db_password }}'
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d postgres -c "CREATE USER {{ postgresql_config.users.mdba.name | default('mdba') }} WITH PASSWORD '{{ postgresql_config.users.mdba.password }}';"
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - postgresql_config.users.mdba is defined
+  failed_when: false  # Ignore if user already exists
+  changed_when: false
+  tags: [postgres, databases, users, mdba]
+
+- name: Create MDBA user (normal mode - using Ansible module)
+  postgresql_user:
+    name: "{{ postgresql_config.users.mdba.name | default('mdba') }}"
+    password: "{{ postgresql_config.users.mdba.password }}"
+    state: present
+    login_host: "{{ db_host }}"
+    login_port: "{{ db_port }}"
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_password }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - postgresql_config.users.mdba is defined
+  tags: [postgres, databases, users, mdba]
+
+- name: Create DMC database (skip mode - using psql)
+  shell: |
+    export PGPASSWORD='{{ db_password }}'
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d postgres -c "CREATE DATABASE {{ postgresql_config.databases.dmc46.name }} OWNER {{ postgresql_config.databases.dmc46.owner }};"
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - postgresql_config.databases.dmc46 is defined
+  failed_when: false  # Ignore if database already exists
+  changed_when: false
+  tags: [postgres, databases, dmc]
+
+- name: Create DMC database (normal mode - using Ansible module)
+  postgresql_db:
+    name: "{{ postgresql_config.databases.dmc46.name }}"
+    owner: "{{ postgresql_config.databases.dmc46.owner }}"
+    state: present
+    login_host: "{{ db_host }}"
+    login_port: "{{ db_port }}"
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_password }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - postgresql_config.databases.dmc46 is defined
+  tags: [postgres, databases, dmc]
+
+- name: Create MMG database (skip mode - using psql)
+  shell: |
+    export PGPASSWORD='{{ db_password }}'
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d postgres -c "CREATE DATABASE {{ postgresql_config.databases.mmg.name }} OWNER {{ postgresql_config.databases.mmg.owner }};"
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - postgresql_config.databases.mmg is defined
+  failed_when: false  # Ignore if database already exists
+  changed_when: false
+  tags: [postgres, databases, mmg]
+
+- name: Create MMG database (normal mode - using Ansible module)
+  postgresql_db:
+    name: "{{ postgresql_config.databases.mmg.name }}"
+    owner: "{{ postgresql_config.databases.mmg.owner }}"
+    state: present
+    login_host: "{{ db_host }}"
+    login_port: "{{ db_port }}"
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_password }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - postgresql_config.databases.mmg is defined
+  tags: [postgres, databases, mmg]
+
+- name: Create DMC schema (skip mode - using psql)
+  shell: |
+    export PGPASSWORD='{{ db_password }}'
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d {{ postgresql_config.databases.dmc46.name }} -c "CREATE SCHEMA IF NOT EXISTS {{ postgresql_config.databases.dmc46.schema }} AUTHORIZATION {{ postgresql_config.databases.dmc46.owner }};"
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - postgresql_config.databases.dmc46 is defined
+  tags: [postgres, databases, schemas, dmc]
+
+- name: Create DMC schema (normal mode - using Ansible module)
+  postgresql_query:
+    query: "CREATE SCHEMA IF NOT EXISTS {{ postgresql_config.databases.dmc46.schema }} AUTHORIZATION {{ postgresql_config.databases.dmc46.owner }}"
+    db: "{{ postgresql_config.databases.dmc46.name }}"
+    login_host: "{{ db_host }}"
+    login_port: "{{ db_port }}"
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_password }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - postgresql_config.databases.dmc46 is defined
+  tags: [postgres, databases, schemas, dmc]
+
+- name: Set DMC search path (skip mode - using psql)
+  shell: |
+    export PGPASSWORD='{{ db_password }}'
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d {{ postgresql_config.databases.dmc46.name }} -c "ALTER ROLE {{ postgresql_config.databases.dmc46.owner }} IN DATABASE {{ postgresql_config.databases.dmc46.name }} SET search_path = {{ postgresql_config.databases.dmc46.schema }};"
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - postgresql_config.databases.dmc46 is defined
+  tags: [postgres, databases, schemas, dmc]
+
+- name: Set DMC search path (normal mode - using Ansible module)
+  postgresql_query:
+    query: "ALTER ROLE {{ postgresql_config.databases.dmc46.owner }} IN DATABASE {{ postgresql_config.databases.dmc46.name }} SET search_path = {{ postgresql_config.databases.dmc46.schema }}"
+    db: "{{ postgresql_config.databases.dmc46.name }}"
+    login_host: "{{ db_host }}"
+    login_port: "{{ db_port }}"
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_password }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - postgresql_config.databases.dmc46 is defined
+  tags: [postgres, databases, schemas, dmc]
+
+- name: Grant DMC database permissions (skip mode - using psql)
+  shell: |
+    export PGPASSWORD='{{ db_password }}'
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d {{ postgresql_config.databases.dmc46.name }} -c "GRANT CONNECT ON DATABASE {{ postgresql_config.databases.dmc46.name }} TO {{ postgresql_config.databases.dmc46.owner }};"
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - postgresql_config.databases.dmc46 is defined
+  tags: [postgres, databases, schemas, dmc]
+
+- name: Grant DMC database permissions (normal mode - using Ansible module)
+  postgresql_query:
+    query: "GRANT CONNECT ON DATABASE {{ postgresql_config.databases.dmc46.name }} TO {{ postgresql_config.databases.dmc46.owner }}"
+    db: "{{ postgresql_config.databases.dmc46.name }}"
+    login_host: "{{ db_host }}"
+    login_port: "{{ db_port }}"
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_password }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - postgresql_config.databases.dmc46 is defined
+  tags: [postgres, databases, schemas, dmc]
+
+- name: Grant DMC schema permissions (skip mode - using psql)
+  shell: |
+    export PGPASSWORD='{{ db_password }}'
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d {{ postgresql_config.databases.dmc46.name }} -c "GRANT USAGE ON SCHEMA {{ postgresql_config.databases.dmc46.schema }} TO {{ postgresql_config.databases.dmc46.owner }};"
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - postgresql_config.databases.dmc46 is defined
+  tags: [postgres, databases, schemas, dmc]
+
+- name: Grant DMC schema permissions (normal mode - using Ansible module)
+  postgresql_query:
+    query: "GRANT USAGE ON SCHEMA {{ postgresql_config.databases.dmc46.schema }} TO {{ postgresql_config.databases.dmc46.owner }}"
+    db: "{{ postgresql_config.databases.dmc46.name }}"
+    login_host: "{{ db_host }}"
+    login_port: "{{ db_port }}"
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_password }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - postgresql_config.databases.dmc46 is defined
+  tags: [postgres, databases, schemas, dmc]
+
+- name: Grant DMC schema ALL privileges (skip mode - using psql)
+  shell: |
+    export PGPASSWORD='{{ db_password }}'
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d {{ postgresql_config.databases.dmc46.name }} -c "GRANT ALL PRIVILEGES ON SCHEMA {{ postgresql_config.databases.dmc46.schema }} TO {{ postgresql_config.databases.dmc46.owner }};"
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - postgresql_config.databases.dmc46 is defined
+  tags: [postgres, databases, schemas, dmc]
+
+- name: Grant DMC schema ALL privileges (normal mode - using Ansible module)
+  postgresql_query:
+    query: "GRANT ALL PRIVILEGES ON SCHEMA {{ postgresql_config.databases.dmc46.schema }} TO {{ postgresql_config.databases.dmc46.owner }}"
+    db: "{{ postgresql_config.databases.dmc46.name }}"
+    login_host: "{{ db_host }}"
+    login_port: "{{ db_port }}"
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_password }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - postgresql_config.databases.dmc46 is defined
+  tags: [postgres, databases, schemas, dmc]
+
+- name: Create MMG schema (skip mode - using psql)
+  shell: |
+    export PGPASSWORD='{{ db_password }}'
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d {{ postgresql_config.databases.mmg.name }} -c "CREATE SCHEMA IF NOT EXISTS {{ postgresql_config.databases.mmg.schema }} AUTHORIZATION {{ postgresql_config.databases.mmg.owner }};"
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - postgresql_config.databases.mmg is defined
+  tags: [postgres, databases, schemas, mmg]
+
+- name: Create MMG schema (normal mode - using Ansible module)
+  postgresql_query:
+    query: "CREATE SCHEMA IF NOT EXISTS {{ postgresql_config.databases.mmg.schema }} AUTHORIZATION {{ postgresql_config.databases.mmg.owner }}"
+    db: "{{ postgresql_config.databases.mmg.name }}"
+    login_host: "{{ db_host }}"
+    login_port: "{{ db_port }}"
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_password }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - postgresql_config.databases.mmg is defined
+  tags: [postgres, databases, schemas, mmg]
+
+- name: Set MMG search path (skip mode - using psql)
+  shell: |
+    export PGPASSWORD='{{ db_password }}'
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d {{ postgresql_config.databases.mmg.name }} -c "ALTER ROLE {{ postgresql_config.databases.mmg.owner }} IN DATABASE {{ postgresql_config.databases.mmg.name }} SET search_path = {{ postgresql_config.databases.mmg.schema }};"
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - postgresql_config.databases.mmg is defined
+  tags: [postgres, databases, schemas, mmg]
+
+- name: Set MMG search path (normal mode - using Ansible module)
+  postgresql_query:
+    query: "ALTER ROLE {{ postgresql_config.databases.mmg.owner }} IN DATABASE {{ postgresql_config.databases.mmg.name }} SET search_path = {{ postgresql_config.databases.mmg.schema }}"
+    db: "{{ postgresql_config.databases.mmg.name }}"
+    login_host: "{{ db_host }}"
+    login_port: "{{ db_port }}"
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_password }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - postgresql_config.databases.mmg is defined
+  tags: [postgres, databases, schemas, mmg]
+
+- name: Grant MMG database permissions (skip mode - using psql)
+  shell: |
+    export PGPASSWORD='{{ db_password }}'
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d {{ postgresql_config.databases.mmg.name }} -c "GRANT CONNECT ON DATABASE {{ postgresql_config.databases.mmg.name }} TO {{ postgresql_config.databases.mmg.owner }};"
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - postgresql_config.databases.mmg is defined
+  tags: [postgres, databases, schemas, mmg]
+
+- name: Grant MMG database permissions (normal mode - using Ansible module)
+  postgresql_query:
+    query: "GRANT CONNECT ON DATABASE {{ postgresql_config.databases.mmg.name }} TO {{ postgresql_config.databases.mmg.owner }}"
+    db: "{{ postgresql_config.databases.mmg.name }}"
+    login_host: "{{ db_host }}"
+    login_port: "{{ db_port }}"
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_password }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - postgresql_config.databases.mmg is defined
+  tags: [postgres, databases, schemas, mmg]
+
+- name: Grant MMG schema permissions (skip mode - using psql)
+  shell: |
+    export PGPASSWORD='{{ db_password }}'
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d {{ postgresql_config.databases.mmg.name }} -c "GRANT USAGE ON SCHEMA {{ postgresql_config.databases.mmg.schema }} TO {{ postgresql_config.databases.mmg.owner }};"
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - postgresql_config.databases.mmg is defined
+  tags: [postgres, databases, schemas, mmg]
+
+- name: Grant MMG schema permissions (normal mode - using Ansible module)
+  postgresql_query:
+    query: "GRANT USAGE ON SCHEMA {{ postgresql_config.databases.mmg.schema }} TO {{ postgresql_config.databases.mmg.owner }}"
+    db: "{{ postgresql_config.databases.mmg.name }}"
+    login_host: "{{ db_host }}"
+    login_port: "{{ db_port }}"
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_password }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - postgresql_config.databases.mmg is defined
+  tags: [postgres, databases, schemas, mmg]
+
+- name: Grant MMG schema ALL privileges (skip mode - using psql)
+  shell: |
+    export PGPASSWORD='{{ db_password }}'
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d {{ postgresql_config.databases.mmg.name }} -c "GRANT ALL PRIVILEGES ON SCHEMA {{ postgresql_config.databases.mmg.schema }} TO {{ postgresql_config.databases.mmg.owner }};"
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - postgresql_config.databases.mmg is defined
+  tags: [postgres, databases, schemas, mmg]
+
+- name: Grant MMG schema ALL privileges (normal mode - using Ansible module)
+  postgresql_query:
+    query: "GRANT ALL PRIVILEGES ON SCHEMA {{ postgresql_config.databases.mmg.schema }} TO {{ postgresql_config.databases.mmg.owner }}"
+    db: "{{ postgresql_config.databases.mmg.name }}"
+    login_host: "{{ db_host }}"
+    login_port: "{{ db_port }}"
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_password }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - postgresql_config.databases.mmg is defined
+  tags: [postgres, databases, schemas, mmg]
+
+- name: Create MDBA schema (skip mode - using psql)
+  shell: |
+    export PGPASSWORD='{{ db_password }}'
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d {{ postgresql_config.databases.dmc46.name }} -c "CREATE SCHEMA IF NOT EXISTS {{ postgresql_config.users.mdba.schema }} AUTHORIZATION {{ postgresql_config.users.mdba.name | default('mdba') }};"
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - postgresql_config.users.mdba is defined
+  tags: [postgres, databases, schemas, mdba]
+
+- name: Create MDBA schema (normal mode - using Ansible module)
+  postgresql_query:
+    query: "CREATE SCHEMA IF NOT EXISTS {{ postgresql_config.users.mdba.schema }} AUTHORIZATION {{ postgresql_config.users.mdba.name | default('mdba') }}"
+    db: "{{ postgresql_config.databases.dmc46.name }}"
+    login_host: "{{ db_host }}"
+    login_port: "{{ db_port }}"
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_password }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - postgresql_config.users.mdba is defined
+  tags: [postgres, databases, schemas, mdba]
+
+- name: Set MDBA search path (skip mode - using psql)
+  shell: |
+    export PGPASSWORD='{{ db_password }}'
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d {{ postgresql_config.databases.dmc46.name }} -c "ALTER ROLE {{ postgresql_config.users.mdba.name | default('mdba') }} IN DATABASE {{ postgresql_config.databases.dmc46.name }} SET search_path = {{ postgresql_config.users.mdba.schema }};"
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - postgresql_config.users.mdba is defined
+  tags: [postgres, databases, schemas, mdba]
+
+- name: Set MDBA search path (normal mode - using Ansible module)
+  postgresql_query:
+    query: "ALTER ROLE {{ postgresql_config.users.mdba.name | default('mdba') }} IN DATABASE {{ postgresql_config.databases.dmc46.name }} SET search_path = {{ postgresql_config.users.mdba.schema }}"
+    db: "{{ postgresql_config.databases.dmc46.name }}"
+    login_host: "{{ db_host }}"
+    login_port: "{{ db_port }}"
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_password }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - postgresql_config.users.mdba is defined
+  tags: [postgres, databases, schemas, mdba]
+
+- name: Grant MDBA schema permissions (skip mode - using psql)
+  shell: |
+    export PGPASSWORD='{{ db_password }}'
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d {{ postgresql_config.databases.dmc46.name }} -c "GRANT USAGE ON SCHEMA {{ postgresql_config.databases.dmc46.schema }} TO {{ postgresql_config.users.mdba.name | default('mdba') }};"
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - postgresql_config.users.mdba is defined
+  tags: [postgres, databases, schemas, mdba]
+
+- name: Grant MDBA schema permissions (normal mode - using Ansible module)
+  postgresql_query:
+    query: "GRANT USAGE ON SCHEMA {{ postgresql_config.databases.dmc46.schema }} TO {{ postgresql_config.users.mdba.name | default('mdba') }}"
+    db: "{{ postgresql_config.databases.dmc46.name }}"
+    login_host: "{{ db_host }}"
+    login_port: "{{ db_port }}"
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_password }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - postgresql_config.users.mdba is defined
+  tags: [postgres, databases, schemas, mdba]
+
+- name: Grant MDBA schema ALL privileges (skip mode - using psql)
+  shell: |
+    export PGPASSWORD='{{ db_password }}'
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d {{ postgresql_config.databases.dmc46.name }} -c "GRANT ALL PRIVILEGES ON SCHEMA {{ postgresql_config.users.mdba.schema }} TO {{ postgresql_config.users.mdba.name | default('mdba') }};"
+  delegate_to: localhost
+  when:
+    - use_psql_commands | default(false)
+    - postgresql_config.users.mdba is defined
+  tags: [postgres, databases, schemas, mdba]
+
+- name: Grant MDBA schema ALL privileges (normal mode - using Ansible module)
+  postgresql_query:
+    query: "GRANT ALL PRIVILEGES ON SCHEMA {{ postgresql_config.users.mdba.schema }} TO {{ postgresql_config.users.mdba.name | default('mdba') }}"
+    db: "{{ postgresql_config.databases.dmc46.name }}"
+    login_host: "{{ db_host }}"
+    login_port: "{{ db_port }}"
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_password }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - postgresql_config.users.mdba is defined
+  tags: [postgres, databases, schemas, mdba]
+
+# Note: Tablespace creation is skipped in skip mode because it requires directory creation
+# Tablespaces can be created manually by the database administrator if needed
+# The tablespace directories must exist on the PostgreSQL server before creating tablespaces

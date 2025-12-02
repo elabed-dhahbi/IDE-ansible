@@ -1,0 +1,36 @@
+---
+# Logstash OSS Service Configuration Tasks
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+  become: yes
+  tags: [logstash_oss, service, systemd]
+
+- name: Start and enable Logstash OSS service
+  systemd:
+    name: "{{ logstash_oss_service_name }}"
+    state: started
+    enabled: yes
+  become: yes
+  tags: [logstash_oss, service]
+
+- name: Wait for Logstash OSS to be ready
+  wait_for:
+    port: 9600
+    host: "{{ ansible_host }}"
+    delay: 10
+    timeout: 120
+  tags: [logstash_oss, service, wait]
+
+- name: Check Logstash OSS service status
+  systemd:
+    name: "{{ logstash_oss_service_name }}"
+  register: logstash_oss_status
+  become: yes
+  tags: [logstash_oss, service, status]
+
+- name: Display Logstash OSS service status
+  debug:
+    msg: "Logstash OSS service is {{ logstash_oss_status.status.ActiveState }}"
+  tags: [logstash_oss, service, status]

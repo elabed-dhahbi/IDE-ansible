@@ -1,0 +1,215 @@
+---
+# PostgreSQL 15 Installation Tasks for Zabbix
+# Copied from db_postgres role, excluding database setup
+
+- name: Ensure offline directory exists on target
+  file:
+    path: "{{ paths.offline_dir }}"
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [postgres, install, packages]
+
+- name: Find available PostgreSQL packages
+  find:
+    paths: "/tmp/offline/"
+    patterns: "postgresql15*.rpm"
+  register: available_postgres_packages
+  delegate_to: localhost
+  tags: [postgres, install, packages]
+
+- name: Copy available PostgreSQL packages to target
+  copy:
+    src: "{{ item.path }}"
+    dest: "{{ paths.offline_dir }}/"
+    mode: '0644'
+  loop: "{{ available_postgres_packages.files }}"
+  become: yes
+  register: postgres_copy_result
+  tags: [postgres, install, packages]
+
+- name: Get list of PostgreSQL packages to install
+  shell: ls {{ paths.offline_dir }}/postgresql15*.rpm 2>/dev/null | xargs -n1 basename
+  register: postgres_packages_to_install
+  become: yes
+  failed_when: false
+  tags: [postgres, install, packages]
+
+- name: Check if postgresql15-server is installed
+  command: rpm -q postgresql15-server
+  register: postgres_server_check
+  failed_when: false
+  changed_when: false
+  become: yes
+  tags: [postgres, install, packages]
+
+- name: Install PostgreSQL packages in order (libs first, then base, then server)
+  shell: |
+    rpm -Uvh --force {{ paths.offline_dir }}/postgresql15-libs*.rpm 2>/dev/null || true
+    rpm -Uvh --force {{ paths.offline_dir }}/postgresql15-[0-9]*.rpm 2>/dev/null || true
+    rpm -Uvh --force {{ paths.offline_dir }}/postgresql15-server*.rpm 2>/dev/null || true
+    rpm -Uvh --force {{ paths.offline_dir }}/postgresql15-contrib*.rpm 2>/dev/null || true
+  become: yes
+  when: postgres_packages_to_install.stdout_lines | length > 0
+  register: postgres_install_result
+  tags: [postgres, install, packages]
+
+- name: Install postgresql15-server from system repositories if not in offline directory
+  yum:
+    name: postgresql15-server
+    state: present
+  become: yes
+  ignore_errors: yes
+  when: postgres_server_check.rc != 0
+  tags: [postgres, install, packages]
+
+- name: Verify PostgreSQL binaries are installed
+  shell: rpm -ql postgresql15 postgresql15-server | grep -E '(bin/initdb|bin/postgres)' || true
+  register: postgres_binaries
+  become: yes
+  tags: [postgres, install, init]
+
+- name: Debug - PostgreSQL binaries found
+  debug:
+    msg: "PostgreSQL binaries: {{ postgres_binaries.stdout_lines }}"
+  tags: [postgres, install, init]
+
+- name: Check if PostgreSQL is already initialized
+  stat:
+    path: "{{ paths.postgres_data_dir }}/{{ versions.postgres }}/data/postgresql.conf"
+  register: postgres_initialized
+  become: yes
+  tags: [postgres, install, init]
+
+- name: Check if postgres user exists
+  command: id postgres
+  register: postgres_user_check
+  failed_when: false
+  become: yes
+  tags: [postgres, install, init]
+
+- name: Debug - Check postgres user status
+  debug:
+    msg: "Postgres user check failed: {{ postgres_user_check.failed }}, rc: {{ postgres_user_check.rc }}"
+  tags: [postgres, install, init]
+
+- name: Create postgres group
+  group:
+    name: postgres
+    state: present
+  become: yes
+  tags: [postgres, install, init]
+
+- name: Create postgres user if it doesn't exist
+  user:
+    name: postgres
+    shell: /bin/bash
+    home: /var/lib/pgsql
+    create_home: yes
+    system: yes
+    group: postgres
+    state: present
+  become: yes
+  when: postgres_user_check.failed
+  register: postgres_user_creation
+  tags: [postgres, install, init]
+
+- name: Debug - Postgres user creation result
+  debug:
+    msg: "Postgres user creation changed: {{ postgres_user_creation.changed | default('skipped') }}, failed: {{ postgres_user_creation.failed | default('skipped') }}"
+  tags: [postgres, install, init]
+
+- name: Verify postgres user exists after creation
+  command: id postgres
+  register: postgres_user_verify
+  failed_when: false
+  become: yes
+  tags: [postgres, install, init]
+
+- name: Debug - Final postgres user verification
+  debug:
+    msg: "Postgres user exists after creation: {{ not postgres_user_verify.failed }}"
+  tags: [postgres, install, init]
+
+- name: Ensure postgres user exists (fallback)
+  user:
+    name: postgres
+    shell: /bin/bash
+    home: /var/lib/pgsql
+    create_home: yes
+    system: yes
+    group: postgres
+    state: present
+  become: yes
+  when: postgres_user_verify.failed
+  register: postgres_user_fallback
+  tags: [postgres, install, init]
+
+- name: Force ensure postgres user and group exist
+  user:
+    name: postgres
+    shell: /bin/bash
+    home: /var/lib/pgsql
+    create_home: yes
+    system: yes
+    group: postgres
+    state: present
+  become: yes
+  tags: [postgres, install, init]
+
+- name: Clear NSS cache to ensure user is recognized
+  command: nscd -i passwd
+  become: yes
+  failed_when: false
+  tags: [postgres, install, init]
+
+- name: Final verification - check postgres user
+  command: id postgres
+  register: postgres_user_final_check
+  become: yes
+  tags: [postgres, install, init]
+
+- name: Debug - Final user check result
+  debug:
+    msg: "Final postgres user check: {{ postgres_user_final_check.stdout }}"
+  tags: [postgres, install, init]
+
+- name: Create PostgreSQL data directory with proper ownership
+  file:
+    path: "{{ paths.postgres_data_dir }}/{{ versions.postgres }}/data"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0700'
+  become: yes
+  when: not postgres_initialized.stat.exists
+  tags: [postgres, install, init]
+
+- name: Find initdb binary location
+  shell: |
+    for path in /usr/pgsql-*/bin/initdb /usr/bin/initdb /usr/local/pgsql/bin/initdb; do
+      if [ -f "$path" ]; then
+        echo "$path"
+        break
+      fi
+    done
+  register: initdb_location
+  become: yes
+  when: not postgres_initialized.stat.exists
+  tags: [postgres, install, init]
+
+- name: Debug - initdb location
+  debug:
+    msg: "initdb location: {{ initdb_location.stdout }}"
+  when: not postgres_initialized.stat.exists
+  tags: [postgres, install, init]
+
+- name: Initialize PostgreSQL database if not already initialized
+  command: "{{ initdb_location.stdout }} -D {{ paths.postgres_data_dir }}/{{ versions.postgres }}/data"
+  become: yes
+  become_user: postgres
+  when: 
+    - not postgres_initialized.stat.exists
+    - initdb_location.stdout is defined
+    - initdb_location.stdout | length > 0
+  tags: [postgres, install, init]

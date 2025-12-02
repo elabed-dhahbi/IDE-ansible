@@ -1,0 +1,26 @@
+---
+# OpenSearch Installation and Configuration
+
+- name: Include system preparation tasks
+  include_tasks: install_system_packages.yml
+  tags: [opensearch, system]
+
+- name: Include OpenSearch installation tasks
+  include_tasks: install_opensearch.yml
+  tags: [opensearch, install]
+
+- name: Include OpenSearch user configuration tasks
+  include_tasks: configure_user.yml
+  tags: [opensearch, user]
+
+- name: Include OpenSearch directory setup tasks
+  include_tasks: configure_directories.yml
+  tags: [opensearch, directories]
+
+- name: Include OpenSearch configuration tasks
+  include_tasks: configure_opensearch.yml
+  tags: [opensearch, config]
+
+- name: Include OpenSearch service configuration tasks
+  include_tasks: configure_service.yml
+  tags: [opensearch, service]

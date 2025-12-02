@@ -1,0 +1,55 @@
+---
+# OpenSearch Dashboards Installation Tasks
+
+- name: Find OpenSearch Dashboards RPM package locally
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns: "{{ dashboards_package }}"
+  register: dashboards_rpm_file
+  delegate_to: localhost
+  tags: [opensearch_dashboards, install, find]
+
+- name: Copy OpenSearch Dashboards RPM to remote host
+  copy:
+    src: "{{ dashboards_rpm_file.files[0].path }}"
+    dest: "/tmp/{{ dashboards_package }}"
+    mode: '0644'
+  when: dashboards_rpm_file.files | length > 0
+  become: yes
+  tags: [opensearch_dashboards, install, copy]
+
+- name: Find OpenSearch Dashboards RPM package on remote host
+  find:
+    paths: "/tmp"
+    patterns: "{{ dashboards_package }}"
+  register: remote_dashboards_rpm_file
+  tags: [opensearch_dashboards, install, find]
+
+- name: Display found OpenSearch Dashboards package
+  debug:
+    msg: "Found OpenSearch Dashboards package: {{ remote_dashboards_rpm_file.files[0].path if remote_dashboards_rpm_file.files else 'NOT FOUND' }}"
+  tags: [opensearch_dashboards, install, find]
+
+- name: Fail if OpenSearch Dashboards package not found
+  fail:
+    msg: "OpenSearch Dashboards package not found: {{ dashboards_package }}"
+  when: remote_dashboards_rpm_file.files | length == 0
+  tags: [opensearch_dashboards, install, find]
+
+- name: Install OpenSearch Dashboards RPM
+  yum:
+    name: "{{ remote_dashboards_rpm_file.files[0].path }}"
+    state: present
+    disable_gpg_check: yes
+  become: yes
+  tags: [opensearch_dashboards, install, rpm]
+
+- name: Enable and start OpenSearch Dashboards service
+  systemd:
+    name: "{{ dashboards_service_name }}"
+    state: started
+    enabled: yes
+    daemon_reload: yes
+  become: yes
+  tags: [opensearch_dashboards, install, service]
+

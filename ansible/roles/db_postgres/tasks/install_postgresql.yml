@@ -1,0 +1,62 @@
+---
+# PostgreSQL 15 Installation Tasks
+
+- name: Ensure offline directory exists on target
+  file:
+    path: "{{ paths.offline_dir }}"
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [postgres, install, packages]
+
+- name: Copy PostgreSQL packages to target
+  copy:
+    src: "{{ item }}"
+    dest: "{{ paths.offline_dir }}/"
+    mode: '0644'
+  loop: "{{ lookup('fileglob', paths.offline_dir + '/postgresql15*.rpm', wantlist=True) + lookup('fileglob', paths.offline_dir + '/libpq5*.rpm', wantlist=True) + lookup('fileglob', paths.offline_dir + '/python3-psycopg2*.rpm', wantlist=True) }}"
+  become: yes
+  tags: [postgres, install, packages]
+
+- name: Install PostgreSQL dependencies
+  dnf:
+    name:
+      - perl
+      - perl-libs
+      - libxslt
+      - libxslt-devel
+    state: present
+    disablerepo: epel,epel-modular
+  become: yes
+  tags: [postgres, install, dependencies]
+
+- name: Install PostgreSQL packages in correct order
+  command: rpm -Uvh --force "{{ paths.offline_dir }}/{{ item }}"
+  loop:
+    - "postgresql15-libs-15.14-1PGDG.rhel9.x86_64.rpm"
+    - "postgresql15-15.14-1PGDG.rhel9.x86_64.rpm"
+    - "postgresql15-server-15.14-1PGDG.rhel9.x86_64.rpm"
+    - "postgresql15-contrib-15.14-1PGDG.rhel9.x86_64.rpm"
+    - "libpq5-17.6-1PGDG.rhel9.x86_64.rpm"
+    - "python3-psycopg2-2.8.6-6.el9.x86_64.rpm"
+  become: yes
+  tags: [postgres, install, packages]
+
+- name: Check if PostgreSQL is already initialized in custom directory
+  stat:
+    path: "{{ postgresql_config.data_directory }}/postgresql.conf"
+  register: postgres_initialized_custom
+  become: yes
+  tags: [postgres, install, init]
+
+- name: Check if PostgreSQL is already initialized in default directory
+  stat:
+    path: "/var/lib/pgsql/{{ versions.postgres }}/data/postgresql.conf"
+  register: postgres_initialized_default
+  become: yes
+  tags: [postgres, install, init]
+
+- name: Set PostgreSQL initialization status
+  set_fact:
+    postgres_initialized: "{{ postgres_initialized_custom if postgres_initialized_custom.stat.exists else postgres_initialized_default }}"
+  tags: [postgres, install, init]

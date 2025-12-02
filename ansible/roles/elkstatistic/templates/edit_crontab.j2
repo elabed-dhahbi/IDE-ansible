@@ -1,0 +1,54 @@
+#!/bin/bash
+
+NEW_CRON=""
+
+function searchCron {
+        echo "checking existance of \"$1\" in crontab"
+
+        for line in $(crontab -l)
+        do
+                # echo "line: $line"
+                if [ "$line" == "$1" ]; then
+                        return 1;
+                fi
+        done
+}
+
+function process {
+        searchCron $1
+
+        if [ $? -eq 1 ]; then
+                echo "[ERR]cannot ADD $1 into crontab"
+        else
+
+                local TMP="$2\n"
+                NEW_CRON="$NEW_CRON$TMP"
+        fi
+}
+
+# VALIDATE your cron: http://www.cronchecker.net/
+# Source: http://www.nncron.ru/help/EN/working/cron-format.htm
+# Time format / Traditional version
+# <Minute> <Hour> <Day_of_the_Month> <Month_of_the_Year> <Day_of_the_Week>
+# The following graph shows what it consists of:
+# * * * * * *
+# | | | | | |
+# | | | | | +-- Year              (range: 1900-3000)
+# | | | | +---- Day of the Week   (range: 1-7, 1 standing for Monday)
+# | | | +------ Month of the Year (range: 1-12)
+# | | +-------- Day of the Month  (range: 1-31)
+# | +---------- Hour              (range: 0-23)
+# +------------ Minute            (range: 0-59)
+
+# Run csv_export JOB Daily at 23:59
+JOB="'{{ elkstack_install_dir }}/current/csv_export/launcher/csv_export_run.sh'"
+CMD="{{ elkstack_cron.csv_export_time }} bash -c '{{ elkstack_install_dir }}/current/csv_export/launcher/csv_export_run.sh'"
+process "$JOB" "$CMD"
+
+if [ "$NEW_CRON" != "" ]; then
+        crontab -l > tmp_new_cron
+
+        echo -e "$NEW_CRON" >> tmp_new_cron
+        crontab tmp_new_cron
+        rm tmp_new_cron
+fi

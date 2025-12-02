@@ -1,0 +1,95 @@
+---
+# OpenSearch Installation Tasks
+
+- name: Find OpenSearch RPM package locally
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns: "{{ opensearch_package }}"
+  register: opensearch_rpm_file
+  delegate_to: localhost
+  tags: [opensearch, install, find]
+
+- name: Copy OpenSearch RPM to remote host
+  copy:
+    src: "{{ opensearch_rpm_file.files[0].path }}"
+    dest: "/tmp/{{ opensearch_package }}"
+    mode: '0644'
+  when: opensearch_rpm_file.files | length > 0
+  become: yes
+  tags: [opensearch, install, copy]
+
+- name: Find OpenSearch RPM package on remote host
+  find:
+    paths: "/tmp"
+    patterns: "{{ opensearch_package }}"
+  register: remote_opensearch_rpm_file
+  tags: [opensearch, install, find]
+
+- name: Display found OpenSearch package
+  debug:
+    msg: "Found OpenSearch package: {{ remote_opensearch_rpm_file.files[0].path if remote_opensearch_rpm_file.files else 'NOT FOUND' }}"
+  tags: [opensearch, install, find]
+
+- name: Fail if OpenSearch package not found
+  fail:
+    msg: "OpenSearch package not found: {{ opensearch_package }}"
+  when: remote_opensearch_rpm_file.files | length == 0
+  tags: [opensearch, install, find]
+
+- name: Install OpenSearch RPM
+  yum:
+    name: "{{ remote_opensearch_rpm_file.files[0].path }}"
+    state: present
+    disable_gpg_check: yes
+  environment:
+    OPENSEARCH_INITIAL_ADMIN_PASSWORD: "{{ opensearch_config.admin_password }}"
+  become: yes
+  tags: [opensearch, install, rpm]
+
+- name: Create performance analyzer configuration directory
+  file:
+    path: /etc/opensearch/opensearch-performance-analyzer
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    mode: '0755'
+    state: directory
+  become: yes
+  tags: [opensearch, install, directories]
+
+- name: Create performance analyzer metadata file
+  file:
+    path: /etc/opensearch/opensearch-performance-analyzer/plugin-stats-metadata
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    mode: '0644'
+    state: touch
+  become: yes
+  tags: [opensearch, install, directories]
+
+- name: Create performance analyzer directory with proper permissions
+  shell: |
+    mkdir -p /dev/shm/performanceanalyzer
+    chown -R opensearch:opensearch /dev/shm/performanceanalyzer
+    chmod 755 /dev/shm/performanceanalyzer
+  become: yes
+  tags: [opensearch, install, ownership]
+
+- name: Ensure OpenSearch data directory has correct ownership
+  file:
+    path: "{{ opensearch_config.path_data }}"
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    recurse: yes
+    state: directory
+  become: yes
+  tags: [opensearch, install, ownership]
+
+- name: Enable OpenSearch service (but don't start yet - configuration needed first)
+  systemd:
+    name: "{{ opensearch_service_name }}"
+    enabled: yes
+    daemon_reload: yes
+  become: yes
+  tags: [opensearch, install, service]
+
+

@@ -1,0 +1,223 @@
+---
+# SLS Package Installation Tasks
+
+- name: Ensure offline directory exists on target
+  file:
+    path: "{{ paths.offline_dir }}"
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [sls, install, sls, packages]
+
+- name: Ensure SLS user exists before RPM installation
+  user:
+    name: "{{ sls_user }}"
+    group: "{{ sls_group }}"
+    system: yes
+    shell: /bin/bash
+    create_home: no
+  become: yes
+  tags: [sls, install, sls, user]
+
+- name: Copy SLS package to target
+  copy:
+    src: "{{ item }}"
+    dest: "{{ paths.offline_dir }}/"
+    mode: '0644'
+  loop: "{{ lookup('fileglob', paths.offline_dir + '/' + package_globs.sls_rpm, wantlist=True, errors='ignore') }}"
+  become: yes
+  tags: [sls, install, sls, packages]
+
+- name: Find SLS package
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns: "{{ package_globs.sls_rpm }}"
+  register: sls_package_files
+  tags: [sls, install, sls, packages]
+
+- name: Extract SLS package
+  unarchive:
+    src: "{{ item.path }}"
+    dest: "{{ paths.offline_dir }}/"
+    remote_src: yes
+  loop: "{{ sls_package_files.files }}"
+  become: yes
+  tags: [sls, install, sls, extract]
+
+- name: List all files in offline directory after extraction
+  find:
+    paths: "{{ paths.offline_dir }}"
+    file_type: file
+  register: all_offline_files
+  become: yes
+  tags: [sls, install, sls, debug]
+
+- name: Display all files found
+  debug:
+    msg: "All files in offline directory: {{ all_offline_files.files | map(attribute='path') | list }}"
+  tags: [sls, install, sls, debug]
+
+- name: Find extracted SLS RPM in RPMS directory
+  find:
+    paths: "{{ paths.offline_dir }}/RPMS/noarch"
+    patterns: "SCPsls-*.rpm"
+  register: sls_rpm_files
+  tags: [sls, install, sls, rpm]
+
+- name: Display SLS RPM files found
+  debug:
+    msg: "SLS RPM files found: {{ sls_rpm_files.files | map(attribute='path') | list }}"
+  tags: [sls, install, sls, debug]
+
+- name: Install SLS RPM package using yum
+  yum:
+    name: "{{ item.path }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ sls_rpm_files.files }}"
+  become: yes
+  when: sls_rpm_files.files | length > 0
+  tags: [sls, install, sls, rpm]
+
+- name: Display error if no SLS RPM found
+  debug:
+    msg: "ERROR: No SLS RPM files found to install!"
+  when: sls_rpm_files.files | length == 0
+  tags: [sls, install, sls, error]
+
+- name: Check if SLS is already installed
+  stat:
+    path: "{{ sls_install_dir }}"
+  register: sls_installed
+  tags: [sls, install, sls, check]
+
+- name: List SLS installation directory contents
+  find:
+    paths: "/opt"
+    patterns: "*sls*"
+  register: sls_directories
+  become: yes
+  tags: [sls, install, sls, debug]
+
+- name: Display SLS directories found
+  debug:
+    msg: "SLS directories found: {{ sls_directories.files | map(attribute='path') | list }}"
+  tags: [sls, install, sls, debug]
+
+- name: Verify SLS user home directory was created by RPM
+  stat:
+    path: "{{ sls_home }}"
+  register: sls_home_created
+  tags: [sls, install, sls, verify]
+
+- name: Display SLS home directory status
+  debug:
+    msg: "SLS home directory {{ sls_home }} exists: {{ sls_home_created.stat.exists }}"
+  tags: [sls, install, sls, verify]
+
+- name: Verify symbolic link to current version was created
+  stat:
+    path: "{{ sls_current_dir }}"
+  register: sls_current_link
+  tags: [sls, install, sls, verify]
+
+- name: Display SLS current link status
+  debug:
+    msg: "SLS current link {{ sls_current_dir }} exists: {{ sls_current_link.stat.exists }}"
+  tags: [sls, install, sls, verify]
+
+- name: Ensure symbolic link to current version exists and is correct
+  file:
+    src: "{{ sls_install_dir }}/{{ sls_version }}"
+    dest: "{{ sls_current_dir }}"
+    state: link
+    force: yes
+  become: yes
+  tags: [sls, install, sls, fix]
+
+- name: Verify symbolic link was created correctly
+  stat:
+    path: "{{ sls_current_dir }}"
+  register: sls_current_link_final
+  become: yes
+  tags: [sls, install, sls, verify]
+
+- name: Display final symbolic link status
+  debug:
+    msg: "SLS current link points to: {{ sls_current_link_final.stat.lnk_target if sls_current_link_final.stat.islnk else 'Not a link' }}"
+  tags: [sls, install, sls, verify]
+
+- name: Verify SLS user was created with correct home directory
+  getent:
+    database: passwd
+    key: "{{ sls_user }}"
+  register: sls_user_info
+  tags: [sls, install, sls, verify]
+
+- name: Display SLS user information
+  debug:
+    msg: "SLS user info: {{ sls_user_info.ansible_facts.getent_passwd[sls_user] }}"
+  tags: [sls, install, sls, verify]
+
+- name: Check if SLS profile files exist in home directory
+  find:
+    paths: "{{ sls_home }}"
+    patterns: ".profile*"
+  register: sls_profile_files
+  become: yes
+  tags: [sls, install, sls, verify]
+
+- name: Display SLS profile files found
+  debug:
+    msg: "SLS profile files found: {{ sls_profile_files.files | map(attribute='path') | list }}"
+  tags: [sls, install, sls, verify]
+
+- name: Check if SLS current directory exists and what it contains
+  find:
+    paths: "{{ sls_current_dir }}"
+    file_type: directory
+  register: sls_current_contents
+  become: yes
+  tags: [sls, install, sls, verify]
+
+- name: Display SLS current directory contents
+  debug:
+    msg: "SLS current directory contents: {{ sls_current_contents.files | map(attribute='path') | list }}"
+  tags: [sls, install, sls, verify]
+
+- name: Check if resin directory exists
+  stat:
+    path: "{{ sls_current_dir }}/resin"
+  register: resin_dir_check
+  become: yes
+  tags: [sls, install, sls, verify]
+
+- name: Display resin directory status
+  debug:
+    msg: "Resin directory exists: {{ resin_dir_check.stat.exists }}"
+  tags: [sls, install, sls, verify]
+
+- name: Check if scc directory exists
+  stat:
+    path: "{{ sls_current_dir }}/scc"
+  register: scc_dir_check
+  become: yes
+  tags: [sls, install, sls, verify]
+
+- name: Display scc directory status
+  debug:
+    msg: "SCC directory exists: {{ scc_dir_check.stat.exists }}"
+  tags: [sls, install, sls, verify]
+
+- name: List all files in SLS installation directory
+  find:
+    paths: "{{ sls_install_dir }}"
+    file_type: file
+  register: all_sls_files
+  become: yes
+  tags: [sls, install, sls, debug]
+
+- name: Display all SLS files found
+  debug:
+    msg: "All SLS files: {{ all_sls_files.files | map(attribute='path') | list }}"
+  tags: [sls, install, sls, debug]

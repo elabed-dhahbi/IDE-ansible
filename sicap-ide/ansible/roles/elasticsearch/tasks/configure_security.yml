@@ -1,0 +1,78 @@
+---
+# Elasticsearch Security Configuration Tasks
+
+- name: Fix elasticsearch sysconfig permissions
+  file:
+    path: /etc/sysconfig/elasticsearch
+    owner: "{{ elasticsearch_user }}"
+    group: "{{ elasticsearch_group }}"
+    mode: '0644'
+  become: yes
+  tags: [elasticsearch, security, permissions]
+
+- name: Generate Elasticsearch CA certificate
+  shell: |
+    cd /usr/share/elasticsearch
+    bin/elasticsearch-certutil ca --out elastic-stack-ca.p12 --pass ""
+  become: yes
+  tags: [elasticsearch, security, ca]
+
+- name: Generate Elasticsearch node certificate
+  shell: |
+    cd /usr/share/elasticsearch
+    bin/elasticsearch-certutil cert --ca elastic-stack-ca.p12 --ca-pass "" --out elastic-certificates.p12 --pass ""
+  become: yes
+  tags: [elasticsearch, security, cert]
+
+- name: Move certificates to config directory
+  shell: |
+    mv /usr/share/elasticsearch/elastic-*.p12 /etc/elasticsearch/
+  become: yes
+  tags: [elasticsearch, security, cert]
+
+- name: Set certificate permissions
+  shell: |
+    chown {{ elasticsearch_user }}:{{ elasticsearch_group }} /etc/elasticsearch/elastic-*.p12
+    chmod 640 /etc/elasticsearch/elastic-*.p12
+  become: yes
+  tags: [elasticsearch, security, cert]
+
+# Password setup moved to service configuration after Elasticsearch is started
+
+- name: Ensure /var/log/elasticsearch directory exists and has correct permissions
+  file:
+    path: "/var/log/elasticsearch"
+    state: directory
+    owner: "{{ elasticsearch_user }}"
+    group: "{{ elasticsearch_group }}"
+    mode: '0755'
+  become: yes
+  tags: [elasticsearch, security, fix-permissions]
+
+- name: Check Elasticsearch service status
+  systemd:
+    name: "{{ elasticsearch_service_name }}"
+  register: elasticsearch_status
+  become: yes
+  tags: [elasticsearch, security, debug]
+
+- name: Display Elasticsearch service status
+  debug:
+    msg: "Elasticsearch service status: {{ elasticsearch_status.status.ActiveState }}"
+
+- name: Check Elasticsearch logs for errors
+  shell: |
+    journalctl -u {{ elasticsearch_service_name }} --no-pager -n 20
+  register: elasticsearch_logs
+  become: yes
+  tags: [elasticsearch, security, debug]
+
+- name: Display Elasticsearch logs
+  debug:
+    msg: "{{ elasticsearch_logs.stdout_lines }}"
+
+- name: Display security configuration
+  debug:
+    msg: "Elasticsearch security is enabled - all passwords set to '{{ system_config.service_passwords.elasticsearch | default('elastic') }}'"
+  tags: [elasticsearch, security, passwords]
+

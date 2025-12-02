@@ -1,0 +1,150 @@
+---
+# Elasticsearch User Configuration Tasks
+
+- name: Change elasticsearch user home directory
+  lineinfile:
+    path: /etc/passwd
+    regexp: '^elasticsearch:.*:/sbin/nologin$'
+    line: 'elasticsearch:x:996:993:elasticsearch:/opt/elasticsearch:/bin/bash'
+    backup: yes
+  become: yes
+  tags: [elasticsearch, user, home]
+
+- name: Add elasticsearch user to wheel group
+  user:
+    name: "{{ elasticsearch_user }}"
+    groups: wheel
+    append: yes
+  become: yes
+  tags: [elasticsearch, user, groups]
+
+- name: Create elasticsearch home directory
+  file:
+    path: "{{ elasticsearch_home }}"
+    state: directory
+    owner: "{{ elasticsearch_user }}"
+    group: "{{ elasticsearch_group }}"
+    mode: '0755'
+  become: yes
+  tags: [elasticsearch, user, home]
+
+- name: Create elasticsearch bash profile
+  copy:
+    content: |
+      # .bash_profile
+      
+      # Get the aliases and functions
+      if [ -f ~/.bashrc ]; then
+          . ~/.bashrc
+      fi
+      
+      # User specific environment and startup programs
+      if [ -f ~/.bash_es ]; then
+          . ~/.bash_es
+      fi
+    dest: "{{ elasticsearch_home }}/.bash_profile"
+    owner: "{{ elasticsearch_user }}"
+    group: "{{ elasticsearch_group }}"
+    mode: '0644'
+  become: yes
+  tags: [elasticsearch, user, profile]
+
+- name: Create elasticsearch bashrc
+  copy:
+    content: |
+      # .bashrc
+      
+      # Source global definitions
+      if [ -f /etc/bashrc ]; then
+          . /etc/bashrc
+      fi
+      
+      # User specific environment
+      export PATH="/opt/elasticsearch/bin:$HOME/.local/bin:$HOME/bin:$PATH"
+      export JAVA_HOME="/opt/elasticsearch/jdk"
+      
+      # Uncomment the following line if you don't like systemctl's auto-paging feature:
+      # export SYSTEMD_PAGER=
+      
+      # User specific aliases and functions
+    dest: "{{ elasticsearch_home }}/.bashrc"
+    owner: "{{ elasticsearch_user }}"
+    group: "{{ elasticsearch_group }}"
+    mode: '0644'
+  become: yes
+  tags: [elasticsearch, user, bashrc]
+
+- name: Create elasticsearch environment file
+  copy:
+    content: |
+      # .bash_es
+      
+      ############ COLOR ############
+      export GREEN='\033[0;32m'
+      export LGREEN='\033[1;32m'
+      export LBLUE='\033[1;34m'
+      export LCYAN='\033[1;36m'
+      export LPURPLE='\033[1;35m'
+      export NC='\033[0m' # No color
+      
+      ###############################
+      export ES_HOME=/usr/share/elasticsearch
+      export LOG_BASE=/var/opt/elasticsearch/logs
+      export CONF=/etc/elasticsearch
+      export DATA=/var/opt/elasticsearch/data
+      export CONF_CUR=/opt/elasticsearch-curator
+      export LOG_CUR=/var/opt/elasticsearch-curator
+      
+      # env details
+      echo -e " "
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      echo -e " ${LCYAN}Elasticsearch environment variables${NC}"
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      echo -e " \$HOME directory    : $HOME"
+      echo -e " \$ES_HOME directory : $ES_HOME"
+      echo -e " \$LOG_BASE directory: $LOG_BASE"
+      echo -e " \$CONF directory    : $CONF"
+      echo -e " \$DATA directory    : $DATA"
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      echo -e " "
+      
+      # Elasticsearch API examples
+      echo -e " ${LCYAN}API Examples for Elasticsearch {{ elasticsearch_version }}${NC}"
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+      
+      # Get cluster health
+      echo -e " Cluster Health Check:"
+      echo -e " ${LPURPLE}curl -X GET \"localhost:9200/_cluster/health?pretty\" ${NC}"
+      
+      # List all indices
+      echo -e " List Indices:"
+      echo -e " ${LPURPLE}curl -X GET \"localhost:9200/_cat/indices?v&pretty\" ${NC}"
+      
+      # Check cluster nodes
+      echo -e " Check Cluster Nodes:"
+      echo -e " ${LPURPLE}curl -X GET \"localhost:9200/_cat/nodes?v&pretty\" ${NC}"
+      
+      # Create an index
+      echo -e " Create Index (example):"
+      echo -e " ${LPURPLE}curl -X PUT \"localhost:9200/my_index?pretty\" -H 'Content-Type: application/json' -d '{\"settings\": {\"number_of_shards\": 1, \"number_of_replicas\": 1}}' ${NC}"
+      
+      # Index a document
+      echo -e " Index a Document (example):"
+      echo -e " ${LPURPLE}curl -X POST \"localhost:9200/my_index/_doc/1?pretty\" -H 'Content-Type: application/json' -d '{\"name\": \"John Doe\", \"age\": 30}' ${NC}"
+      
+      # Search documents
+      echo -e " Search Documents (example):"
+      echo -e " ${LPURPLE}curl -X GET \"localhost:9200/my_index/_search?q=name:John&pretty\" ${NC}"
+      
+      # Delete an index
+      echo -e " Delete Index (example):"
+      echo -e " ${LPURPLE}curl -X DELETE \"localhost:9200/my_index?pretty\" ${NC}"
+      
+      echo -e " ${GREEN}------------------------------------------------------${NC}"
+    dest: "{{ elasticsearch_home }}/.bash_es"
+    owner: "{{ elasticsearch_user }}"
+    group: "{{ elasticsearch_group }}"
+    mode: '0644'
+  become: yes
+  tags: [elasticsearch, user, environment]
+

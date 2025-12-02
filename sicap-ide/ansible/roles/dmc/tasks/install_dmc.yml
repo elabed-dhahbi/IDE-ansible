@@ -1,0 +1,156 @@
+---
+# DMC Installation Tasks
+
+- name: Find DMC package
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns: "{{ package_globs.dmc_rpm }}"
+  register: dmc_package_files
+  tags: [dmc, install, packages]
+
+- name: Display DMC package files found
+  debug:
+    msg: "DMC package files found: {{ dmc_package_files.files | map(attribute='path') | list }}"
+  tags: [dmc, install, debug]
+
+- name: Extract DMC package
+  unarchive:
+    src: "{{ item.path }}"
+    dest: "{{ paths.offline_dir }}/"
+    remote_src: yes
+  loop: "{{ dmc_package_files.files }}"
+  become: yes
+  tags: [dmc, install, extract]
+
+- name: Find extracted DMC RPM in RPMS directory
+  find:
+    paths: "{{ paths.offline_dir }}/RPMS/noarch"
+    patterns: "SCPdmc-*.rpm"
+  register: dmc_rpm_files
+  tags: [dmc, install, rpm]
+
+- name: Display DMC RPM files found
+  debug:
+    msg: "DMC RPM files found: {{ dmc_rpm_files.files | map(attribute='path') | list }}"
+  tags: [dmc, install, debug]
+
+- name: Install DMC RPM package
+  yum:
+    name: "{{ item.path }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ dmc_rpm_files.files }}"
+  become: yes
+  when: dmc_rpm_files.files | length > 0
+  tags: [dmc, install, packages]
+
+- name: Display error if no DMC RPM found
+  debug:
+    msg: "ERROR: No DMC RPM files found to install!"
+  when: dmc_rpm_files.files | length == 0
+  tags: [dmc, install, error]
+
+- name: Verify DMC installation directory
+  stat:
+    path: "{{ dmc_install_dir }}"
+  register: dmc_install_check
+  tags: [dmc, install, verify]
+
+- name: Display DMC installation status
+  debug:
+    msg: "DMC installation directory exists: {{ dmc_install_check.stat.exists }}"
+  tags: [dmc, install, verify]
+
+- name: Verify DMC current directory link
+  stat:
+    path: "{{ dmc_current_dir }}"
+  register: dmc_current_link
+  tags: [dmc, install, verify]
+
+- name: Display DMC current link status
+  debug:
+    msg: "DMC current link exists: {{ dmc_current_link.stat.exists }}"
+  tags: [dmc, install, verify]
+
+- name: Remove existing current symlink and create new one
+  shell: |
+    cd {{ dmc_install_dir }}
+    unlink current
+    ln -sf {{ dmc_version }} current
+  become: yes
+  tags: [dmc, install, fix]
+
+- name: Verify DMC current link was created correctly
+  stat:
+    path: "{{ dmc_current_dir }}"
+  register: dmc_current_link_final
+  become: yes
+  tags: [dmc, install, verify]
+
+- name: Display final DMC current link status
+  debug:
+    msg: "DMC current link points to: {{ dmc_current_link_final.stat.lnk_target if dmc_current_link_final.stat.islnk else 'Not a link' }}"
+  tags: [dmc, install, verify]
+
+
+- name: Ensure DMC conf symlink exists
+  file:
+    src: "{{ dmc_current_dir }}/standalone/configuration"
+    dest: "{{ dmc_install_dir }}/{{ dmc_version }}/conf"
+    state: link
+    force: yes
+  become: yes
+  tags: [dmc, install, fix]
+
+- name: Verify DMC user was created
+  getent:
+    database: passwd
+    key: "{{ dmc_user }}"
+  register: dmc_user_info
+  tags: [dmc, install, verify]
+
+- name: Display DMC user information
+  debug:
+    msg: "DMC user info: {{ dmc_user_info.ansible_facts.getent_passwd[dmc_user] }}"
+  tags: [dmc, install, verify]
+
+- name: Check DMC directory structure
+  find:
+    paths: "{{ dmc_install_dir }}"
+    file_type: directory
+  register: dmc_directories
+  become: yes
+  tags: [dmc, install, debug]
+
+- name: Display DMC directories found
+  debug:
+    msg: "DMC directories found: {{ dmc_directories.files | map(attribute='path') | list }}"
+  tags: [dmc, install, debug]
+
+- name: Check if version directory exists
+  stat:
+    path: "{{ dmc_install_dir }}/{{ dmc_version }}"
+  register: dmc_version_dir
+  become: yes
+  tags: [dmc, install, debug]
+
+- name: Display version directory status
+  debug:
+    msg: "DMC version directory {{ dmc_install_dir }}/{{ dmc_version }} exists: {{ dmc_version_dir.stat.exists }}"
+  tags: [dmc, install, debug]
+
+- name: Check if envsetup script exists
+  stat:
+    path: "{{ dmc_install_dir }}/envsetup"
+  register: envsetup_script
+  become: yes
+  tags: [dmc, install, debug]
+
+- name: Display envsetup script status
+  debug:
+    msg: "envsetup script exists: {{ envsetup_script.stat.exists }}"
+  tags: [dmc, install, debug]
+
+# Debugging tasks removed - focus on the main issue
+
+

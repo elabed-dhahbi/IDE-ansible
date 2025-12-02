@@ -1,0 +1,41 @@
+---
+# MMSOAP Directory Configuration Tasks
+
+- name: Create MMSOAP configuration directory
+  file:
+    path: "{{ mmsoap_config_dir }}"
+    state: directory
+    owner: "{{ mmsoap_user }}"
+    group: "{{ mmsoap_group }}"
+    mode: '0755'
+  tags: [mmsoap, directories, config]
+
+- name: Create MMSOAP logs directory
+  file:
+    path: "{{ mmsoap_logs_dir }}"
+    state: directory
+    owner: "{{ mmsoap_user }}"
+    group: "{{ mmsoap_group }}"
+    mode: '0755'
+  tags: [mmsoap, directories, logs]
+
+- name: Create MMSOAP data directory
+  file:
+    path: "{{ mmsoap_data_dir }}"
+    state: directory
+    owner: "{{ mmsoap_user }}"
+    group: "{{ mmsoap_group }}"
+    mode: '0755'
+  tags: [mmsoap, directories, data]
+
+- name: Change ownership of MMSOAP install directory
+  file:
+    path: "{{ mmsoap_install_dir }}"
+    owner: "{{ mmsoap_user }}"
+    group: "{{ mmsoap_group }}"
+    recurse: yes
+  tags: [mmsoap, directories, ownership]
+
+
+
+

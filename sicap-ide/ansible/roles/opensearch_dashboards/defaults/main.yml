@@ -1,0 +1,43 @@
+---
+# OpenSearch Dashboards Role Default Variables
+
+# OpenSearch Dashboards version
+dashboards_version: "{{ versions.opensearch | default('3.2.0') }}"
+
+# Service configuration
+dashboards_service_name: "opensearch-dashboards"
+dashboards_user: "opensearch-dashboards"
+dashboards_group: "opensearch-dashboards"
+
+# Directory configuration
+dashboards_home: "/usr/share/opensearch-dashboards"
+dashboards_config_dir: "/etc/opensearch-dashboards"
+dashboards_data_dir: "/var/opt/opensearch-dashboards/data"
+dashboards_logs_dir: "/var/opt/opensearch-dashboards/logs"
+
+# OpenSearch Dashboards configuration
+dashboards_config:
+  server_port: 5601
+  server_host: "0.0.0.0"
+  server_base_path: "/dmcdashboards"
+  server_rewrite_base_path: true
+  server_name: "{{ ansible_hostname }}"
+  opensearch_hosts: "[\"http://{{ hostvars[groups['opensearch'][0]]['ansible_host'] }}:9200\"]"
+  opensearch_username: "kibanaserver"
+  opensearch_password: "{{ service_passwords.opensearch }}"
+  opensearch_ssl_verification_mode: "none"
+  path_data: "/var/opt/opensearch-dashboards/data"
+  opensearch_request_headers_whitelist: "[authorization, securitytenant]"
+  opensearch_security_multitenancy_enabled: true
+  opensearch_security_multitenancy_tenants_preferred: "[tenant-1, Private, Global]"
+  opensearch_security_readonly_mode_roles: "[kibana_read_only]"
+  opensearch_security_cookie_secure: false
+
+# Package configuration
+dashboards_package: "{{ package_globs.opensearch_dashboards_rpm }}"
+
+# Paths configuration
+paths:
+  offline_dir: "/tmp/offline"
+
+

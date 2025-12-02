@@ -1,0 +1,131 @@
+---
+# Zabbix Installation Tasks
+# Simple RPM installation only
+
+- name: Verify offline installation mode
+  fail:
+    msg: "Internet access detected! This playbook should run in offline mode only."
+  when: ansible_default_ipv4.address is defined and ansible_default_ipv4.address != "127.0.0.1"
+  tags: [zabbix, install, offline-check]
+
+- name: Install createrepo if not present
+  dnf:
+    name: createrepo
+    state: present
+    disablerepo: "*"
+    enablerepo: "local-offline"
+  become: true
+  tags: [zabbix, install, dependencies]
+
+- name: Check if Zabbix dependencies are already installed
+  command: rpm -q {{ item | regex_replace('\\.rpm$', '') }}
+  loop: "{{ zabbix.packages.dependencies }}"
+  register: zabbix_deps_check
+  failed_when: false
+  become: true
+  tags: [zabbix, install, dependencies]
+
+- name: Create local repository from offline packages
+  shell: |
+    cd /tmp/offline
+    createrepo . --update
+  become: true
+  tags: [zabbix, install, dependencies]
+
+- name: Create local repository configuration
+  copy:
+    content: |
+      [local-offline]
+      name=Local Offline Repository
+      baseurl=file:///tmp/offline
+      enabled=1
+      gpgcheck=0
+    dest: /etc/yum.repos.d/local-offline.repo
+    mode: '0644'
+  become: true
+  tags: [zabbix, install, dependencies]
+
+- name: Validate local repository contains required packages
+  command: dnf list available --enablerepo=local-offline {{ item | regex_replace('\\.rpm$', '') }}
+  loop: "{{ zabbix.packages.dependencies + zabbix.packages.server + zabbix.packages.agent2 + zabbix.packages.web }}"
+  register: package_availability
+  failed_when: package_availability.rc != 0
+  become: true
+  tags: [zabbix, install, dependencies]
+
+- name: Install Zabbix dependencies using dnf
+  dnf:
+    name: "{{ zabbix.packages.dependencies | map('regex_replace', '\\.rpm$', '') | list }}"
+    state: present
+    disablerepo: "*"
+    enablerepo: "local-offline"
+  when: zabbix_deps_check.results | selectattr('rc', 'ne', 0) | list | length > 0
+  become: true
+  tags: [zabbix, install, dependencies]
+
+- name: Check if Zabbix server packages are already installed
+  command: rpm -q {{ item | regex_replace('\\.rpm$', '') }}
+  loop: "{{ zabbix.packages.server }}"
+  register: zabbix_server_check
+  failed_when: false
+  become: true
+  when: 
+    - inventory_hostname in groups['zabbix']
+    - zabbix.components.server | default(false)
+  tags: [zabbix, install, server]
+
+- name: Install Zabbix server packages
+  dnf:
+    name: "{{ zabbix.packages.server | map('regex_replace', '\\.rpm$', '') | list }}"
+    state: present
+    disablerepo: "*"
+    enablerepo: "local-offline"
+  when: 
+    - inventory_hostname in groups['zabbix']
+    - zabbix.components.server | default(false)
+    - zabbix_server_check.results | selectattr('rc', 'ne', 0) | list | length > 0
+  become: true
+  tags: [zabbix, install, server]
+
+# Agent and Java Gateway - installed on ALL hosts
+- name: Install Zabbix agent2 packages
+  dnf:
+    name: "{{ zabbix.packages.agent2 | map('regex_replace', '\\.rpm$', '') | list }}"
+    state: present
+    disablerepo: "*"
+    enablerepo: "local-offline"
+  when: zabbix.components.agent2 | default(false)
+  become: true
+  tags: [zabbix, install, agent2]
+
+- name: Install Zabbix Java Gateway packages
+  dnf:
+    name: "{{ zabbix.packages.java_gateway | map('regex_replace', '\\.rpm$', '') | list }}"
+    state: present
+    disablerepo: "*"
+    enablerepo: "local-offline"
+  when: zabbix.components.java_gateway | default(false)
+  become: true
+  tags: [zabbix, install, java_gateway]
+
+- name: Install Zabbix web packages with dependencies
+  dnf:
+    name: "{{ zabbix.packages.web | map('regex_replace', '\\.rpm$', '') | list }}"
+    state: present
+    disablerepo: "*"
+    enablerepo: "local-offline"
+  when: 
+    - inventory_hostname in groups['zabbix']
+    - zabbix.components.web | default(false)
+  become: true
+  tags: [zabbix, install, web]
+
+- name: Install SELinux policy
+  dnf:
+    name: "{{ zabbix.selinux.policy_package | regex_replace('\\.rpm$', '') }}"
+    state: present
+    disablerepo: "*"
+    enablerepo: "local-offline"
+  when: zabbix.selinux.enabled | default(true)
+  become: true
+  tags: [zabbix, install, selinux]

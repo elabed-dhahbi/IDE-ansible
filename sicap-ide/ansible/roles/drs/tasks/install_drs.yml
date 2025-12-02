@@ -1,0 +1,38 @@
+---
+# DRS Installation Tasks
+
+- name: Find DRS RPM package
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns: "SCPdrs-*.rpm"
+  register: drs_packages
+  tags: [drs, install, packages]
+
+- name: Display found DRS packages
+  debug:
+    msg: "Found DRS packages: {{ drs_packages.files | map(attribute='path') | list }}"
+  tags: [drs, install, packages]
+
+- name: Install DRS package
+  yum:
+    name: "{{ item.path }}"
+    state: present
+    disable_gpg_check: yes
+  loop: "{{ drs_packages.files }}"
+  become: yes
+  tags: [drs, install, packages]
+
+- name: Check if DRS is already installed
+  stat:
+    path: "{{ drs_install_dir }}"
+  register: drs_installed
+  tags: [drs, install, check]
+
+- name: Display DRS installation status
+  debug:
+    msg: "DRS installation directory exists: {{ drs_installed.stat.exists }}"
+  tags: [drs, install, check]
+
+
+
+

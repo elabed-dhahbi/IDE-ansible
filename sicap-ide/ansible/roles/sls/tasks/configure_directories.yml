@@ -1,0 +1,22 @@
+---
+# SLS Directory Configuration Tasks
+
+- name: Create SLS logs directory if it doesn't exist
+  file:
+    path: "{{ sls_logs_dir }}"
+    state: directory
+    owner: "{{ sls_user }}"
+    group: "{{ sls_group }}"
+    mode: '0755'
+  become: yes
+  tags: [sls, directories, logs]
+
+- name: Display SLS installation structure
+  debug:
+    msg: |
+      SLS Installation Structure:
+      - Install directory: {{ sls_install_dir }}
+      - Home directory: {{ sls_home }}
+      - Current directory: {{ sls_current_dir }}
+      - Logs directory: {{ sls_logs_dir }}
+  tags: [sls, directories, info]

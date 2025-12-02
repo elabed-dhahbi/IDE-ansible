@@ -1,0 +1,78 @@
+---
+# Logstash OSS Plugin Installation Tasks
+
+- name: Check if plugins are already installed
+  shell: /usr/share/logstash/bin/logstash-plugin list | grep -E "(logstash-filter-rest|logstash-output-opensearch)"
+  register: plugins_check
+  failed_when: false
+  become: yes
+  tags: [logstash_oss, plugins, check]
+
+- name: Copy offline plugins package to target
+  copy:
+    src: "{{ item }}"
+    dest: "{{ paths.offline_dir }}/"
+    mode: '0644'
+  loop: "{{ lookup('fileglob', paths.offline_dir + '/logstash-offline-plugins-*.zip', wantlist=True, errors='ignore') }}"
+  become: yes
+  tags: [logstash_oss, plugins, copy]
+
+- name: Find offline plugins package
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns: "logstash-offline-plugins-*.zip"
+  register: offline_plugins_files
+  tags: [logstash_oss, plugins, find]
+
+- name: Copy offline plugins package to logstash directory
+  copy:
+    src: "{{ item.path }}"
+    dest: "/usr/share/logstash/logstash-offline-plugins-8.19.4.zip"
+    mode: '0644'
+  loop: "{{ offline_plugins_files.files }}"
+  become: yes
+  tags: [logstash_oss, plugins, copy]
+
+- name: Install plugins from offline package
+  shell: |
+    cd /usr/share/logstash
+    export LS_JAVA_OPTS="-Xmx2g -Xms1g"
+    bin/logstash-plugin install file:///usr/share/logstash/logstash-offline-plugins-8.19.4.zip
+  become: yes
+  when: plugins_check.rc != 0
+  tags: [logstash_oss, plugins, install]
+
+- name: Verify rest filter plugin installation
+  shell: /usr/share/logstash/bin/logstash-plugin list | grep "logstash-filter-rest"
+  register: rest_plugin_verify
+  become: yes
+  tags: [logstash_oss, plugins, verify]
+
+- name: Verify opensearch output plugin installation
+  shell: /usr/share/logstash/bin/logstash-plugin list | grep "logstash-output-opensearch"
+  register: opensearch_plugin_verify
+  become: yes
+  tags: [logstash_oss, plugins, verify]
+
+- name: Display rest filter plugin status
+  debug:
+    msg: "Rest filter plugin installed: {{ rest_plugin_verify.stdout_lines }}"
+  tags: [logstash_oss, plugins, status]
+
+- name: Display opensearch output plugin status
+  debug:
+    msg: "OpenSearch output plugin installed: {{ opensearch_plugin_verify.stdout_lines }}"
+  tags: [logstash_oss, plugins, status]
+
+- name: Clean up offline plugins package
+  file:
+    path: "/usr/share/logstash/logstash-offline-plugins-8.19.4.zip"
+    state: absent
+  become: yes
+  tags: [logstash_oss, plugins, cleanup]
+
+- name: Clear logstash cache
+  shell: |
+    rm -f /var/lib/logstash/plugins/inputs/file/.sincedb*
+  become: yes
+  tags: [logstash_oss, plugins, cache]

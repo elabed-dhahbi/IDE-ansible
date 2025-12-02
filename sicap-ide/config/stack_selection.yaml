@@ -1,0 +1,135 @@
+---
+# Stack Selection Configuration
+# Choose between "elk" or "opensearch" stack
+
+# Current stack selection
+current_stack: "elk"  # Options: "elk" or "opensearch"
+
+# Stack-specific configurations
+stacks:
+  elk:
+    name: "ELK Stack"
+    version: "7.17.25"
+    elasticsearch:
+      package: "elasticsearch-7.17.25-x86_64.rpm"
+      service_name: "elasticsearch"
+      user: "elasticsearch"
+      group: "elasticsearch"
+      home: "/usr/share/elasticsearch"
+      config_dir: "/etc/elasticsearch"
+      data_dir: "/var/lib/elasticsearch"
+      logs_dir: "/var/log/elasticsearch"
+      http_port: 9200
+      transport_port: 9300
+    logstash:
+      package: "logstash-7.17.25-x86_64.rpm"
+      service_name: "logstash"
+      user: "logstash"
+      group: "logstash"
+      home: "/usr/share/logstash"
+      config_dir: "/etc/logstash"
+      data_dir: "/var/lib/logstash"
+      logs_dir: "/var/log/logstash"
+      http_port: 9600
+    kibana:
+      package: "kibana-7.17.25-x86_64.rpm"
+      service_name: "kibana"
+      user: "kibana"
+      group: "kibana"
+      home: "/usr/share/kibana"
+      config_dir: "/etc/kibana"
+      data_dir: "/var/lib/kibana"
+      logs_dir: "/var/log/kibana"
+      http_port: 5601
+
+  opensearch:
+    name: "OpenSearch Stack"
+    version: "2.19.2"
+    opensearch:
+      package: "opensearch-2.19.2-linux-x64.rpm"
+      service_name: "opensearch"
+      user: "opensearch"
+      group: "opensearch"
+      home: "/usr/share/opensearch"
+      config_dir: "/etc/opensearch"
+      data_dir: "/var/lib/opensearch"
+      logs_dir: "/var/log/opensearch"
+      http_port: 9200
+      transport_port: 9300
+      admin_password: "Ops@#s1cap#"
+    logstash:
+      package: "logstash-oss-8.18.0-x86_64.rpm"
+      service_name: "logstash"
+      user: "logstash"
+      group: "logstash"
+      home: "/usr/share/logstash"
+      config_dir: "/etc/logstash"
+      data_dir: "/var/lib/logstash"
+      logs_dir: "/var/log/logstash"
+      http_port: 9600
+    dashboards:
+      package: "opensearch-dashboards-2.19.2-linux-x64.rpm"
+      service_name: "opensearch-dashboards"
+      user: "opensearch-dashboards"
+      group: "opensearch-dashboards"
+      home: "/usr/share/opensearch-dashboards"
+      config_dir: "/etc/opensearch-dashboards"
+      data_dir: "/var/lib/opensearch-dashboards"
+      logs_dir: "/var/log/opensearch-dashboards"
+      http_port: 5601
+      base_path: "/dmcdashboards"
+
+# Stack-specific package globs
+package_globs:
+  elk:
+    elasticsearch: "elasticsearch-{{ stacks.elk.version }}-x86_64.rpm"
+    logstash: "logstash-{{ stacks.elk.version }}-x86_64.rpm"
+    kibana: "kibana-{{ stacks.elk.version }}-x86_64.rpm"
+  opensearch:
+    opensearch: "opensearch-{{ stacks.opensearch.version }}-linux-x64.rpm"
+    logstash: "logstash-oss-8.18.0-x86_64.rpm"
+    dashboards: "opensearch-dashboards-{{ stacks.opensearch.version }}-linux-x64.rpm"
+
+# Service ports (unified)
+service_ports:
+  elasticsearch_http: 9200
+  elasticsearch_transport: 9300
+  logstash_http: 9600
+  kibana_http: 5601
+  opensearch_http: 9200
+  opensearch_transport: 9300
+  opensearch_dashboards_http: 5601
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

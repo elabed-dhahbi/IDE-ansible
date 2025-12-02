@@ -1,0 +1,20 @@
+---
+# SMPPC Directory Configuration Tasks
+# Note: All SMPPC directories are created by the RPM package
+
+- name: Verify SMPPC directories exist (created by RPM)
+  stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ smppc_home }}"
+    - "{{ smppc_config_dir }}"
+    - "{{ smppc_logs_dir }}"
+    - "{{ smppc_data_dir }}"
+  register: smppc_dirs_check
+  tags: [smppc, directories, verify]
+
+- name: Display SMPPC directory status
+  debug:
+    msg: "Directory {{ item.item }} exists: {{ item.stat.exists }}"
+  loop: "{{ smppc_dirs_check.results }}"
+  tags: [smppc, directories, verify]

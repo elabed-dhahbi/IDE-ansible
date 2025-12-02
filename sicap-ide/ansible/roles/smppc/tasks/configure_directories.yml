@@ -1,0 +1,41 @@
+---
+# SMPPC Directory Configuration Tasks
+
+- name: Create SMPPC configuration directory
+  file:
+    path: "{{ smppc_config_dir }}"
+    state: directory
+    owner: "{{ smppc_user }}"
+    group: "{{ smppc_group }}"
+    mode: '0755'
+  tags: [smppc, directories, config]
+
+- name: Create SMPPC logs directory
+  file:
+    path: "{{ smppc_logs_dir }}"
+    state: directory
+    owner: "{{ smppc_user }}"
+    group: "{{ smppc_group }}"
+    mode: '0755'
+  tags: [smppc, directories, logs]
+
+- name: Create SMPPC data directory
+  file:
+    path: "{{ smppc_data_dir }}"
+    state: directory
+    owner: "{{ smppc_user }}"
+    group: "{{ smppc_group }}"
+    mode: '0755'
+  tags: [smppc, directories, data]
+
+- name: Change ownership of SMPPC install directory
+  file:
+    path: "{{ smppc_install_dir }}"
+    owner: "{{ smppc_user }}"
+    group: "{{ smppc_group }}"
+    recurse: yes
+  tags: [smppc, directories, ownership]
+
+
+
+

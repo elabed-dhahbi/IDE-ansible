@@ -1,0 +1,28 @@
+---
+# Elasticsearch Installation and Configuration
+
+- name: Include Elasticsearch installation tasks
+  include_tasks: install_elasticsearch.yml
+  tags: [elasticsearch, install]
+
+- name: Include Elasticsearch user configuration tasks
+  include_tasks: configure_user.yml
+  tags: [elasticsearch, user]
+
+- name: Include Elasticsearch directory setup tasks
+  include_tasks: configure_directories.yml
+  tags: [elasticsearch, directories]
+
+- name: Include Elasticsearch configuration tasks
+  include_tasks: configure_elasticsearch.yml
+  tags: [elasticsearch, config]
+
+- name: Include Elasticsearch security setup tasks
+  include_tasks: configure_security.yml
+  tags: [elasticsearch, security]
+
+- name: Include Elasticsearch service configuration tasks
+  include_tasks: configure_service.yml
+  tags: [elasticsearch, service]
+
+

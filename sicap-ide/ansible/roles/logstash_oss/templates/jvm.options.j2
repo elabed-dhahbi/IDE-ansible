@@ -1,0 +1,63 @@
+# JVM options for Logstash OSS
+
+# Heap size
+-Xms{{ logstash_oss_jvm.heap_size }}
+-Xmx{{ logstash_oss_jvm.heap_size }}
+
+# Heap dump path
+-XX:HeapDumpPath={{ logstash_oss_jvm.heap_dump_path }}
+
+# GC logging
+-XX:+PrintGCDetails
+-XX:+PrintGCTimeStamps
+-XX:+PrintGCDateStamps
+-XX:+PrintClassHistogram
+-XX:+PrintTenuringDistribution
+-XX:+PrintGCApplicationStoppedTime
+-Xloggc:{{ logstash_oss_logs_dir }}/gc.log
+-XX:+UseGCLogFileRotation
+-XX:NumberOfGCLogFiles=32
+-XX:GCLogFileSize=64m
+
+# Memory settings
+-XX:+UseCompressedOops
+-XX:+UseCompressedClassPointers
+
+# Garbage collection
+-XX:+UseG1GC
+-XX:MaxGCPauseMillis=200
+
+# System properties
+-Djava.awt.headless=true
+-Dfile.encoding=UTF-8
+-Djruby.compile.invokedynamic=true
+-Djruby.jit.threshold=0
+-Djruby.thread.pool.enabled=true
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

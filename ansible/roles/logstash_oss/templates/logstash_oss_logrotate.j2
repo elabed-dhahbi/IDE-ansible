@@ -1,0 +1,14 @@
+{{ logstash_oss_logs_dir }}/csvexport.log {
+    monthly
+    missingok
+    rotate 12
+    compress
+    delaycompress
+    notifempty
+    copytruncate
+    create 644 {{ logstash_oss_user }} {{ logstash_oss_group }}
+}
+
+
+
+
