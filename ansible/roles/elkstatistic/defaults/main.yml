@@ -33,6 +33,8 @@ elkstack_db:
       localhost
     {%- endif -%}
   postgres_port: "5432"  # PostgreSQL standard port
+  # MDBA connects to the DMC database (not a separate database)
+  # MDBA is a schema/user within the DMC database
   postgres_database: "{{ database_config.dmc_database }}"
   postgres_dmc_schema: "{{ database_config.dmc_schema }}"
   postgres_mdba_schema: "{{ database_config.mdba_schema }}"

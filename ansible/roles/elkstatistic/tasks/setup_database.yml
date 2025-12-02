@@ -1,0 +1,186 @@
+---
+# ELK Statistics Database Setup Tasks
+# Executes database migration scripts to create MDBA schema and tables
+
+- name: Check if psql is available
+  command: which psql
+  register: psql_check
+  failed_when: false
+  changed_when: false
+  tags: [elkstatistic, database, packages]
+
+- name: Find PostgreSQL client package in offline directory
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "postgresql15-*.rpm"
+      - "postgresql-*.rpm"
+    excludes:
+      - "*server*"
+      - "*libs*"
+      - "*contrib*"
+  register: postgresql_client_package
+  when: psql_check.rc != 0
+  tags: [elkstatistic, database, packages]
+
+- name: Find PostgreSQL libs package in offline directory (required dependency)
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "postgresql15-libs-*.rpm"
+      - "postgresql-libs-*.rpm"
+  register: postgresql_libs_package
+  when:
+    - psql_check.rc != 0
+    - postgresql_client_package.files | default([]) | length > 0
+  tags: [elkstatistic, database, packages]
+
+- name: Install PostgreSQL libs from offline package (required dependency)
+  command: rpm -Uvh --force --nodeps "{{ item.path }}"
+  loop: "{{ postgresql_libs_package.files | default([]) }}"
+  become: yes
+  when:
+    - psql_check.rc != 0
+    - postgresql_libs_package.files | default([]) | length > 0
+  ignore_errors: yes
+  tags: [elkstatistic, database, packages]
+
+- name: Install PostgreSQL client from offline package
+  command: rpm -Uvh --force "{{ item.path }}"
+  loop: "{{ postgresql_client_package.files | default([]) }}"
+  become: yes
+  when:
+    - psql_check.rc != 0
+    - postgresql_client_package.files | default([]) | length > 0
+  ignore_errors: yes
+  tags: [elkstatistic, database, packages]
+
+- name: Install PostgreSQL client from system repositories (fallback)
+  dnf:
+    name: postgresql15
+    state: present
+  become: yes
+  when:
+    - psql_check.rc != 0
+    - postgresql_client_package.files | default([]) | length == 0
+  ignore_errors: yes
+  tags: [elkstatistic, database, packages]
+
+- name: Verify psql is available
+  command: which psql
+  register: psql_final_check
+  failed_when: psql_final_check.rc != 0
+  changed_when: false
+  tags: [elkstatistic, database, packages]
+
+- name: Get psql binary path
+  set_fact:
+    psql_binary: "{{ psql_final_check.stdout.strip() }}"
+  tags: [elkstatistic, database, packages]
+
+- name: Verify MDBA DDL script exists
+  stat:
+    path: "{{ elkstack_install_dir }}/current/db_migration/mdba_v4.5_ddl_PostgreSQL.sql"
+  register: mdba_ddl_script
+  tags: [elkstatistic, database, validation]
+
+- name: Verify schema script exists
+  stat:
+    path: "{{ elkstack_install_dir }}/current/db_migration/schema-postgresql.sql"
+  register: schema_script
+  tags: [elkstatistic, database, validation]
+
+- name: Display database configuration for debugging
+  debug:
+    msg:
+      - "MDBA will connect to DMC database: {{ elkstack_db.postgres_database }}"
+      - "MDBA User: {{ elkstack_db.postgres_mdba_user }}"
+      - "MDBA Schema (within DMC database): {{ elkstack_db.postgres_mdba_schema }}"
+      - "PostgreSQL Host: {{ elkstack_db.postgres_host }}"
+      - "PostgreSQL Port: {{ elkstack_db.postgres_port }}"
+      - "Tablespace Data: {{ postgresql_config.users.mdba.tablespaces.data | default('mdbatab') }}"
+      - "Tablespace Index: {{ postgresql_config.users.mdba.tablespaces.index | default('mdbaidx') }}"
+      - "Note: MDBA is a schema/user within the DMC database, not a separate database"
+  tags: [elkstatistic, database, validation, debug]
+
+- name: Fail if MDBA DDL script not found
+  fail:
+    msg: "MDBA DDL script not found: {{ elkstack_install_dir }}/current/db_migration/mdba_v4.5_ddl_PostgreSQL.sql"
+  when: not mdba_ddl_script.stat.exists
+  tags: [elkstatistic, database, validation]
+
+- name: Fail if schema script not found
+  fail:
+    msg: "Schema script not found: {{ elkstack_install_dir }}/current/db_migration/schema-postgresql.sql"
+  when: not schema_script.stat.exists
+  tags: [elkstatistic, database, validation]
+
+- name: Validate database configuration variables
+  assert:
+    that:
+      - elkstack_db.postgres_database is defined
+      - elkstack_db.postgres_database != ""
+      - elkstack_db.postgres_mdba_user is defined
+      - elkstack_db.postgres_mdba_password is defined
+    fail_msg: "Database configuration variables are not properly set. Check config/values.yaml for database_config.dmc_database, database_config.mdba_user, and database_config.mdba_password"
+    success_msg: "Database configuration variables are properly set"
+  tags: [elkstatistic, database, validation]
+
+- name: Execute MDBA DDL script with tablespace variables
+  shell: |
+    PGPASSWORD="{{ elkstack_db.postgres_mdba_password }}" {{ psql_binary }} \
+      -U "{{ elkstack_db.postgres_mdba_user }}" \
+      -d "{{ elkstack_db.postgres_database }}" \
+      -h "{{ elkstack_db.postgres_host }}" \
+      -p "{{ elkstack_db.postgres_port }}" \
+      -f "{{ elkstack_install_dir }}/current/db_migration/mdba_v4.5_ddl_PostgreSQL.sql" \
+      -v MDBA_TBLSPC="{{ postgresql_config.users.mdba.tablespaces.data | default('mdbatab') }}" \
+      -v MDBA_IDX_TBLSPC="{{ postgresql_config.users.mdba.tablespaces.index | default('mdbaidx') }}"
+  become: yes
+  register: mdba_ddl_result
+  changed_when: "'CREATE' in mdba_ddl_result.stdout or 'ALTER' in mdba_ddl_result.stdout"
+  failed_when: >
+    mdba_ddl_result.rc != 0 and
+    'no pg_hba.conf entry' not in mdba_ddl_result.stderr
+  tags: [elkstatistic, database, ddl]
+
+- name: Handle pg_hba.conf connection error
+  fail:
+    msg: |
+      PostgreSQL connection denied. The elkstatistic host ({{ ansible_host }}) cannot connect to PostgreSQL server ({{ elkstack_db.postgres_host }}).
+      
+      This is a PostgreSQL pg_hba.conf configuration issue. The PostgreSQL role should configure this, but if you're using an external database, you need to:
+      1. Ensure pg_hba.conf on PostgreSQL server allows connections from {{ ansible_host }}
+      2. Or configure database_config.external_host in values.yaml if using external database
+      
+      Error: {{ mdba_ddl_result.stderr }}
+  when:
+    - mdba_ddl_result.rc != 0
+    - 'no pg_hba.conf entry' in mdba_ddl_result.stderr
+  tags: [elkstatistic, database, ddl]
+
+- name: Display MDBA DDL execution result
+  debug:
+    msg: "MDBA DDL script executed. Output: {{ mdba_ddl_result.stdout_lines[-5:] }}"
+  when: mdba_ddl_result.stdout is defined
+  tags: [elkstatistic, database, ddl]
+
+- name: Execute schema-postgresql.sql script
+  shell: |
+    PGPASSWORD="{{ elkstack_db.postgres_mdba_password }}" {{ psql_binary }} \
+      -U "{{ elkstack_db.postgres_mdba_user }}" \
+      -d "{{ elkstack_db.postgres_database }}" \
+      -h "{{ elkstack_db.postgres_host }}" \
+      -p "{{ elkstack_db.postgres_port }}" \
+      -f "{{ elkstack_install_dir }}/current/db_migration/schema-postgresql.sql"
+  become: yes
+  register: schema_result
+  changed_when: "'CREATE' in schema_result.stdout or 'ALTER' in schema_result.stdout"
+  tags: [elkstatistic, database, schema]
+
+- name: Display schema script execution result
+  debug:
+    msg: "Schema script executed. Output: {{ schema_result.stdout_lines[-5:] }}"
+  when: schema_result.stdout is defined
+  tags: [elkstatistic, database, schema]
+
