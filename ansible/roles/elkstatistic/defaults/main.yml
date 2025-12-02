@@ -5,6 +5,8 @@
 elkstack_version: "4.7.2"
 
 # User and group configuration
+# Note: User and group are created by DMC RPM package, not by this playbook
+# This role only uses the existing DMC user/group
 elkstack_user: "dmc"
 elkstack_group: "dmc"
 

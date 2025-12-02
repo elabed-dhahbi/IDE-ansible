@@ -1,25 +1,24 @@
 ---
 # ELK Statistics Stack Installation Tasks
+# Note: User and group are created by DMC RPM package, not by this playbook
 
-- name: Create elkstats group
-  group:
-    name: "{{ elkstack_group }}"
-    system: yes
-    state: present
-  become: yes
-  tags: [elkstatistic, install, user]
+- name: Verify DMC user exists (created by DMC RPM)
+  getent:
+    database: passwd
+    key: "{{ elkstack_user }}"
+  register: dmc_user_info
+  tags: [elkstatistic, install, user, validation]
 
-- name: Create elkstats user for ELK Statistics
-  user:
-    name: "{{ elkstack_user }}"
-    group: "{{ elkstack_group }}"
-    system: yes
-    shell: /bin/bash
-    home: "{{ elkstack_install_dir }}"
-    create_home: no
-  become: yes
-  ignore_errors: yes
-  tags: [elkstatistic, install, user]
+- name: Fail if DMC user does not exist
+  fail:
+    msg: "DMC user '{{ elkstack_user }}' does not exist. Please install DMC RPM first, which creates the user."
+  when: dmc_user_info.ansible_facts.getent_passwd[elkstack_user] is not defined
+  tags: [elkstatistic, install, user, validation]
+
+- name: Display DMC user information
+  debug:
+    msg: "Using existing DMC user: {{ dmc_user_info.ansible_facts.getent_passwd[elkstack_user] }}"
+  tags: [elkstatistic, install, user, validation]
 
 - name: Create ELK Statistics directories
   file:
