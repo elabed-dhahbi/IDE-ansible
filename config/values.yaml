@@ -47,6 +47,32 @@ service_passwords:
   opensearch: "Ops@#s1cap#"
 
 # =============================================================================
+# CERTIFICATE CONFIGURATION - OpenSearch SSL Certificates
+# =============================================================================
+
+# Certificate Organization Information (for SSL certificates)
+certificate_org:
+  country: "US"
+  state: "CA"
+  city: "San Francisco"
+  organization: "SICAP"
+  organizational_unit: "IT Department"
+  root_ca_cn: "opensearch-ca"
+  admin_cn: "A"
+
+# Certificate Validity Periods (days)
+opensearch_cert_validity:
+  root_ca: 3650    # 10 years
+  admin: 730       # 2 years
+  node: 3650       # 10 years
+
+# Certificate Key Sizes (bits)
+opensearch_cert_key_size:
+  root_ca: 4096
+  admin: 2048
+  node: 4096
+
+# =============================================================================
 # DATABASE CONFIGURATION - Your schema/user names
 # =============================================================================
 

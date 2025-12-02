@@ -1,0 +1,18 @@
+---
+# OpenSearch Handlers
+# Used for idempotent service management
+
+- name: restart opensearch
+  systemd:
+    name: "{{ opensearch_service_name }}"
+    state: restarted
+    daemon_reload: yes
+  become: yes
+
+- name: reload opensearch
+  systemd:
+    name: "{{ opensearch_service_name }}"
+    state: reloaded
+    daemon_reload: yes
+  become: yes
+

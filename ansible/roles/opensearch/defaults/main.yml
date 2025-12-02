@@ -60,5 +60,43 @@ opensearch_limits:
 
 # Note: opensearch_jvm.heap_size is defined in values.yaml
 
+# Certificate configuration - Production-ready with variables
+opensearch_certificates:
+  security_dir: "{{ opensearch_config_dir }}/security"
+  root_ca:
+    validity_days: "{{ opensearch_cert_validity.root_ca | default(3650) }}"
+    key_size: "{{ opensearch_cert_key_size.root_ca | default(4096) }}"
+    subject:
+      C: "{{ certificate_org.country | default('US') }}"
+      ST: "{{ certificate_org.state | default('CA') }}"
+      L: "{{ certificate_org.city | default('San Francisco') }}"
+      O: "{{ certificate_org.organization | default('SICAP') }}"
+      OU: "{{ certificate_org.organizational_unit | default('IT Department') }}"
+      CN: "{{ certificate_org.root_ca_cn | default('opensearch-ca') }}"
+  admin:
+    validity_days: "{{ opensearch_cert_validity.admin | default(730) }}"
+    key_size: "{{ opensearch_cert_key_size.admin | default(2048) }}"
+    subject:
+      C: "{{ certificate_org.country | default('CA') }}"
+      ST: "{{ certificate_org.state | default('ONTARIO') }}"
+      L: "{{ certificate_org.city | default('TORONTO') }}"
+      O: "{{ certificate_org.organization | default('ORG') }}"
+      OU: "{{ certificate_org.organizational_unit | default('UNIT') }}"
+      CN: "{{ certificate_org.admin_cn | default('A') }}"
+  node:
+    validity_days: "{{ opensearch_cert_validity.node | default(3650) }}"
+    key_size: "{{ opensearch_cert_key_size.node | default(4096) }}"
+    subject:
+      C: "{{ certificate_org.country | default('US') }}"
+      ST: "{{ certificate_org.state | default('CA') }}"
+      L: "{{ certificate_org.city | default('San Francisco') }}"
+      O: "{{ certificate_org.organization | default('SICAP') }}"
+      OU: "{{ certificate_org.organizational_unit | default('IT Department') }}"
+      CN: "{{ ansible_hostname }}"
+
+# Certificate validation settings
+opensearch_cert_min_validity_days: 30  # Regenerate if expiring within 30 days
+opensearch_cert_min_validity_seconds: 2592000  # 30 days in seconds (30 * 86400)
+
 # Package configuration
 opensearch_package: "{{ package_globs.opensearch_rpm }}"

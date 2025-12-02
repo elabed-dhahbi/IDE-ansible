@@ -23,12 +23,52 @@
   become: yes
   tags: [opensearch, config, main]
 
+# Phase 1.1: Idempotent Service Management
+- name: Check if OpenSearch service is running
+  systemd:
+    name: "{{ opensearch_service_name }}"
+  register: opensearch_service_status
+  become: yes
+  changed_when: false
+  failed_when: false
+  tags: [opensearch, config, security, certificates]
 
-- name: Stop OpenSearch service before certificate changes
+- name: Check certificate expiration and validity
+  shell: |
+    if [ -f "{{ opensearch_config_dir }}/security/{{ item }}" ]; then
+      openssl x509 -in {{ opensearch_config_dir }}/security/{{ item }} -noout -checkend {{ opensearch_cert_min_validity_seconds | default(2592000) }} 2>/dev/null
+      echo "valid"
+    else
+      echo "missing"
+    fi
+  args:
+    executable: /bin/bash
+  register: cert_validation
+  failed_when: false
+  changed_when: false
+  loop:
+    - root-ca.pem
+    - esnode.pem
+    - admin.pem
+  become: yes
+  tags: [opensearch, config, security, certificates]
+
+- name: Determine if certificates need regeneration
+  set_fact:
+    certs_need_regeneration: >
+      {{ cert_validation.results | selectattr('stdout', 'match', 'missing|error') | list | length > 0 }}
+  tags: [opensearch, config, security, certificates]
+
+- name: Stop OpenSearch service before certificate changes (only if needed)
   systemd:
     name: "{{ opensearch_service_name }}"
     state: stopped
   become: yes
+  when: >
+    certs_need_regeneration and
+    opensearch_service_status.status.ActiveState == "active"
+  ignore_errors: yes
+  tags: [opensearch, config, security, certificates]
 
 - name: Remove any existing demo certificates
   file:
@@ -40,8 +80,8 @@
     - "{{ opensearch_config_dir }}/root-ca.pem"
     - "{{ opensearch_config_dir }}/kirk.pem"
     - "{{ opensearch_config_dir }}/kirk-key.pem"
-    - "{{ opensearch_config_dir }}/security"
   become: yes
+  when: certs_need_regeneration
   tags: [opensearch, config, security, certificates]
 
 - name: Create OpenSearch security certificates directory
@@ -56,103 +96,131 @@
 
 - name: Generate Root CA private key
   command: >
-    openssl genrsa -out {{ opensearch_config_dir }}/security/root-ca-key.pem 4096
+    openssl genrsa -out {{ opensearch_certificates.security_dir }}/root-ca-key.pem {{ opensearch_certificates.root_ca.key_size }}
   args:
-    creates: "{{ opensearch_config_dir }}/security/root-ca-key.pem"
+    creates: "{{ opensearch_certificates.security_dir }}/root-ca-key.pem"
   become: yes
+  when: certs_need_regeneration
   tags: [opensearch, config, security, certificates]
 
 - name: Generate Root CA certificate
   command: >
-    openssl req -new -x509 -sha256 -key {{ opensearch_config_dir }}/security/root-ca-key.pem
-    -subj "/C=US/ST=CA/L=San Francisco/O=SICAP/OU=IT Department/CN=opensearch-ca"
-    -out {{ opensearch_config_dir }}/security/root-ca.pem -days 3650
+    openssl req -new -x509 -sha256 -key {{ opensearch_certificates.security_dir }}/root-ca-key.pem
+    -subj "/C={{ opensearch_certificates.root_ca.subject.C }}/ST={{ opensearch_certificates.root_ca.subject.ST }}/L={{ opensearch_certificates.root_ca.subject.L }}/O={{ opensearch_certificates.root_ca.subject.O }}/OU={{ opensearch_certificates.root_ca.subject.OU }}/CN={{ opensearch_certificates.root_ca.subject.CN }}"
+    -out {{ opensearch_certificates.security_dir }}/root-ca.pem -days {{ opensearch_certificates.root_ca.validity_days }}
   args:
-    creates: "{{ opensearch_config_dir }}/security/root-ca.pem"
+    creates: "{{ opensearch_certificates.security_dir }}/root-ca.pem"
   become: yes
+  when: certs_need_regeneration
   tags: [opensearch, config, security, certificates]
 
 - name: Generate admin private key (following official OpenSearch docs)
   command: >
-    openssl genrsa -out {{ opensearch_config_dir }}/security/admin-key-temp.pem 2048
+    openssl genrsa -out {{ opensearch_certificates.security_dir }}/admin-key-temp.pem {{ opensearch_certificates.admin.key_size }}
   args:
-    creates: "{{ opensearch_config_dir }}/security/admin-key-temp.pem"
+    creates: "{{ opensearch_certificates.security_dir }}/admin-key-temp.pem"
   become: yes
+  when: certs_need_regeneration
   tags: [opensearch, config, security, certificates]
 
 - name: Convert admin private key to PKCS#8 (following official OpenSearch docs)
   command: >
-    openssl pkcs8 -inform PEM -outform PEM -in {{ opensearch_config_dir }}/security/admin-key-temp.pem
-    -topk8 -nocrypt -v1 PBE-SHA1-3DES -out {{ opensearch_config_dir }}/security/admin-key.pem
+    openssl pkcs8 -inform PEM -outform PEM -in {{ opensearch_certificates.security_dir }}/admin-key-temp.pem
+    -topk8 -nocrypt -v1 PBE-SHA1-3DES -out {{ opensearch_certificates.security_dir }}/admin-key.pem
   args:
-    creates: "{{ opensearch_config_dir }}/security/admin-key.pem"
+    creates: "{{ opensearch_certificates.security_dir }}/admin-key.pem"
   become: yes
+  when: certs_need_regeneration
   tags: [opensearch, config, security, certificates]
 
 - name: Generate admin certificate signing request (following official OpenSearch docs)
   command: >
-    openssl req -new -key {{ opensearch_config_dir }}/security/admin-key.pem
-    -subj "/C=CA/ST=ONTARIO/L=TORONTO/O=ORG/OU=UNIT/CN=A"
-    -out {{ opensearch_config_dir }}/security/admin.csr
+    openssl req -new -key {{ opensearch_certificates.security_dir }}/admin-key.pem
+    -subj "/C={{ opensearch_certificates.admin.subject.C }}/ST={{ opensearch_certificates.admin.subject.ST }}/L={{ opensearch_certificates.admin.subject.L }}/O={{ opensearch_certificates.admin.subject.O }}/OU={{ opensearch_certificates.admin.subject.OU }}/CN={{ opensearch_certificates.admin.subject.CN }}"
+    -out {{ opensearch_certificates.security_dir }}/admin.csr
   args:
-    creates: "{{ opensearch_config_dir }}/security/admin.csr"
+    creates: "{{ opensearch_certificates.security_dir }}/admin.csr"
   become: yes
+  when: certs_need_regeneration
   tags: [opensearch, config, security, certificates]
 
 - name: Generate admin certificate (following official OpenSearch docs)
   command: >
-    openssl x509 -req -in {{ opensearch_config_dir }}/security/admin.csr
-    -CA {{ opensearch_config_dir }}/security/root-ca.pem
-    -CAkey {{ opensearch_config_dir }}/security/root-ca-key.pem
-    -CAcreateserial -sha256 -out {{ opensearch_config_dir }}/security/admin.pem -days 730
+    openssl x509 -req -in {{ opensearch_certificates.security_dir }}/admin.csr
+    -CA {{ opensearch_certificates.security_dir }}/root-ca.pem
+    -CAkey {{ opensearch_certificates.security_dir }}/root-ca-key.pem
+    -CAcreateserial -sha256 -out {{ opensearch_certificates.security_dir }}/admin.pem -days {{ opensearch_certificates.admin.validity_days }}
   args:
-    creates: "{{ opensearch_config_dir }}/security/admin.pem"
+    creates: "{{ opensearch_certificates.security_dir }}/admin.pem"
   become: yes
+  when: certs_need_regeneration
   tags: [opensearch, config, security, certificates]
 
 - name: Generate node private key
   command: >
-    openssl genrsa -out {{ opensearch_config_dir }}/security/esnode-key.pem 4096
+    openssl genrsa -out {{ opensearch_certificates.security_dir }}/esnode-key.pem {{ opensearch_certificates.node.key_size }}
   args:
-    creates: "{{ opensearch_config_dir }}/security/esnode-key.pem"
+    creates: "{{ opensearch_certificates.security_dir }}/esnode-key.pem"
   become: yes
+  when: certs_need_regeneration
   tags: [opensearch, config, security, certificates]
 
 - name: Generate node certificate signing request
   command: >
-    openssl req -new -key {{ opensearch_config_dir }}/security/esnode-key.pem
-    -subj "/C=US/ST=CA/L=San Francisco/O=SICAP/OU=IT Department/CN={{ ansible_hostname }}"
-    -out {{ opensearch_config_dir }}/security/esnode.csr
+    openssl req -new -key {{ opensearch_certificates.security_dir }}/esnode-key.pem
+    -subj "/C={{ opensearch_certificates.node.subject.C }}/ST={{ opensearch_certificates.node.subject.ST }}/L={{ opensearch_certificates.node.subject.L }}/O={{ opensearch_certificates.node.subject.O }}/OU={{ opensearch_certificates.node.subject.OU }}/CN={{ opensearch_certificates.node.subject.CN }}"
+    -out {{ opensearch_certificates.security_dir }}/esnode.csr
   args:
-    creates: "{{ opensearch_config_dir }}/security/esnode.csr"
+    creates: "{{ opensearch_certificates.security_dir }}/esnode.csr"
   become: yes
+  when: certs_need_regeneration
   tags: [opensearch, config, security, certificates]
 
 - name: Generate node certificate
   command: >
-    openssl x509 -req -in {{ opensearch_config_dir }}/security/esnode.csr
-    -CA {{ opensearch_config_dir }}/security/root-ca.pem
-    -CAkey {{ opensearch_config_dir }}/security/root-ca-key.pem
-    -CAcreateserial -out {{ opensearch_config_dir }}/security/esnode.pem -days 3650
+    openssl x509 -req -in {{ opensearch_certificates.security_dir }}/esnode.csr
+    -CA {{ opensearch_certificates.security_dir }}/root-ca.pem
+    -CAkey {{ opensearch_certificates.security_dir }}/root-ca-key.pem
+    -CAcreateserial -out {{ opensearch_certificates.security_dir }}/esnode.pem -days {{ opensearch_certificates.node.validity_days }}
   args:
-    creates: "{{ opensearch_config_dir }}/security/esnode.pem"
+    creates: "{{ opensearch_certificates.security_dir }}/esnode.pem"
   become: yes
+  when: certs_need_regeneration
   tags: [opensearch, config, security, certificates]
 
-- name: Clean up certificate signing request
+- name: Clean up certificate signing requests and temporary files
   file:
-    path: "{{ opensearch_config_dir }}/security/esnode.csr"
+    path: "{{ item }}"
     state: absent
+  loop:
+    - "{{ opensearch_certificates.security_dir }}/esnode.csr"
+    - "{{ opensearch_certificates.security_dir }}/admin.csr"
+    - "{{ opensearch_certificates.security_dir }}/admin-key-temp.pem"
   become: yes
-  tags: [opensearch, config, security, certificates]
+  tags: [opensearch, config, security, certificates, cleanup]
 
 - name: Set proper ownership for security certificates
   file:
-    path: "{{ opensearch_config_dir }}/security"
+    path: "{{ opensearch_certificates.security_dir }}"
     owner: "{{ opensearch_user }}"
     group: "{{ opensearch_group }}"
     recurse: yes
+    mode: '0755'
   become: yes
+  tags: [opensearch, config, security, certificates]
+
+- name: Set secure permissions on certificate private keys
+  file:
+    path: "{{ item }}"
+    mode: '0600'
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+  loop:
+    - "{{ opensearch_certificates.security_dir }}/root-ca-key.pem"
+    - "{{ opensearch_certificates.security_dir }}/admin-key.pem"
+    - "{{ opensearch_certificates.security_dir }}/esnode-key.pem"
+  become: yes
+  when: certs_need_regeneration | default(false)
   tags: [opensearch, config, security, certificates]
 
 - name: Configure OpenSearch security with production certificates (step 1 - allow demo certs temporarily)
@@ -166,20 +234,20 @@
     - { key: "plugins.security.disabled", value: "false" }
     # SSL Transport Configuration (following official OpenSearch docs)
     - { key: "plugins.security.ssl.transport.enabled", value: "true" }
-    - { key: "plugins.security.ssl.transport.pemcert_filepath", value: "/etc/opensearch/security/esnode.pem" }
-    - { key: "plugins.security.ssl.transport.pemkey_filepath", value: "/etc/opensearch/security/esnode-key.pem" }
-    - { key: "plugins.security.ssl.transport.pemtrustedcas_filepath", value: "/etc/opensearch/security/root-ca.pem" }
+    - { key: "plugins.security.ssl.transport.pemcert_filepath", value: "{{ opensearch_certificates.security_dir }}/esnode.pem" }
+    - { key: "plugins.security.ssl.transport.pemkey_filepath", value: "{{ opensearch_certificates.security_dir }}/esnode-key.pem" }
+    - { key: "plugins.security.ssl.transport.pemtrustedcas_filepath", value: "{{ opensearch_certificates.security_dir }}/root-ca.pem" }
     - { key: "plugins.security.ssl.transport.enforce_hostname_verification", value: "false" }
     # SSL HTTP Configuration (enabled for security admin tool)
     - { key: "plugins.security.ssl.http.enabled", value: "true" }
-    - { key: "plugins.security.ssl.http.pemcert_filepath", value: "/etc/opensearch/security/esnode.pem" }
-    - { key: "plugins.security.ssl.http.pemkey_filepath", value: "/etc/opensearch/security/esnode-key.pem" }
-    - { key: "plugins.security.ssl.http.pemtrustedcas_filepath", value: "/etc/opensearch/security/root-ca.pem" }
+    - { key: "plugins.security.ssl.http.pemcert_filepath", value: "{{ opensearch_certificates.security_dir }}/esnode.pem" }
+    - { key: "plugins.security.ssl.http.pemkey_filepath", value: "{{ opensearch_certificates.security_dir }}/esnode-key.pem" }
+    - { key: "plugins.security.ssl.http.pemtrustedcas_filepath", value: "{{ opensearch_certificates.security_dir }}/root-ca.pem" }
     # Security Plugin Settings (following official docs)
     - { key: "plugins.security.allow_unsafe_democertificates", value: "false" }
     - { key: "plugins.security.allow_default_init_securityindex", value: "true" }
-    - { key: "plugins.security.authcz.admin_dn", value: "['CN=A,OU=UNIT,O=ORG,L=TORONTO,ST=ONTARIO,C=CA']" }
-    - { key: "plugins.security.nodes_dn", value: "['CN={{ ansible_hostname }},OU=UNIT,O=ORG,L=TORONTO,ST=ONTARIO,C=CA']" }
+    - { key: "plugins.security.authcz.admin_dn", value: "['CN={{ opensearch_certificates.admin.subject.CN }},OU={{ opensearch_certificates.admin.subject.OU }},O={{ opensearch_certificates.admin.subject.O }},L={{ opensearch_certificates.admin.subject.L }},ST={{ opensearch_certificates.admin.subject.ST }},C={{ opensearch_certificates.admin.subject.C }}']" }
+    - { key: "plugins.security.nodes_dn", value: "['CN={{ opensearch_certificates.node.subject.CN }},OU={{ opensearch_certificates.node.subject.OU }},O={{ opensearch_certificates.node.subject.O }},L={{ opensearch_certificates.node.subject.L }},ST={{ opensearch_certificates.node.subject.ST }},C={{ opensearch_certificates.node.subject.C }}']" }
     # Audit Configuration
     - { key: "plugins.security.audit.type", value: "internal_opensearch" }
     - { key: "plugins.security.audit.config.disabled_rest_categories", value: "NONE" }
@@ -321,7 +389,7 @@
 - name: Apply security configuration changes using securityadmin.sh (following official docs)
   shell: |
     cd /usr/share/opensearch/plugins/opensearch-security/tools
-    OPENSEARCH_JAVA_HOME={{ opensearch_java_home }} ./securityadmin.sh -cd {{ opensearch_config_dir }}/opensearch-security/ -h {{ ansible_host }} -p {{ opensearch_config.http_port }} -cert {{ opensearch_config_dir }}/security/admin.pem -key {{ opensearch_config_dir }}/security/admin-key.pem -cacert {{ opensearch_config_dir }}/security/root-ca.pem -icl -nhnv
+    OPENSEARCH_JAVA_HOME={{ opensearch_java_home }} ./securityadmin.sh -cd {{ opensearch_config_dir }}/opensearch-security/ -h {{ ansible_host }} -p {{ opensearch_config.http_port }} -cert {{ opensearch_certificates.security_dir }}/admin.pem -key {{ opensearch_certificates.security_dir }}/admin-key.pem -cacert {{ opensearch_certificates.security_dir }}/root-ca.pem -icl -nhnv
   become: yes
   tags: [opensearch, config, security, apply]
 
@@ -563,13 +631,13 @@
 - name: Display production certificate details
   shell: |
     echo "=== OpenSearch Production Certificates ==="
-    ls -la {{ opensearch_config_dir }}/security/
+    ls -la {{ opensearch_certificates.security_dir }}/
     echo ""
     echo "--- Root CA Certificate Details ---"
-    openssl x509 -in {{ opensearch_config_dir }}/security/root-ca.pem -text -noout | grep -E '(Subject:|Not Before|Not After|Public Key Algorithm)'
+    openssl x509 -in {{ opensearch_certificates.security_dir }}/root-ca.pem -text -noout | grep -E '(Subject:|Not Before|Not After|Public Key Algorithm)'
     echo ""
     echo "--- Node Certificate Details ---"
-    openssl x509 -in {{ opensearch_config_dir }}/security/esnode.pem -text -noout | grep -E '(Subject:|Not Before|Not After|Public Key Algorithm)'
+    openssl x509 -in {{ opensearch_certificates.security_dir }}/esnode.pem -text -noout | grep -E '(Subject:|Not Before|Not After|Public Key Algorithm)'
     echo ""
     echo "=== Certificate Security Features ==="
     echo "✓ 4096-bit RSA encryption"
