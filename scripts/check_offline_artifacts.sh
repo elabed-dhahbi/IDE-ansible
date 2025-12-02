@@ -9,6 +9,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 CONFIG_FILE="$PROJECT_ROOT/config/values.yaml"
+RELEASE_FILE="$PROJECT_ROOT/ansible/vars/release.yml"  # NEW: Centralized version file
+ENV_FILE="$PROJECT_ROOT/ansible/vars/env/default.yml"  # NEW: Default environment config
 PACKAGES_FILE="$PROJECT_ROOT/config/packages.yaml"
 INVENTORY_FILE="${INVENTORY_FILE:-$PROJECT_ROOT/ansible/inventories/TT/hosts.ini}"
 
@@ -56,20 +58,55 @@ extract_yaml_value() {
 render_template() {
     local template="$1"
     local yaml_file="$2"
-    
+
     # Match all {{ ... }} expressions
     while [[ "$template" =~ \{\{\ ([a-zA-Z0-9_.]+)\ \}\} ]]; do
         local var="${BASH_REMATCH[1]}"
         local val
-        # Try to get value from the provided file, or from values.yaml if it's a version variable
+        
+        # Version variables: Check release.yml first (new centralized), then values.yaml (backward compatibility)
         if [[ "$var" == versions.* ]]; then
-            val=$(extract_yaml_value "$var" "$CONFIG_FILE")
+            # Map versions.* keys to release.yml keys
+            local version_key="${var#versions.}"
+            local release_key=""
+            
+            # Map version keys to release.yml keys
+            case "$version_key" in
+                postgres) release_key="postgresql_full_version" ;;
+                dmc) release_key="dmc_version" ;;
+                mmg) release_key="mmg_version" ;;
+                mmsoap) release_key="mmsoap_version" ;;
+                smppc) release_key="smppc_version" ;;
+                sls) release_key="sls_version" ;;
+                drs) release_key="drs_version" ;;
+                opensearch) release_key="opensearch_version" ;;
+                logstash_oss) release_key="logstash_oss_version" ;;
+                zabbix) release_key="zabbix_version" ;;
+                *) release_key="${version_key}_version" ;;
+            esac
+            
+            # Try release.yml first (new centralized)
+            if [[ -f "$RELEASE_FILE" ]]; then
+                val=$(extract_yaml_value "$release_key" "$RELEASE_FILE" 2>/dev/null || echo "")
+            fi
+            
+            # Fallback to values.yaml (backward compatibility)
+            if [[ -z "$val" ]] && [[ -f "$CONFIG_FILE" ]]; then
+                val=$(extract_yaml_value "$var" "$CONFIG_FILE" 2>/dev/null || echo "")
+            fi
         else
-            val=$(extract_yaml_value "$var" "$yaml_file")
+            # Non-version variables: try env file first, then provided file
+            if [[ -f "$ENV_FILE" ]]; then
+                val=$(extract_yaml_value "$var" "$ENV_FILE" 2>/dev/null || echo "")
+            fi
+            if [[ -z "$val" ]]; then
+                val=$(extract_yaml_value "$var" "$yaml_file" 2>/dev/null || echo "")
+            fi
         fi
+        
         template="${template//\{\{ ${var} \}\}/$val}"
     done
-    
+
     echo "$template"
 }
 
@@ -114,15 +151,33 @@ validate_artifacts() {
 
     echo "=== DMC4.6.18 Offline Artifacts Validation ==="
     echo "Config file: $CONFIG_FILE"
+    if [[ -f "$RELEASE_FILE" ]]; then
+        echo "Release file: $RELEASE_FILE (primary versions)"
+    fi
+    if [[ -f "$ENV_FILE" ]]; then
+        echo "Environment file: $ENV_FILE (default config)"
+    fi
     echo "Inventory file: $INVENTORY_FILE"
     echo "Offline directory: $offline_dir"
     echo ""
 
-    # Check if config file exists
-    if [[ ! -f "$CONFIG_FILE" ]]; then
-        echo -e "${RED}ERROR: Config file not found: $CONFIG_FILE${NC}"
-        echo "Please copy config/values.example.yaml to config/values.yaml and customize it."
+    # Check if at least one config file exists
+    if [[ ! -f "$CONFIG_FILE" ]] && [[ ! -f "$RELEASE_FILE" ]]; then
+        echo -e "${RED}ERROR: No configuration files found${NC}"
+        echo "Please ensure at least one of the following exists:"
+        echo "  - $CONFIG_FILE (backward compatibility)"
+        echo "  - $RELEASE_FILE (centralized versions)"
+        echo ""
+        echo "For new installations, create $RELEASE_FILE"
+        echo "For existing installations, copy config/values.example.yaml to config/values.yaml"
         exit 1
+    fi
+    
+    # Warn if using old config file without release file
+    if [[ -f "$CONFIG_FILE" ]] && [[ ! -f "$RELEASE_FILE" ]]; then
+        echo -e "${YELLOW}WARNING: Using legacy config/values.yaml${NC}"
+        echo -e "${YELLOW}Consider migrating to centralized vars/release.yml for better version management${NC}"
+        echo ""
     fi
 
     # Check if offline directory exists
