@@ -33,6 +33,10 @@ elkstack_db:
       localhost
     {%- endif -%}
   postgres_port: "5432"  # PostgreSQL standard port
+  # SSL mode for PostgreSQL connections (require, prefer, allow, disable)
+  # Use 'prefer' to try SSL first but allow non-SSL fallback
+  # Use 'disable' if PostgreSQL doesn't have SSL configured
+  postgres_sslmode: "{{ database_config.postgres_sslmode | default('prefer') }}"
   # MDBA connects to the DMC database (not a separate database)
   # MDBA is a schema/user within the DMC database
   postgres_database: "{{ database_config.dmc_database }}"

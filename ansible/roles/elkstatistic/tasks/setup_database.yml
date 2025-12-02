@@ -128,7 +128,9 @@
 
 - name: Execute MDBA DDL script with tablespace variables
   shell: |
-    PGPASSWORD="{{ elkstack_db.postgres_mdba_password }}" {{ psql_binary }} \
+    export PGPASSWORD="{{ elkstack_db.postgres_mdba_password }}"
+    export PGSSLMODE="{{ elkstack_db.postgres_sslmode }}"
+    {{ psql_binary }} \
       -U "{{ elkstack_db.postgres_mdba_user }}" \
       -d "{{ elkstack_db.postgres_database }}" \
       -h "{{ elkstack_db.postgres_host }}" \
@@ -165,7 +167,9 @@
 
 - name: Execute schema-postgresql.sql script
   shell: |
-    PGPASSWORD="{{ elkstack_db.postgres_mdba_password }}" {{ psql_binary }} \
+    export PGPASSWORD="{{ elkstack_db.postgres_mdba_password }}"
+    export PGSSLMODE="{{ elkstack_db.postgres_sslmode }}"
+    {{ psql_binary }} \
       -U "{{ elkstack_db.postgres_mdba_user }}" \
       -d "{{ elkstack_db.postgres_database }}" \
       -h "{{ elkstack_db.postgres_host }}" \

@@ -5,8 +5,9 @@
   include_tasks: install_elkstack.yml
   tags: [elkstatistic, install]
 
-# Database setup is handled by the PostgreSQL role
-# No need to duplicate database creation tasks
+- name: Include ELK Statistics database setup tasks
+  include_tasks: setup_database.yml
+  tags: [elkstatistic, database]
 
 - name: Include ELK Statistics configuration tasks
   include_tasks: configure_elkstack.yml
