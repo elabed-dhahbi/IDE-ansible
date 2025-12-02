@@ -51,6 +51,8 @@
   hosts: elasticsearch
   gather_facts: yes
   vars_files:
+    - "vars/release.yml"
+    - "vars/env/default.yml"
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:
@@ -63,6 +65,8 @@
   hosts: logstash
   gather_facts: yes
   vars_files:
+    - "vars/release.yml"
+    - "vars/env/default.yml"
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:
@@ -75,6 +79,8 @@
   hosts: kibana
   gather_facts: yes
   vars_files:
+    - "vars/release.yml"
+    - "vars/env/default.yml"
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:
@@ -87,6 +93,8 @@
   hosts: opensearch
   gather_facts: yes
   vars_files:
+    - "vars/release.yml"
+    - "vars/env/default.yml"
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:
@@ -99,6 +107,8 @@
   hosts: logstash_oss
   gather_facts: yes
   vars_files:
+    - "vars/release.yml"
+    - "vars/env/default.yml"
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:
@@ -111,6 +121,8 @@
   hosts: zabbix
   gather_facts: yes
   vars_files:
+    - "vars/release.yml"
+    - "vars/env/default.yml"
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:
@@ -123,6 +135,8 @@
   hosts: all
   gather_facts: yes
   vars_files:
+    - "vars/release.yml"
+    - "vars/env/default.yml"
     - "../config/packages.yaml"
     - "../config/values.yaml"
   tasks:
@@ -145,6 +159,8 @@
   hosts: opensearch_dashboards
   gather_facts: yes
   vars_files:
+    - "vars/release.yml"
+    - "vars/env/default.yml"
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:
@@ -157,8 +173,8 @@
   hosts: dmc1
   gather_facts: yes
   vars_files:
-    - "vars/release.yml"          # Centralized versions
-    - "vars/env/default.yml"      # Default environment config
+    - "vars/release.yml"
+    - "vars/env/default.yml"
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:
@@ -173,6 +189,8 @@
   hosts: dmc2
   gather_facts: yes
   vars_files:
+    - "vars/release.yml"
+    - "vars/env/default.yml"
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:
@@ -187,6 +205,8 @@
   hosts: elkstatistic
   gather_facts: yes
   vars_files:
+    - "vars/release.yml"
+    - "vars/env/default.yml"
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:
@@ -199,6 +219,8 @@
   hosts: mmg
   gather_facts: yes
   vars_files:
+    - "vars/release.yml"
+    - "vars/env/default.yml"
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:
@@ -211,6 +233,8 @@
   hosts: mmsoap
   gather_facts: yes
   vars_files:
+    - "vars/release.yml"
+    - "vars/env/default.yml"
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:
@@ -223,6 +247,8 @@
   hosts: smppc
   gather_facts: yes
   vars_files:
+    - "vars/release.yml"
+    - "vars/env/default.yml"
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:
@@ -235,6 +261,8 @@
   hosts: sls
   gather_facts: yes
   vars_files:
+    - "vars/release.yml"
+    - "vars/env/default.yml"
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:
@@ -246,6 +274,8 @@
   hosts: sls
   gather_facts: yes
   vars_files:
+    - "vars/release.yml"
+    - "vars/env/default.yml"
     - "../config/packages.yaml"
     - "../config/values.yaml"
   tags:
@@ -275,6 +305,8 @@
   hosts: haproxy
   gather_facts: yes
   vars_files:
+    - "vars/release.yml"
+    - "vars/env/default.yml"
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:
