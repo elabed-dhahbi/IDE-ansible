@@ -139,9 +139,7 @@
   become: yes
   register: mdba_ddl_result
   changed_when: "'CREATE' in mdba_ddl_result.stdout or 'ALTER' in mdba_ddl_result.stdout"
-  failed_when: >
-    mdba_ddl_result.rc != 0 and
-    'no pg_hba.conf entry' not in mdba_ddl_result.stderr
+  failed_when: "mdba_ddl_result.rc != 0 and 'no pg_hba.conf entry' not in mdba_ddl_result.stderr"
   tags: [elkstatistic, database, ddl]
 
 - name: Handle pg_hba.conf connection error
@@ -154,9 +152,9 @@
       2. Or configure database_config.external_host in values.yaml if using external database
       
       Error: {{ mdba_ddl_result.stderr }}
-  when:
-    - mdba_ddl_result.rc != 0
-    - 'no pg_hba.conf entry' in mdba_ddl_result.stderr
+  when: >
+    mdba_ddl_result.rc != 0 and
+    'no pg_hba.conf entry' in mdba_ddl_result.stderr
   tags: [elkstatistic, database, ddl]
 
 - name: Display MDBA DDL execution result
