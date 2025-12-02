@@ -1,13 +1,30 @@
 ---
-# DMC4.6.18 Installation Playbook
-# Play execution order - each play includes only its specific role
-# Real logic implementation comes later in individual roles
+# =============================================================================
+# DMC Installation Playbook - Production-Grade
+# =============================================================================
+# This playbook has been refactored for production use:
+# - Centralized version management via vars/release.yml
+# - Environment-specific configuration via vars/env/
+# - Idempotent operations using native Ansible modules
+# - Comprehensive validation and error handling
+# =============================================================================
+
+# =============================================================================
+# Variable Loading Order
+# =============================================================================
+# 1. vars/release.yml - Centralized version numbers (highest priority for versions)
+# 2. vars/env/default.yml - Default environment configuration
+# 3. config/packages.yaml - Package glob patterns
+# 4. config/values.yaml - Customer-specific overrides (lowest priority)
+# =============================================================================
 
 # a) Preflight checks on all hosts
 - name: Preflight system checks
   hosts: all
   gather_facts: yes
   vars_files:
+    - "vars/release.yml"          # Centralized versions (load first)
+    - "vars/env/default.yml"      # Default environment config
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:
@@ -20,6 +37,8 @@
   hosts: postgres
   gather_facts: yes
   vars_files:
+    - "vars/release.yml"          # Centralized versions
+    - "vars/env/default.yml"      # Default environment config
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:
@@ -138,6 +157,8 @@
   hosts: dmc1
   gather_facts: yes
   vars_files:
+    - "vars/release.yml"          # Centralized versions
+    - "vars/env/default.yml"      # Default environment config
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:

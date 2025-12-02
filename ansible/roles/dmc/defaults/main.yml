@@ -17,9 +17,14 @@ dmc_logs_dir: "/var/opt/dmc/{{ dmc_version }}/log"
 dmc_conf_dir: "/opt/dmc/current/conf"
 dmc_drbfile_dir: "/opt/dmc/drbfile"
 
-# Java configuration
-java_home: "/usr/j2se/current"
-java_version: "8u412-b08"
+# Java configuration (from centralized vars/release.yml)
+java_major_version: "{{ java_major_version | default('8') }}"
+java_full_version: "{{ java_full_version | default('8u412') }}"
+java_build_version: "{{ java_build_version | default('8u412-b08') }}"
+java_legacy_version: "{{ java_legacy_version | default('1_8_0_92') }}"
+java_install_dir: "{{ system_paths.java_install_dir | default('/usr/j2se') }}"
+java_home: "{{ java_install_dir }}/current"
+java_version: "{{ java_build_version }}"  # Legacy compatibility
 
 # DMC configuration - simplified to avoid circular references
 dmc_http_port: 50400

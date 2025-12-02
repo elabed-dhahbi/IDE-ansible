@@ -1,16 +1,27 @@
 ---
+# =============================================================================
 # PostgreSQL Role Default Variables
+# =============================================================================
 # These can be overridden in group_vars or host_vars
+# Version numbers come from vars/release.yml for centralized management
+# =============================================================================
 
 # Skip PostgreSQL installation (set to true to skip installation tasks)
 # When true, only DMC database setup tasks will run
 skip_postgres_install: false
 
-# PostgreSQL version (inherited from main configuration)
-postgresql_version: "{{ versions.postgres }}"
+# PostgreSQL version (from centralized vars/release.yml)
+postgresql_major_version: "{{ postgresql_major_version | default('15') }}"
+postgresql_full_version: "{{ postgresql_full_version | default('15.14') }}"
+postgresql_package_version: "{{ postgresql_package_version | default('15.14-1PGDG.rhel9') }}"
+libpq_version: "{{ libpq_version | default('17.6-1PGDG.rhel9') }}"
+python3_psycopg2_version: "{{ python3_psycopg2_version | default('2.8.6-6.el9') }}"
+
+# Legacy compatibility (for existing playbooks)
+postgresql_version: "{{ postgresql_major_version }}"
 
 # Service configuration
-postgresql_service_name: "postgresql-{{ versions.postgres }}"
+postgresql_service_name: "postgresql-{{ postgresql_major_version }}"
 
 # Directory configuration (inherited from main configuration)
 postgresql_data_directory: "{{ postgresql_config.data_directory }}"

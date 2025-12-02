@@ -1,0 +1,48 @@
+---
+# =============================================================================
+# RELEASE VERSIONS - Centralized Version Management
+# =============================================================================
+# This file centralizes all package versions for the entire stack.
+# To upgrade to a new release, update only this file.
+#
+# Usage: Include this file in site.yml or group_vars/all.yml
+# =============================================================================
+
+# PostgreSQL versions
+postgresql_major_version: "15"
+postgresql_full_version: "15.14"
+postgresql_package_version: "15.14-1PGDG.rhel9"
+libpq_version: "17.6-1PGDG.rhel9"
+python3_psycopg2_version: "2.8.6-6.el9"
+
+# Java versions
+java_major_version: "8"
+java_full_version: "8u412"
+java_build_version: "8u412-b08"
+java_legacy_version: "1_8_0_92"  # For DMC compatibility
+
+# SICAP Application versions
+dmc_version: "4.6.33"
+mmg_version: "4.6.21"
+mmsoap_version: "5.6.1"
+smppc_version: "5.4.9"
+sls_version: "2.0.3"
+drs_version: "1.7.0"
+
+# ELK Stack versions
+elasticsearch_version: "7.17.25"
+kibana_version: "7.17.25"
+logstash_version: "7.17.25"
+logstash_oss_version: "8.19.4"
+
+# OpenSearch versions
+opensearch_version: "3.2.0"
+opensearch_dashboards_version: "3.2.0"
+
+# Zabbix versions
+zabbix_version: "7.4.2"
+zabbix_release: "release1"  # or "release2" depending on package
+
+# Package repository versions
+pgdg_repo_version: "latest"  # pgdg-redhat-repo-latest.noarch.rpm
+

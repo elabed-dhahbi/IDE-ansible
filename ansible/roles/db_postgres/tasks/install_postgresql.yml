@@ -1,5 +1,33 @@
 ---
-# PostgreSQL 15 Installation Tasks
+# =============================================================================
+# PostgreSQL Installation Tasks - Production-Grade Refactored
+# =============================================================================
+# This task file has been refactored for:
+# - Idempotence: Uses native Ansible modules (yum/dnf) instead of shell/command
+# - Portability: All versions and paths are parameterized via variables
+# - Robustness: Includes validation blocks and error handling
+# =============================================================================
+
+# =============================================================================
+# Pre-flight Validation
+# =============================================================================
+# Validate required variables are defined before proceeding
+- name: Validate PostgreSQL installation variables
+  assert:
+    that:
+      - postgresql_major_version is defined
+      - postgresql_full_version is defined
+      - postgresql_package_version is defined
+      - paths.offline_dir is defined
+    fail_msg: "Required PostgreSQL variables not defined. Check vars/release.yml and config/values.yaml"
+    success_msg: "All required PostgreSQL variables are defined"
+  tags: [postgres, install, validation, always]
+
+# =============================================================================
+# Package Discovery and Installation
+# =============================================================================
+# Use native Ansible modules for idempotent package installation
+# This replaces shell/command calls with proper module usage
 
 - name: Ensure offline directory exists on target
   file:
@@ -7,17 +35,29 @@
     state: directory
     mode: '0755'
   become: yes
-  tags: [postgres, install, packages]
+  tags: [postgres, install, packages, directories]
 
-- name: Copy PostgreSQL packages to target
-  copy:
-    src: "{{ item }}"
-    dest: "{{ paths.offline_dir }}/"
-    mode: '0644'
-  loop: "{{ lookup('fileglob', paths.offline_dir + '/postgresql15*.rpm', wantlist=True) + lookup('fileglob', paths.offline_dir + '/libpq5*.rpm', wantlist=True) + lookup('fileglob', paths.offline_dir + '/python3-psycopg2*.rpm', wantlist=True) }}"
-  become: yes
-  tags: [postgres, install, packages]
+# Find PostgreSQL packages using variables instead of hardcoded patterns
+- name: Find PostgreSQL packages in offline directory
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "postgresql{{ postgresql_major_version }}*.rpm"
+      - "libpq5*.rpm"
+      - "python3-psycopg2*.rpm"
+    file_type: file
+  register: postgresql_packages
+  tags: [postgres, install, packages, discovery]
 
+- name: Validate PostgreSQL packages found
+  assert:
+    that:
+      - postgresql_packages.files | length > 0
+    fail_msg: "No PostgreSQL packages found in {{ paths.offline_dir }}. Ensure packages are present."
+    success_msg: "Found {{ postgresql_packages.files | length }} PostgreSQL package(s)"
+  tags: [postgres, install, packages, validation]
+
+# Install dependencies using native dnf module (idempotent)
 - name: Install PostgreSQL dependencies
   dnf:
     name:
@@ -30,33 +70,71 @@
   become: yes
   tags: [postgres, install, dependencies]
 
+# =============================================================================
+# Package Installation - Using Native Modules
+# =============================================================================
+# Replace command: rpm with yum/dnf module for idempotence
+# Package names are constructed from variables for portability
+
+- name: Define PostgreSQL package installation order
+  set_fact:
+    postgresql_package_list:
+      - name: "postgresql{{ postgresql_major_version }}-libs"
+        file_pattern: "postgresql{{ postgresql_major_version }}-libs-{{ postgresql_package_version }}.x86_64.rpm"
+      - name: "postgresql{{ postgresql_major_version }}"
+        file_pattern: "postgresql{{ postgresql_major_version }}-{{ postgresql_package_version }}.x86_64.rpm"
+      - name: "postgresql{{ postgresql_major_version }}-server"
+        file_pattern: "postgresql{{ postgresql_major_version }}-server-{{ postgresql_package_version }}.x86_64.rpm"
+      - name: "postgresql{{ postgresql_major_version }}-contrib"
+        file_pattern: "postgresql{{ postgresql_major_version }}-contrib-{{ postgresql_package_version }}.x86_64.rpm"
+      - name: "libpq5"
+        file_pattern: "libpq5-{{ libpq_version }}.x86_64.rpm"
+      - name: "python3-psycopg2"
+        file_pattern: "python3-psycopg2-{{ python3_psycopg2_version }}.x86_64.rpm"
+  tags: [postgres, install, packages]
+
+# Install packages using yum module (idempotent, checks if already installed)
 - name: Install PostgreSQL packages in correct order
-  command: rpm -Uvh --force "{{ paths.offline_dir }}/{{ item }}"
-  loop:
-    - "postgresql15-libs-15.14-1PGDG.rhel9.x86_64.rpm"
-    - "postgresql15-15.14-1PGDG.rhel9.x86_64.rpm"
-    - "postgresql15-server-15.14-1PGDG.rhel9.x86_64.rpm"
-    - "postgresql15-contrib-15.14-1PGDG.rhel9.x86_64.rpm"
-    - "libpq5-17.6-1PGDG.rhel9.x86_64.rpm"
-    - "python3-psycopg2-2.8.6-6.el9.x86_64.rpm"
+  yum:
+    name: "{{ paths.offline_dir }}/{{ item.file_pattern }}"
+    state: present
+    disable_gpg_check: yes  # Required for offline installations
+  loop: "{{ postgresql_package_list }}"
+  loop_control:
+    label: "{{ item.name }}"
   become: yes
   tags: [postgres, install, packages]
+
+# =============================================================================
+# Installation Verification
+# =============================================================================
+# Check if PostgreSQL is already initialized (idempotence check)
 
 - name: Check if PostgreSQL is already initialized in custom directory
   stat:
     path: "{{ postgresql_config.data_directory }}/postgresql.conf"
   register: postgres_initialized_custom
   become: yes
-  tags: [postgres, install, init]
+  tags: [postgres, install, init, validation]
 
 - name: Check if PostgreSQL is already initialized in default directory
   stat:
-    path: "/var/lib/pgsql/{{ versions.postgres }}/data/postgresql.conf"
+    path: "/var/lib/pgsql/{{ postgresql_major_version }}/data/postgresql.conf"
   register: postgres_initialized_default
   become: yes
-  tags: [postgres, install, init]
+  tags: [postgres, install, init, validation]
 
 - name: Set PostgreSQL initialization status
   set_fact:
     postgres_initialized: "{{ postgres_initialized_custom if postgres_initialized_custom.stat.exists else postgres_initialized_default }}"
   tags: [postgres, install, init]
+
+# Verify PostgreSQL packages are installed
+- name: Verify PostgreSQL packages are installed
+  command: rpm -q "{{ item.name }}"
+  register: postgresql_package_check
+  loop: "{{ postgresql_package_list }}"
+  changed_when: false
+  failed_when: postgresql_package_check.rc != 0
+  become: yes
+  tags: [postgres, install, validation, verify]

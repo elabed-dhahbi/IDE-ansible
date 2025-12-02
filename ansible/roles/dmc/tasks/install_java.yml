@@ -1,89 +1,150 @@
 ---
-# Java Installation Tasks
+# =============================================================================
+# Java Installation Tasks - Production-Grade Refactored
+# =============================================================================
+# This task file has been refactored for:
+# - Idempotence: Checks if Java is already installed before proceeding
+# - Portability: All paths and versions are parameterized via variables
+# - Robustness: Includes validation and error handling blocks
+# =============================================================================
+
+# =============================================================================
+# Pre-flight Validation
+# =============================================================================
+- name: Validate Java installation variables
+  assert:
+    that:
+      - java_install_dir is defined
+      - java_legacy_version is defined
+      - paths.offline_dir is defined
+    fail_msg: "Required Java variables not defined. Check vars/release.yml and config/values.yaml"
+    success_msg: "All required Java variables are defined"
+  tags: [dmc, java, install, validation, always]
+
+# =============================================================================
+# Java Installation Directory Setup
+# =============================================================================
+# Use variables instead of hardcoded paths for portability
 
 - name: Ensure Java installation directory exists
   file:
-    path: "{{ java_home }}"
+    path: "{{ java_install_dir | default(system_paths.java_install_dir) }}"
     state: directory
     mode: '0755'
   become: yes
-  tags: [dmc, java, install]
+  tags: [dmc, java, install, directories]
 
-- name: Find Java 1.8.0_92 package
+# =============================================================================
+# Java Package Discovery
+# =============================================================================
+# Use variables for package patterns instead of hardcoded values
+
+- name: Find Java package in offline directory
   find:
     paths: "{{ paths.offline_dir }}"
-    patterns: "1_8_0_92-jdk.tar.gz"
+    patterns:
+      - "{{ package_globs.jdk8_64bit | default('1_8_0_92-jdk.tar.gz') }}"
+      - "openlogic-openjdk-{{ java_full_version | default('8u412') }}*linux*.tar.gz"
+    file_type: file
   register: java_package_files
-  tags: [dmc, java, install]
+  tags: [dmc, java, install, discovery]
 
-- name: Display Java package files found
-  debug:
-    msg: "Java package files found: {{ java_package_files.files | map(attribute='path') | list }}"
-  tags: [dmc, java, debug]
+- name: Validate Java package found
+  assert:
+    that:
+      - java_package_files.files | length > 0
+    fail_msg: "No Java package found in {{ paths.offline_dir }}. Ensure Java package is present."
+    success_msg: "Found Java package: {{ java_package_files.files[0].path }}"
+  tags: [dmc, java, install, validation]
 
-- name: Extract JDK8 package
+# =============================================================================
+# Java Installation with Idempotence Check
+# =============================================================================
+# Check if Java is already installed before extracting
+
+- name: Check if Java is already installed
+  stat:
+    path: "{{ java_install_dir | default(system_paths.java_install_dir) }}/current/bin/java"
+  register: java_installed
+  tags: [dmc, java, install, validation]
+
+- name: Extract JDK8 package (only if not already installed)
   unarchive:
-    src: "{{ item.path }}"
-    dest: "/usr/j2se"
+    src: "{{ java_package_files.files[0].path }}"
+    dest: "{{ java_install_dir | default(system_paths.java_install_dir) }}"
     remote_src: yes
     owner: root
     group: root
     mode: '0755'
-  loop: "{{ java_package_files.files }}"
   become: yes
+  when: not java_installed.stat.exists
   tags: [dmc, java, install]
 
-- name: Remove existing current directory if it exists
-  file:
-    path: "/usr/j2se/current"
-    state: absent
-  become: yes
-  tags: [dmc, java, cleanup]
+# =============================================================================
+# Java Symlink Management
+# =============================================================================
+# Create symlink using variables for portability
 
 - name: Find extracted Java directory
   find:
-    paths: "/usr/j2se"
-    patterns: "1_8_0_92-jdk"
+    paths: "{{ java_install_dir | default(system_paths.java_install_dir) }}"
+    patterns:
+      - "{{ java_legacy_version }}-jdk"
+      - "jdk{{ java_full_version | default('8u412') }}*"
     file_type: directory
   register: java_directories
   become: yes
-  tags: [dmc, java, install]
+  when: not java_installed.stat.exists
+  tags: [dmc, java, install, symlink]
 
-- name: Create Java symlink
+- name: Create Java symlink (idempotent)
   file:
-    src: "{{ java_directories.files[0].path }}"
-    dest: "/usr/j2se/current"
+    src: "{{ java_directories.files[0].path if java_directories.files | length > 0 else java_install_dir | default(system_paths.java_install_dir) + '/' + java_legacy_version + '-jdk' }}"
+    dest: "{{ java_install_dir | default(system_paths.java_install_dir) }}/current"
     state: link
     force: yes
   become: yes
+  when: not java_installed.stat.exists or not java_installed.stat.islnk
   tags: [dmc, java, symlink]
 
 - name: Set Java directory permissions
   file:
-    path: "/usr/j2se"
+    path: "{{ java_install_dir | default(system_paths.java_install_dir) }}"
     mode: '0755'
     recurse: yes
   become: yes
   tags: [dmc, java, permissions]
 
+# =============================================================================
+# Java Installation Verification
+# =============================================================================
+# Verify Java is properly installed and accessible
+
 - name: Verify Java installation
-  command: "/usr/j2se/current/bin/java -version"
+  command: "{{ java_install_dir | default(system_paths.java_install_dir) }}/current/bin/java -version"
   register: java_version
+  changed_when: false
+  failed_when: java_version.rc != 0
   become: yes
-  tags: [dmc, java, verify]
+  tags: [dmc, java, verify, validation]
 
 - name: Display Java version
   debug:
-    msg: "{{ java_version.stdout_lines }}"
+    msg: "{{ java_version.stderr_lines | default(java_version.stdout_lines) }}"
   tags: [dmc, java, verify]
+
+# =============================================================================
+# Environment Configuration
+# =============================================================================
+# Set JAVA_HOME using variables for portability
 
 - name: Set JAVA_HOME environment variable in .profile.sicap
   lineinfile:
     path: "{{ dmc_home }}/.profile.sicap"
     regexp: '^export JAVA_HOME='
-    line: 'export JAVA_HOME=${JAVA_HOME:-/usr/j2se/current}'
+    line: 'export JAVA_HOME=${JAVA_HOME:-{{ java_install_dir | default(system_paths.java_install_dir) }}/current}'
     backup: yes
   become: yes
-  tags: [dmc, java, environment]
+  tags: [dmc, java, environment, config]
 
 
