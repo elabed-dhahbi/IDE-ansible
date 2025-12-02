@@ -41,6 +41,7 @@ opensearch_config:
   cluster_routing_allocation_disk_watermark_low: "85%"
   cluster_routing_allocation_disk_watermark_high: "90%"
   cluster_routing_allocation_disk_watermark_flood_stage: "95%"
+  gc_log_path: "{{ opensearch_logs_dir }}/gc.log"
 
 # Security configuration
 opensearch_security:

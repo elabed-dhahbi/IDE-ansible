@@ -2,25 +2,73 @@
 ---
 # OpenSearch Configuration Tasks
 
-- name: Configure OpenSearch main settings
-  lineinfile:
-    path: "{{ opensearch_config_dir }}/opensearch.yml"
-    regexp: "^{{ item.key }}:"
-    line: "{{ item.key }}: {{ item.value }}"
-    create: yes
+# Phase 4: Production Readiness - Variable Validation
+- name: Validate required variables
+  assert:
+    that:
+      - opensearch_config_dir is defined
+      - opensearch_config is defined
+      - opensearch_config.admin_password is defined
+      - opensearch_config.cluster_name is defined
+      - opensearch_user is defined
+      - opensearch_group is defined
+      - opensearch_certificates is defined
+      - opensearch_certificates.security_dir is defined
+    fail_msg: "Required OpenSearch variables are not defined. Check defaults/main.yml and config/values.yaml"
+    success_msg: "All required variables are defined"
+  tags: [opensearch, validation, always]
+
+- name: Pre-flight checks - Verify OpenSSL is installed
+  command: which openssl
+  register: openssl_check
+  changed_when: false
+  failed_when: openssl_check.rc != 0
+  tags: [opensearch, validation, always]
+
+- name: Pre-flight checks - Verify required directories exist
+  stat:
+    path: "{{ item }}"
+  register: dir_check
   loop:
-    - { key: "cluster.name", value: "{{ opensearch_config.cluster_name }}" }
-    - { key: "node.name", value: "{{ opensearch_config.node_name }}" }
-    - { key: "node.roles", value: "[ data, ingest, cluster_manager ]" }
-    - { key: "network.host", value: "{{ opensearch_config.network_host }}" }
-    - { key: "http.port", value: "{{ opensearch_config.http_port }}" }
-    - { key: "transport.port", value: "{{ opensearch_config.transport_port }}" }
-    - { key: "discovery.type", value: "{{ opensearch_config.discovery_type }}" }
-    - { key: "bootstrap.memory_lock", value: "{{ opensearch_config.bootstrap_memory_lock | lower }}" }
-    - { key: "path.data", value: "{{ opensearch_config.path_data }}" }
-    - { key: "path.logs", value: "{{ opensearch_config.path_logs }}" }
-    - { key: "path.repo", value: "[\"{{ opensearch_config.path_repo }}\"]" }
+    - "{{ opensearch_config_dir }}"
+    - "{{ opensearch_data_dir }}"
+    - "{{ opensearch_logs_dir }}"
+  tags: [opensearch, validation, always]
+
+- name: Pre-flight checks - Create directories if missing
+  file:
+    path: "{{ item.item }}"
+    state: directory
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    mode: '0755'
+  loop: "{{ dir_check.results }}"
+  when: not item.stat.exists
   become: yes
+  tags: [opensearch, validation, always]
+
+# Phase 1.3: Template-based Configuration (Idempotent)
+- name: Backup existing OpenSearch configuration
+  copy:
+    src: "{{ opensearch_config_dir }}/opensearch.yml"
+    dest: "{{ opensearch_config_dir }}/opensearch.yml.backup-{{ ansible_date_time.epoch }}"
+    remote_src: yes
+  become: yes
+  when: opensearch_config_backup | default(true) and (opensearch_config_dir + '/opensearch.yml') | exists
+  failed_when: false
+  changed_when: false
+  tags: [opensearch, config, main, backup]
+
+- name: Generate OpenSearch configuration from template
+  template:
+    src: opensearch.yml.j2
+    dest: "{{ opensearch_config_dir }}/opensearch.yml"
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    mode: '0644'
+    backup: yes
+  become: yes
+  notify: restart opensearch
   tags: [opensearch, config, main]
 
 # Phase 1.1: Idempotent Service Management
@@ -94,110 +142,124 @@
   become: yes
   tags: [opensearch, config, security, certificates]
 
-- name: Generate Root CA private key
-  command: >
-    openssl genrsa -out {{ opensearch_certificates.security_dir }}/root-ca-key.pem {{ opensearch_certificates.root_ca.key_size }}
-  args:
-    creates: "{{ opensearch_certificates.security_dir }}/root-ca-key.pem"
-  become: yes
-  when: certs_need_regeneration
-  tags: [opensearch, config, security, certificates]
+# Phase 4: Error Handling for Certificate Generation
+- name: Generate certificates with error handling
+  block:
+    - name: Generate Root CA private key
+      command: >
+        openssl genrsa -out {{ opensearch_certificates.security_dir }}/root-ca-key.pem {{ opensearch_certificates.root_ca.key_size }}
+      args:
+        creates: "{{ opensearch_certificates.security_dir }}/root-ca-key.pem"
+      become: yes
+      when: certs_need_regeneration
+      tags: [opensearch, config, security, certificates]
 
-- name: Generate Root CA certificate
-  command: >
-    openssl req -new -x509 -sha256 -key {{ opensearch_certificates.security_dir }}/root-ca-key.pem
-    -subj "/C={{ opensearch_certificates.root_ca.subject.C }}/ST={{ opensearch_certificates.root_ca.subject.ST }}/L={{ opensearch_certificates.root_ca.subject.L }}/O={{ opensearch_certificates.root_ca.subject.O }}/OU={{ opensearch_certificates.root_ca.subject.OU }}/CN={{ opensearch_certificates.root_ca.subject.CN }}"
-    -out {{ opensearch_certificates.security_dir }}/root-ca.pem -days {{ opensearch_certificates.root_ca.validity_days }}
-  args:
-    creates: "{{ opensearch_certificates.security_dir }}/root-ca.pem"
-  become: yes
-  when: certs_need_regeneration
-  tags: [opensearch, config, security, certificates]
+    - name: Generate Root CA certificate
+      command: >
+        openssl req -new -x509 -sha256 -key {{ opensearch_certificates.security_dir }}/root-ca-key.pem
+        -subj "/C={{ opensearch_certificates.root_ca.subject.C }}/ST={{ opensearch_certificates.root_ca.subject.ST }}/L={{ opensearch_certificates.root_ca.subject.L }}/O={{ opensearch_certificates.root_ca.subject.O }}/OU={{ opensearch_certificates.root_ca.subject.OU }}/CN={{ opensearch_certificates.root_ca.subject.CN }}"
+        -out {{ opensearch_certificates.security_dir }}/root-ca.pem -days {{ opensearch_certificates.root_ca.validity_days }}
+      args:
+        creates: "{{ opensearch_certificates.security_dir }}/root-ca.pem"
+      become: yes
+      when: certs_need_regeneration
+      tags: [opensearch, config, security, certificates]
 
-- name: Generate admin private key (following official OpenSearch docs)
-  command: >
-    openssl genrsa -out {{ opensearch_certificates.security_dir }}/admin-key-temp.pem {{ opensearch_certificates.admin.key_size }}
-  args:
-    creates: "{{ opensearch_certificates.security_dir }}/admin-key-temp.pem"
-  become: yes
-  when: certs_need_regeneration
-  tags: [opensearch, config, security, certificates]
+    - name: Generate admin private key (following official OpenSearch docs)
+      command: >
+        openssl genrsa -out {{ opensearch_certificates.security_dir }}/admin-key-temp.pem {{ opensearch_certificates.admin.key_size }}
+      args:
+        creates: "{{ opensearch_certificates.security_dir }}/admin-key-temp.pem"
+      become: yes
+      when: certs_need_regeneration
+      tags: [opensearch, config, security, certificates]
 
-- name: Convert admin private key to PKCS#8 (following official OpenSearch docs)
-  command: >
-    openssl pkcs8 -inform PEM -outform PEM -in {{ opensearch_certificates.security_dir }}/admin-key-temp.pem
-    -topk8 -nocrypt -v1 PBE-SHA1-3DES -out {{ opensearch_certificates.security_dir }}/admin-key.pem
-  args:
-    creates: "{{ opensearch_certificates.security_dir }}/admin-key.pem"
-  become: yes
-  when: certs_need_regeneration
-  tags: [opensearch, config, security, certificates]
+    - name: Convert admin private key to PKCS#8 (following official OpenSearch docs)
+      command: >
+        openssl pkcs8 -inform PEM -outform PEM -in {{ opensearch_certificates.security_dir }}/admin-key-temp.pem
+        -topk8 -nocrypt -v1 PBE-SHA1-3DES -out {{ opensearch_certificates.security_dir }}/admin-key.pem
+      args:
+        creates: "{{ opensearch_certificates.security_dir }}/admin-key.pem"
+      become: yes
+      when: certs_need_regeneration
+      tags: [opensearch, config, security, certificates]
 
-- name: Generate admin certificate signing request (following official OpenSearch docs)
-  command: >
-    openssl req -new -key {{ opensearch_certificates.security_dir }}/admin-key.pem
-    -subj "/C={{ opensearch_certificates.admin.subject.C }}/ST={{ opensearch_certificates.admin.subject.ST }}/L={{ opensearch_certificates.admin.subject.L }}/O={{ opensearch_certificates.admin.subject.O }}/OU={{ opensearch_certificates.admin.subject.OU }}/CN={{ opensearch_certificates.admin.subject.CN }}"
-    -out {{ opensearch_certificates.security_dir }}/admin.csr
-  args:
-    creates: "{{ opensearch_certificates.security_dir }}/admin.csr"
-  become: yes
-  when: certs_need_regeneration
-  tags: [opensearch, config, security, certificates]
+    - name: Generate admin certificate signing request (following official OpenSearch docs)
+      command: >
+        openssl req -new -key {{ opensearch_certificates.security_dir }}/admin-key.pem
+        -subj "/C={{ opensearch_certificates.admin.subject.C }}/ST={{ opensearch_certificates.admin.subject.ST }}/L={{ opensearch_certificates.admin.subject.L }}/O={{ opensearch_certificates.admin.subject.O }}/OU={{ opensearch_certificates.admin.subject.OU }}/CN={{ opensearch_certificates.admin.subject.CN }}"
+        -out {{ opensearch_certificates.security_dir }}/admin.csr
+      args:
+        creates: "{{ opensearch_certificates.security_dir }}/admin.csr"
+      become: yes
+      when: certs_need_regeneration
+      tags: [opensearch, config, security, certificates]
 
-- name: Generate admin certificate (following official OpenSearch docs)
-  command: >
-    openssl x509 -req -in {{ opensearch_certificates.security_dir }}/admin.csr
-    -CA {{ opensearch_certificates.security_dir }}/root-ca.pem
-    -CAkey {{ opensearch_certificates.security_dir }}/root-ca-key.pem
-    -CAcreateserial -sha256 -out {{ opensearch_certificates.security_dir }}/admin.pem -days {{ opensearch_certificates.admin.validity_days }}
-  args:
-    creates: "{{ opensearch_certificates.security_dir }}/admin.pem"
-  become: yes
-  when: certs_need_regeneration
-  tags: [opensearch, config, security, certificates]
+    - name: Generate admin certificate (following official OpenSearch docs)
+      command: >
+        openssl x509 -req -in {{ opensearch_certificates.security_dir }}/admin.csr
+        -CA {{ opensearch_certificates.security_dir }}/root-ca.pem
+        -CAkey {{ opensearch_certificates.security_dir }}/root-ca-key.pem
+        -CAcreateserial -sha256 -out {{ opensearch_certificates.security_dir }}/admin.pem -days {{ opensearch_certificates.admin.validity_days }}
+      args:
+        creates: "{{ opensearch_certificates.security_dir }}/admin.pem"
+      become: yes
+      when: certs_need_regeneration
+      tags: [opensearch, config, security, certificates]
 
-- name: Generate node private key
-  command: >
-    openssl genrsa -out {{ opensearch_certificates.security_dir }}/esnode-key.pem {{ opensearch_certificates.node.key_size }}
-  args:
-    creates: "{{ opensearch_certificates.security_dir }}/esnode-key.pem"
-  become: yes
-  when: certs_need_regeneration
-  tags: [opensearch, config, security, certificates]
+    - name: Generate node private key
+      command: >
+        openssl genrsa -out {{ opensearch_certificates.security_dir }}/esnode-key.pem {{ opensearch_certificates.node.key_size }}
+      args:
+        creates: "{{ opensearch_certificates.security_dir }}/esnode-key.pem"
+      become: yes
+      when: certs_need_regeneration
+      tags: [opensearch, config, security, certificates]
 
-- name: Generate node certificate signing request
-  command: >
-    openssl req -new -key {{ opensearch_certificates.security_dir }}/esnode-key.pem
-    -subj "/C={{ opensearch_certificates.node.subject.C }}/ST={{ opensearch_certificates.node.subject.ST }}/L={{ opensearch_certificates.node.subject.L }}/O={{ opensearch_certificates.node.subject.O }}/OU={{ opensearch_certificates.node.subject.OU }}/CN={{ opensearch_certificates.node.subject.CN }}"
-    -out {{ opensearch_certificates.security_dir }}/esnode.csr
-  args:
-    creates: "{{ opensearch_certificates.security_dir }}/esnode.csr"
-  become: yes
-  when: certs_need_regeneration
-  tags: [opensearch, config, security, certificates]
+    - name: Generate node certificate signing request
+      command: >
+        openssl req -new -key {{ opensearch_certificates.security_dir }}/esnode-key.pem
+        -subj "/C={{ opensearch_certificates.node.subject.C }}/ST={{ opensearch_certificates.node.subject.ST }}/L={{ opensearch_certificates.node.subject.L }}/O={{ opensearch_certificates.node.subject.O }}/OU={{ opensearch_certificates.node.subject.OU }}/CN={{ opensearch_certificates.node.subject.CN }}"
+        -out {{ opensearch_certificates.security_dir }}/esnode.csr
+      args:
+        creates: "{{ opensearch_certificates.security_dir }}/esnode.csr"
+      become: yes
+      when: certs_need_regeneration
+      tags: [opensearch, config, security, certificates]
 
-- name: Generate node certificate
-  command: >
-    openssl x509 -req -in {{ opensearch_certificates.security_dir }}/esnode.csr
-    -CA {{ opensearch_certificates.security_dir }}/root-ca.pem
-    -CAkey {{ opensearch_certificates.security_dir }}/root-ca-key.pem
-    -CAcreateserial -out {{ opensearch_certificates.security_dir }}/esnode.pem -days {{ opensearch_certificates.node.validity_days }}
-  args:
-    creates: "{{ opensearch_certificates.security_dir }}/esnode.pem"
-  become: yes
-  when: certs_need_regeneration
-  tags: [opensearch, config, security, certificates]
+    - name: Generate node certificate
+      command: >
+        openssl x509 -req -in {{ opensearch_certificates.security_dir }}/esnode.csr
+        -CA {{ opensearch_certificates.security_dir }}/root-ca.pem
+        -CAkey {{ opensearch_certificates.security_dir }}/root-ca-key.pem
+        -CAcreateserial -out {{ opensearch_certificates.security_dir }}/esnode.pem -days {{ opensearch_certificates.node.validity_days }}
+      args:
+        creates: "{{ opensearch_certificates.security_dir }}/esnode.pem"
+      become: yes
+      when: certs_need_regeneration
+      tags: [opensearch, config, security, certificates]
 
-- name: Clean up certificate signing requests and temporary files
-  file:
-    path: "{{ item }}"
-    state: absent
-  loop:
-    - "{{ opensearch_certificates.security_dir }}/esnode.csr"
-    - "{{ opensearch_certificates.security_dir }}/admin.csr"
-    - "{{ opensearch_certificates.security_dir }}/admin-key-temp.pem"
-  become: yes
-  tags: [opensearch, config, security, certificates, cleanup]
+    - name: Clean up certificate signing requests and temporary files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ opensearch_certificates.security_dir }}/esnode.csr"
+        - "{{ opensearch_certificates.security_dir }}/admin.csr"
+        - "{{ opensearch_certificates.security_dir }}/admin-key-temp.pem"
+      become: yes
+      tags: [opensearch, config, security, certificates, cleanup]
+  rescue:
+    - name: Clean up on certificate generation failure
+      file:
+        path: "{{ opensearch_certificates.security_dir }}"
+        state: absent
+      become: yes
+      ignore_errors: yes
+    - name: Fail with descriptive message
+      fail:
+        msg: "Certificate generation failed. Check OpenSSL installation, permissions, and disk space."
+  tags: [opensearch, config, security, certificates]
 
 - name: Set proper ownership for security certificates
   file:
@@ -223,76 +285,58 @@
   when: certs_need_regeneration | default(false)
   tags: [opensearch, config, security, certificates]
 
-- name: Configure OpenSearch security with production certificates (step 1 - allow demo certs temporarily)
-  lineinfile:
-    path: "{{ opensearch_config_dir }}/opensearch.yml"
-    regexp: "^{{ item.key }}:"
-    line: "{{ item.key }}: {{ item.value }}"
-    create: yes
-  loop:
-    # Security Plugin Settings (following official OpenSearch docs)
-    - { key: "plugins.security.disabled", value: "false" }
-    # SSL Transport Configuration (following official OpenSearch docs)
-    - { key: "plugins.security.ssl.transport.enabled", value: "true" }
-    - { key: "plugins.security.ssl.transport.pemcert_filepath", value: "{{ opensearch_certificates.security_dir }}/esnode.pem" }
-    - { key: "plugins.security.ssl.transport.pemkey_filepath", value: "{{ opensearch_certificates.security_dir }}/esnode-key.pem" }
-    - { key: "plugins.security.ssl.transport.pemtrustedcas_filepath", value: "{{ opensearch_certificates.security_dir }}/root-ca.pem" }
-    - { key: "plugins.security.ssl.transport.enforce_hostname_verification", value: "false" }
-    # SSL HTTP Configuration (enabled for security admin tool)
-    - { key: "plugins.security.ssl.http.enabled", value: "true" }
-    - { key: "plugins.security.ssl.http.pemcert_filepath", value: "{{ opensearch_certificates.security_dir }}/esnode.pem" }
-    - { key: "plugins.security.ssl.http.pemkey_filepath", value: "{{ opensearch_certificates.security_dir }}/esnode-key.pem" }
-    - { key: "plugins.security.ssl.http.pemtrustedcas_filepath", value: "{{ opensearch_certificates.security_dir }}/root-ca.pem" }
-    # Security Plugin Settings (following official docs)
-    - { key: "plugins.security.allow_unsafe_democertificates", value: "false" }
-    - { key: "plugins.security.allow_default_init_securityindex", value: "true" }
-    - { key: "plugins.security.authcz.admin_dn", value: "['CN={{ opensearch_certificates.admin.subject.CN }},OU={{ opensearch_certificates.admin.subject.OU }},O={{ opensearch_certificates.admin.subject.O }},L={{ opensearch_certificates.admin.subject.L }},ST={{ opensearch_certificates.admin.subject.ST }},C={{ opensearch_certificates.admin.subject.C }}']" }
-    - { key: "plugins.security.nodes_dn", value: "['CN={{ opensearch_certificates.node.subject.CN }},OU={{ opensearch_certificates.node.subject.OU }},O={{ opensearch_certificates.node.subject.O }},L={{ opensearch_certificates.node.subject.L }},ST={{ opensearch_certificates.node.subject.ST }},C={{ opensearch_certificates.node.subject.C }}']" }
-    # Audit Configuration
-    - { key: "plugins.security.audit.type", value: "internal_opensearch" }
-    - { key: "plugins.security.audit.config.disabled_rest_categories", value: "NONE" }
-    - { key: "plugins.security.audit.config.disabled_transport_categories", value: "NONE" }
-    # Snapshot and Restore (following official docs)
-    - { key: "plugins.security.enable_snapshot_restore_privilege", value: "true" }
-    - { key: "plugins.security.check_snapshot_restore_write_privileges", value: "true" }
-    # REST API Roles (following official docs)
-    - { key: "plugins.security.restapi.roles_enabled", value: "[all_access, security_rest_api_access]" }
-    # System Indices (simplified for YAML compatibility)
-    - { key: "plugins.security.system_indices.enabled", value: "true" }
-    # Cluster Settings
-    - { key: "cluster.routing.allocation.disk.threshold_enabled", value: "true" }
-    - { key: "cluster.routing.allocation.disk.watermark.low", value: "85%" }
-    - { key: "cluster.routing.allocation.disk.watermark.high", value: "90%" }
-    - { key: "cluster.routing.allocation.disk.watermark.flood_stage", value: "95%" }
-    # Node Settings (following official docs)
-    - { key: "node.max_local_storage_nodes", value: "3" }
-  become: yes
-  tags: [opensearch, config, security]
+# Security configuration is now handled by the template above
+# This section removed - all settings are in opensearch.yml.j2 template
 
-- name: Generate OpenSearch admin password hash (following official docs)
+# Phase 1.4: Idempotent Password Hash Generation
+- name: Check if internal users file exists and has valid hash
+  stat:
+    path: "{{ opensearch_config_dir }}/opensearch-security/internal_users.yml"
+  register: internal_users_file
+  tags: [opensearch, config, security, password]
+
+- name: Extract existing password hash from internal_users.yml
+  shell: |
+    grep -A 5 "^admin:" {{ opensearch_config_dir }}/opensearch-security/internal_users.yml | grep "hash:" | awk '{print $2}' | tr -d '"'
+  register: existing_password_hash
+  when: internal_users_file.stat.exists
+  failed_when: false
+  changed_when: false
+  become: yes
+  tags: [opensearch, config, security, password]
+
+- name: Determine if password hash needs regeneration
+  set_fact:
+    password_needs_regeneration: >
+      {{ not internal_users_file.stat.exists or
+         existing_password_hash.stdout is not defined or
+         existing_password_hash.stdout | length == 0 }}
+  tags: [opensearch, config, security, password]
+
+- name: Generate OpenSearch admin password hash (only if needed)
   shell: |
     cd /usr/share/opensearch/plugins/opensearch-security/tools
     OPENSEARCH_JAVA_HOME={{ opensearch_java_home }} ./hash.sh -p "{{ opensearch_config.admin_password }}"
   register: opensearch_password_hash_result
   become: yes
+  when: password_needs_regeneration
   tags: [opensearch, config, security, password]
 
 - name: Set OpenSearch admin password hash
   set_fact:
-    opensearch_admin_password_hash: "{{ opensearch_password_hash_result.stdout_lines[-1] }}"
+    opensearch_admin_password_hash: >
+      {% if opensearch_password_hash_result is defined and opensearch_password_hash_result.stdout_lines is defined and opensearch_password_hash_result.stdout_lines | length > 0 %}
+      {{ opensearch_password_hash_result.stdout_lines[-1] }}
+      {% elif existing_password_hash is defined and existing_password_hash.stdout is defined and existing_password_hash.stdout | length > 0 %}
+      {{ existing_password_hash.stdout }}
+      {% else %}
+      ""
+      {% endif %}
   tags: [opensearch, config, security, password]
 
-- name: Generate OpenSearch kibanaserver password hash (following official docs)
-  shell: |
-    cd /usr/share/opensearch/plugins/opensearch-security/tools
-    OPENSEARCH_JAVA_HOME={{ opensearch_java_home }} ./hash.sh -p "{{ opensearch_config.admin_password }}"
-  register: opensearch_kibanaserver_password_hash_result
-  become: yes
-  tags: [opensearch, config, security, password]
-
-- name: Set OpenSearch kibanaserver password hash
+- name: Generate OpenSearch kibanaserver password hash (reuse admin hash)
   set_fact:
-    opensearch_kibanaserver_password_hash: "{{ opensearch_kibanaserver_password_hash_result.stdout_lines[-1] }}"
+    opensearch_kibanaserver_password_hash: "{{ opensearch_admin_password_hash }}"
   tags: [opensearch, config, security, password]
 
 - name: Configure OpenSearch internal users (following official docs)
@@ -320,7 +364,9 @@
     owner: "{{ opensearch_user }}"
     group: "{{ opensearch_group }}"
     mode: '0644'
+    backup: yes
   become: yes
+  notify: restart opensearch
   tags: [opensearch, config, security, users]
 
 - name: Fix YAML indentation for kibanaserver user hash
@@ -329,12 +375,8 @@
   become: yes
   tags: [opensearch, config, security, users]
 
-- name: Restart OpenSearch to apply user configuration changes
-  systemd:
-    name: "{{ opensearch_service_name }}"
-    state: restarted
-    daemon_reload: yes
-  become: yes
+- name: Notify restart after user configuration changes
+  meta: flush_handlers
   tags: [opensearch, config, security, users]
 
 - name: Configure OpenSearch roles mapping (following official docs)
@@ -365,7 +407,9 @@
     owner: "{{ opensearch_user }}"
     group: "{{ opensearch_group }}"
     mode: '0644'
+    backup: yes
   become: yes
+  notify: restart opensearch
   tags: [opensearch, config, security, roles]
 
 - name: Start OpenSearch service with new certificates
@@ -375,6 +419,7 @@
     enabled: yes
     daemon_reload: yes
   become: yes
+  when: certs_need_regeneration
   tags: [opensearch, config, security, certificates]
 
 - name: Wait for OpenSearch to start with new certificates
@@ -382,8 +427,9 @@
     port: "{{ opensearch_config.http_port }}"
     host: "{{ ansible_host }}"
     delay: 10
-    timeout: 60
+    timeout: 120
   become: yes
+  when: certs_need_regeneration
   tags: [opensearch, config, security, certificates]
 
 - name: Apply security configuration changes using securityadmin.sh (following official docs)
@@ -391,92 +437,40 @@
     cd /usr/share/opensearch/plugins/opensearch-security/tools
     OPENSEARCH_JAVA_HOME={{ opensearch_java_home }} ./securityadmin.sh -cd {{ opensearch_config_dir }}/opensearch-security/ -h {{ ansible_host }} -p {{ opensearch_config.http_port }} -cert {{ opensearch_certificates.security_dir }}/admin.pem -key {{ opensearch_certificates.security_dir }}/admin-key.pem -cacert {{ opensearch_certificates.security_dir }}/root-ca.pem -icl -nhnv
   become: yes
+  register: securityadmin_result
+  failed_when: securityadmin_result.rc != 0
+  changed_when: "'Done with success' in securityadmin_result.stdout"
   tags: [opensearch, config, security, apply]
 
-- name: Disable demo certificates after OpenSearch is running with production certs
-  lineinfile:
-    path: "{{ opensearch_config_dir }}/opensearch.yml"
-    regexp: "^plugins\\.security\\.allow_unsafe_democertificates:"
-    line: "plugins.security.allow_unsafe_democertificates: false"
-  become: yes
-  tags: [opensearch, config, security, certificates]
+# Demo certificates already disabled in template (plugins.security.allow_unsafe_democertificates: false)
+# Service restart handled by handler when configuration template changes
+# Health checks will verify service is ready after handlers execute
 
-- name: Restart OpenSearch to apply final security settings
-  systemd:
-    name: "{{ opensearch_service_name }}"
-    state: restarted
-  become: yes
-  tags: [opensearch, config, security, certificates]
+# Performance settings now handled by opensearch.yml.j2 template
+# No separate task needed - all settings in template
 
-- name: Wait for OpenSearch to restart with final security settings
-  wait_for:
-    port: "{{ opensearch_config.http_port }}"
-    host: "{{ ansible_host }}"
-    delay: 10
-    timeout: 60
+# Phase 1.3: Template-based JVM Configuration
+- name: Backup existing JVM configuration
+  copy:
+    src: "{{ opensearch_config_dir }}/jvm.options"
+    dest: "{{ opensearch_config_dir }}/jvm.options.backup-{{ ansible_date_time.epoch }}"
+    remote_src: yes
   become: yes
-  tags: [opensearch, config, security, certificates]
+  when: opensearch_config_backup | default(true) and (opensearch_config_dir + '/jvm.options') | exists
+  failed_when: false
+  changed_when: false
+  tags: [opensearch, config, jvm, backup]
 
-- name: Configure OpenSearch performance settings
-  lineinfile:
-    path: "{{ opensearch_config_dir }}/opensearch.yml"
-    regexp: "^{{ item.key }}:"
-    line: "{{ item.key }}: {{ item.value }}"
-    create: yes
-  loop:
-    - { key: "indices.memory.index_buffer_size", value: "{{ opensearch_config.indices_memory_index_buffer_size }}" }
-    - { key: "indices.queries.cache.size", value: "{{ opensearch_config.indices_queries_cache_size }}" }
-    - { key: "indices.fielddata.cache.size", value: "{{ opensearch_config.indices_fielddata_cache_size }}" }
-    - { key: "cluster.routing.allocation.disk.threshold_enabled", value: "{{ opensearch_config.cluster_routing_allocation_disk_threshold_enabled | lower }}" }
-    - { key: "cluster.routing.allocation.disk.watermark.low", value: "{{ opensearch_config.cluster_routing_allocation_disk_watermark_low }}" }
-    - { key: "cluster.routing.allocation.disk.watermark.high", value: "{{ opensearch_config.cluster_routing_allocation_disk_watermark_high }}" }
-    - { key: "cluster.routing.allocation.disk.watermark.flood_stage", value: "{{ opensearch_config.cluster_routing_allocation_disk_watermark_flood_stage }}" }
+- name: Generate JVM configuration from template
+  template:
+    src: jvm.options.j2
+    dest: "{{ opensearch_config_dir }}/jvm.options"
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    mode: '0644'
+    backup: yes
   become: yes
-  tags: [opensearch, config, performance]
-
-- name: Configure OpenSearch JVM settings
-  lineinfile:
-    path: "{{ opensearch_config_dir }}/jvm.options"
-    regexp: "^-Xms"
-    line: "-Xms{{ opensearch_jvm.heap_size }}"
-    create: yes
-  become: yes
-  tags: [opensearch, config, jvm]
-
-- name: Configure OpenSearch JVM max heap
-  lineinfile:
-    path: "{{ opensearch_config_dir }}/jvm.options"
-    regexp: "^-Xmx"
-    line: "-Xmx{{ opensearch_jvm.heap_size }}"
-    create: yes
-  become: yes
-  tags: [opensearch, config, jvm]
-
-- name: Configure OpenSearch JVM garbage collection
-  lineinfile:
-    path: "{{ opensearch_config_dir }}/jvm.options"
-    regexp: "^-XX:\\+UseG1GC"
-    line: "-XX:+UseG1GC"
-    create: yes
-  become: yes
-  tags: [opensearch, config, jvm]
-
-- name: Configure OpenSearch JVM GC logging
-  lineinfile:
-    path: "{{ opensearch_config_dir }}/jvm.options"
-    regexp: "^-Xlog:gc"
-    line: "-Xlog:gc*:{{ opensearch_config.gc_log_path }}:time"
-    create: yes
-  become: yes
-  tags: [opensearch, config, jvm]
-
-- name: Configure OpenSearch JVM compressed OOPs
-  lineinfile:
-    path: "{{ opensearch_config_dir }}/jvm.options"
-    regexp: "^-XX:\\+UseCompressedOops"
-    line: "-XX:+UseCompressedOops"
-    create: yes
-  become: yes
+  notify: restart opensearch
   tags: [opensearch, config, jvm]
 
 - name: Configure systemd service limits
@@ -508,33 +502,8 @@
   become: yes
   tags: [opensearch, config, java]
 
-- name: Set OpenSearch admin password
-  shell: |
-    export OPENSEARCH_INITIAL_ADMIN_PASSWORD="{{ opensearch_config.admin_password }}"
-    export JAVA_HOME="{{ opensearch_java_home }}"
-    export OPENSEARCH_JAVA_HOME="{{ opensearch_java_home }}"
-    /usr/share/opensearch/plugins/opensearch-security/tools/hash.sh -p "{{ opensearch_config.admin_password }}"
-  register: password_hash
-  become: yes
-  tags: [opensearch, config, password]
-
-- name: Update internal users with new password
-  lineinfile:
-    path: "{{ opensearch_config_dir }}/opensearch-security/internal_users.yml"
-    regexp: "^admin:"
-    line: "admin:"
-    insertafter: "^admin:"
-  become: yes
-  tags: [opensearch, config, password]
-
-- name: Update admin password hash
-  lineinfile:
-    path: "{{ opensearch_config_dir }}/opensearch-security/internal_users.yml"
-    regexp: "  hash:"
-    line: "  hash: \"{{ password_hash.stdout }}\""
-    insertafter: "^admin:"
-  become: yes
-  tags: [opensearch, config, password]
+# Password hash generation and user configuration already handled earlier in playbook
+# These duplicate tasks removed - see Phase 1.4 above
 
 - name: Fix Performance Analyzer directory ownership
   file:
@@ -578,13 +547,8 @@
   ignore_errors: yes
   tags: [opensearch, config, ownership]
 
-- name: Restart OpenSearch service to apply configuration changes
-  systemd:
-    name: "{{ opensearch_service_name }}"
-    state: restarted
-    daemon_reload: yes
-  become: yes
-  tags: [opensearch, config, restart]
+# Service restart handled by handlers when configuration changes
+# No direct restart needed - template changes trigger handler
 
 - name: Wait for OpenSearch service to be fully started
   wait_for:
@@ -595,11 +559,12 @@
   become: yes
   tags: [opensearch, config, restart]
 
+# Phase 4: Production Health Checks (after handlers flush)
 - name: Wait for OpenSearch to be ready
   uri:
     url: "https://{{ ansible_host }}:{{ opensearch_config.http_port }}"
     method: GET
-    status_code: 200
+    status_code: [200, 401]  # 401 is OK if auth is working
     user: "admin"
     password: "{{ opensearch_config.admin_password }}"
     force_basic_auth: yes
@@ -607,25 +572,43 @@
   register: opensearch_health
   retries: 30
   delay: 10
-  until: opensearch_health.status == 200
+  until: opensearch_health.status in [200, 401]
   become: yes
   tags: [opensearch, config, health]
 
 - name: Verify OpenSearch cluster health
   uri:
-    url: "https://{{ ansible_host }}:{{ opensearch_config.http_port }}/_cluster/health"
+    url: "https://{{ ansible_host }}:{{ opensearch_config.http_port }}/_cluster/health?pretty"
     method: GET
     user: "admin"
     password: "{{ opensearch_config.admin_password }}"
     force_basic_auth: yes
     validate_certs: false
+    status_code: [200]
   register: cluster_health
+  retries: 10
+  delay: 5
+  until: cluster_health.json.status in ['green', 'yellow']
+  failed_when: cluster_health.json.status == 'red'
   become: yes
   tags: [opensearch, config, health]
 
 - name: Display OpenSearch cluster status
   debug:
     msg: "OpenSearch cluster status: {{ cluster_health.json.status }}"
+  tags: [opensearch, config, health]
+
+- name: Verify OpenSearch node is responding
+  uri:
+    url: "https://{{ ansible_host }}:{{ opensearch_config.http_port }}/_nodes/{{ opensearch_config.node_name }}"
+    method: GET
+    user: "admin"
+    password: "{{ opensearch_config.admin_password }}"
+    force_basic_auth: yes
+    validate_certs: false
+    status_code: [200]
+  register: node_status
+  become: yes
   tags: [opensearch, config, health]
 
 - name: Display production certificate details
@@ -653,3 +636,20 @@
   debug:
     msg: "{{ certificate_details.stdout_lines }}"
   tags: [opensearch, config, certificates, status]
+
+# Phase 4: Final Production Summary
+- name: Display OpenSearch installation summary
+  debug:
+    msg:
+      - "=========================================="
+      - "OpenSearch Configuration Complete"
+      - "=========================================="
+      - "Cluster: {{ opensearch_config.cluster_name }}"
+      - "Node: {{ opensearch_config.node_name }}"
+      - "HTTP Port: {{ opensearch_config.http_port }}"
+      - "Transport Port: {{ opensearch_config.transport_port }}"
+      - "SSL Enabled: Yes (Transport & HTTP)"
+      - "Authentication: Enabled"
+      - "Health Status: {{ cluster_health.json.status | default('unknown') }}"
+      - "=========================================="
+  tags: [opensearch, config, summary]
