@@ -26,7 +26,8 @@ help:
 	@echo "$(YELLOW)Available targets:$(NC)"
 	@echo "  $(GREEN)sync-packages$(NC) - Scan offline directory and update versions in config/values.yaml"
 	@echo "  $(GREEN)prepare$(NC)     - Sync packages, then validate offline packages and system readiness"
-	@echo "  $(GREEN)install$(NC)     - Run the complete DMC installation playbook"
+	@echo "  $(GREEN)install$(NC)     - Run the complete DMC installation playbook (all components)"
+	@echo "  $(GREEN)install TAG=xxx$(NC) - Install specific component(s) by tag (e.g., TAG=elkstatistic, TAG=drs)"
 	@echo ""
 	@echo "  $(GREEN)Main Installation Targets:$(NC)"
 	@echo "  $(GREEN)install-dmc-only$(NC) - Install DMC only (without DRS, Logstash, etc.)"
@@ -73,16 +74,20 @@ help:
 	@echo "$(YELLOW)Examples:$(NC)"
 	@echo "  $(GREEN)make sync-packages$(NC)                     # Update versions from offline directory"
 	@echo "  $(GREEN)make prepare$(NC)                           # Sync packages, then validate for TT environment"
-	@echo "  $(GREEN)make install$(NC)                           # Install on TT environment"
-	@echo "  $(GREEN)make install ENVIRONMENT=DEV$(NC)           # Install on DEV environment"
-	@echo "  $(GREEN)make install INVENTORY=ansible/inventories/DEV/hosts.ini$(NC)"
+	@echo "  $(GREEN)make install$(NC)                           # Full installation (all components)"
+	@echo "  $(GREEN)make install TAG=elkstatistic$(NC)          # Install only elkstatistic component"
+	@echo "  $(GREEN)make install TAG=drs$(NC)                    # Install only drs component"
+	@echo "  $(GREEN)make install TAG=sls$(NC)                   # Install only SLS component"
+	@echo "  $(GREEN)make install TAG=postgres$(NC)              # Install only PostgreSQL"
+	@echo "  $(GREEN)make install TAG=opensearch$(NC)            # Install only OpenSearch"
+	@echo "  $(GREEN)make install TAG=zabbix$(NC)                # Install only Zabbix"
+	@echo "  $(GREEN)make install TAG=haproxy$(NC)               # Install only HAProxy"
+	@echo "  $(GREEN)make install ENVIRONMENT=DEV$(NC)           # Full install on DEV environment"
+	@echo "  $(GREEN)make install TAG=drs ENVIRONMENT=DEV$(NC)    # Install drs on DEV environment"
 	@echo "  $(GREEN)make check-inventory$(NC)                   # Test connectivity to all hosts"
 	@echo "  $(GREEN)make install-sls$(NC)                       # Install SLS standalone (for license upload)"
-	@echo "  $(GREEN)make install-tag TAG=sls$(NC)               # Install SLS using tag method"
 	@echo "  $(GREEN)make install-dmc-module-e SKIP_POSTGRES=1$(NC)  # Install DMC with ELK, skip PostgreSQL play"
 	@echo "  $(GREEN)make install-dmc-module-o SKIP_POSTGRES=1$(NC)  # Install DMC with OpenSearch, skip PostgreSQL play"
-	@echo "  $(GREEN)make install-dmc-module-o SKIP_POSTGRES_INSTALL=true$(NC)  # Skip install tasks, keep DMC setup"
-	@echo "  $(GREEN)make install-dmc-module-o SKIP_POSTGRES=1$(NC)  # Install DMC with OpenSearch, skip PostgreSQL"
 	@echo ""
 	@echo "$(YELLOW)Resume Examples:$(NC)"
 	@echo "  $(GREEN)make resume-from-dmc-e$(NC)                 # Resume DMC with ELK stack"
@@ -220,10 +225,13 @@ status:
 		echo "  Check Script: $(RED)✗ Missing$(NC)"; \
 	fi
 
-# Install with specific tags
+# Install with specific tags (legacy target - use 'make install TAG=xxx' instead)
+# Kept for backward compatibility
 install-tag:
-	@echo "$(BLUE)=== Tagged Installation ===$(NC)"
+	@echo "$(BLUE)=== Tagged Installation (Legacy) ===$(NC)"
+	@echo "$(YELLOW)Note: Use 'make install TAG=xxx' instead of 'make install-tag TAG=xxx'$(NC)"
 	@echo "$(YELLOW)Available tags: preflight, postgres, elasticsearch, logstash, kibana$(NC)"
+	@echo "$(YELLOW)               opensearch, logstash-oss, opensearch_dashboards$(NC)"
 	@echo "$(YELLOW)               dmc1, dmc2, drs, mmg, mmsoap, smppc, sls$(NC)"
 	@echo "$(YELLOW)               zabbix, zabbix-agents, elkstatistic, haproxy$(NC)"
 	@echo "$(YELLOW)Usage: make install-tag TAG=postgres$(NC)"
@@ -231,7 +239,7 @@ install-tag:
 		echo "$(RED)ERROR: TAG variable not set$(NC)"; \
 		exit 1; \
 	fi
-	@ansible-playbook -i "$(INVENTORY)" "$(PLAYBOOK)" --tags "$(TAG)" --extra-vars "stack_type=elk" --verbose
+	@ansible-playbook -i "$(INVENTORY)" "$(PLAYBOOK)" --tags "$(TAG)" --extra-vars "stack_type=opensearch" --verbose
 
 # Install Zabbix monitoring server
 install-zabbix:
