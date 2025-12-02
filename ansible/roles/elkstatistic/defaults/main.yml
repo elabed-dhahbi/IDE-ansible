@@ -21,7 +21,9 @@ elkstack_csv_logstash_dir: "/var/opt/elkstatistics/csvexport/logstash"
 # Database configuration - using centralized values from database_config
 elkstack_db:
   # PostgreSQL configuration
-  # If using external database, set database_config.external_host and external_port in values.yaml
+  # Host is always picked up from inventory [postgres] group
+  # Port is always 5432 for PostgreSQL
+  # If using external database, set database_config.external_host in values.yaml
   postgres_host: >-
     {%- if database_config.external_host is defined and database_config.external_host -%}
       {{ database_config.external_host }}
@@ -30,12 +32,7 @@ elkstack_db:
     {%- else -%}
       localhost
     {%- endif -%}
-  postgres_port: >-
-    {%- if database_config.external_port is defined and database_config.external_port -%}
-      {{ database_config.external_port }}
-    {%- else -%}
-      {{ service_ports.postgres | default(5432) }}
-    {%- endif -%}
+  postgres_port: "5432"  # PostgreSQL standard port
   postgres_database: "{{ database_config.dmc_database }}"
   postgres_dmc_schema: "{{ database_config.dmc_schema }}"
   postgres_mdba_schema: "{{ database_config.mdba_schema }}"
