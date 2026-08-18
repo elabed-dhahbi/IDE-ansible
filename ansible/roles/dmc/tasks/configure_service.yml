@@ -1,12 +1,6 @@
 ---
 # DMC Service Configuration Tasks
-
-- name: Install ksh (required for ctl script)
-  yum:
-    name: ksh
-    state: present
-  become: yes
-  tags: [dmc, service, packages]
+# ksh is installed in install_ksh.yml (runs before configure_dmc / this file).
 
 - name: Update DMC systemd service file
   copy:
@@ -55,6 +49,19 @@
   shell: |
     su - {{ dmc_user }} -c "source {{ dmc_home }}/.profile && cd {{ dmc_current_dir }} && ctl start all"
   become: yes
+  register: dmc_ctl_start
+  changed_when: >-
+    dmc_ctl_start.rc == 0
+    and (
+      'already at least one instance'
+      not in (((dmc_ctl_start.stdout | default('')) ~ (dmc_ctl_start.stderr | default(''))) | lower)
+    )
+  failed_when: >-
+    dmc_ctl_start.rc != 0
+    and (
+      'already at least one instance'
+      not in (((dmc_ctl_start.stdout | default('')) ~ (dmc_ctl_start.stderr | default(''))) | lower)
+    )
   tags: [dmc, service, start]
 
 - name: Check if DMC service is running
@@ -110,6 +117,3 @@
       - "Database: {{ dmc_database_host }}:{{ dmc_database_port }}/{{ dmc_database_name }}"
       - "Provider ID: {{ actual_provider_id | default(dmc_provider_id) }}"
   tags: [dmc, service, info]
-
-
-

@@ -9,6 +9,10 @@
   include_tasks: install_dmc.yml
   tags: [dmc, install]
 
+- name: Include ksh prerequisite (required for ctl)
+  include_tasks: install_ksh.yml
+  tags: [dmc, ksh, packages, install, service]
+
 - name: Include Java installation tasks
   include_tasks: install_java.yml
   tags: [dmc, java]
@@ -28,5 +32,3 @@
 - name: Include DMC service configuration tasks
   include_tasks: configure_service.yml
   tags: [dmc, service]
-
-

@@ -7,10 +7,18 @@ stack_type: "{{ stack_type | default('opensearch') }}"
 # Logstash OSS version
 logstash_oss_version: "{{ versions.logstash_oss | default('8.19.4') }}"
 
+# When true, install logstash-output-opensearch from Rubygems if the offline pack does not contain it (or install failed).
+# Set false only on air-gapped hosts that must supply a correct prepare-offline-pack zip under paths.offline_dir.
+logstash_oss_plugin_install_allow_online: true
+
 # Service configuration
 logstash_oss_service_name: "logstash"
 logstash_oss_user: "logstash"
 logstash_oss_group: "logstash"
+
+# systemd service timeouts (seconds). Logstash can take a while to compile pipelines/plugins.
+logstash_oss_systemd_timeout_start_sec: 300
+logstash_oss_systemd_timeout_stop_sec: 300
 
 # Directory paths
 logstash_oss_install_dir: "/usr/share/logstash"
@@ -92,3 +100,4 @@ logstash_oss_settings:
   path_logs: "/var/opt/logstash/logs"
   # Separation of logs per pipeline
   pipeline_separate_logs: true
+

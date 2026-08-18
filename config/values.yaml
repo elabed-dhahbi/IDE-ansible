@@ -3,6 +3,24 @@
 # Hosts and paths are auto-calculated from inventory
 
 # =============================================================================
+# STANDARD PATHS (required by roles; used for offline packages)
+# =============================================================================
+
+paths:
+  offline_dir: /tmp/offline
+  postgres_data_dir: /data/pgsql
+  postgres_home_dir: /home/postgres
+  postgres_tablespaces_dir: /data/postgres
+
+# =============================================================================
+# SICAP JAVA (DMC/DRS/MMG/MMSOAP/SMPP C/SLS)
+# =============================================================================
+
+sicap_java:
+  install_dir: /usr/j2se
+  offline_package: "1_8_0_92-jdk.tar.gz"
+
+# =============================================================================
 # VERSION NUMBERS - Update when upgrading components
 # =============================================================================
 
@@ -17,7 +35,7 @@ versions:
   
   # Database
   postgresql: "15.14-1PGDG.rhel9"
-  postgres: "15"
+  postgres: "15.14"
   libpq: "18.0-1PGDG.rhel9"
   python3_psycopg2: "2.8.6-6.el9"
   
@@ -117,7 +135,7 @@ postgresql_config:
     dmc46:
       name: "{{ database_config.dmc_database }}"
       owner: "{{ database_config.dmc_user }}"
-      schema: "public"
+      schema: "{{ database_config.dmc_schema }}"
       tablespaces:
         data: "{{ database_config.tablespace_data }}"
         index: "{{ database_config.tablespace_index }}"
@@ -125,7 +143,7 @@ postgresql_config:
     mmg:
       name: "{{ database_config.mmg_database }}"
       owner: "{{ database_config.mmg_user }}"
-      schema: "public"
+      schema: "{{ database_config.mmg_schema }}"
       tablespaces:
         data: "mmgtab"
         index: "mmgidx"

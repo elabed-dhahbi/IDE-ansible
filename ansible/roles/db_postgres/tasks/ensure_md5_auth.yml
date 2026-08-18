@@ -1,0 +1,82 @@
+---
+# SICAP/DMC JDBC speaks MD5 only. PostgreSQL 15 defaults to scram-sha-256
+# (pg_hba + password_encryption). postgresql.auto.conf can also override
+# postgresql.conf. Enforce md5 on the running cluster, then re-hash roles.
+
+- name: Allow postgres OS user peer auth on the Unix socket
+  lineinfile:
+    path: "{{ postgresql_config.data_directory }}/pg_hba.conf"
+    regexp: '^local\s+all\s+postgres\s+'
+    line: "local   all             postgres                                peer"
+    insertbefore: '^local\s+all\s+all\s+'
+  become: yes
+  tags: [postgres, postgres_install, service, config, auth]
+
+- name: Set password_encryption = md5 in postgresql.conf
+  lineinfile:
+    path: "{{ postgresql_config.data_directory }}/postgresql.conf"
+    regexp: '^#?password_encryption\s*='
+    line: "password_encryption = md5"
+  become: yes
+  tags: [postgres, postgres_install, service, config, auth]
+
+- name: Remove password_encryption override from postgresql.auto.conf
+  lineinfile:
+    path: "{{ postgresql_config.data_directory }}/postgresql.auto.conf"
+    regexp: '^password_encryption\s*='
+    state: absent
+  become: yes
+  failed_when: false
+  tags: [postgres, postgres_install, service, config, auth]
+
+- name: Replace scram-sha-256 with md5 in pg_hba.conf
+  replace:
+    path: "{{ postgresql_config.data_directory }}/pg_hba.conf"
+    regexp: '^([^#\n][^\n]*\s)scram-sha-256(\s*)$'
+    replace: '\1md5\2'
+  become: yes
+  tags: [postgres, postgres_install, service, config, auth]
+
+- name: Ensure IPv4 host connections use md5
+  lineinfile:
+    path: "{{ postgresql_config.data_directory }}/pg_hba.conf"
+    regexp: '^host\s+all\s+all\s+0\.0\.0\.0/0\s+'
+    line: "host    all             all             0.0.0.0/0               md5"
+  become: yes
+  tags: [postgres, postgres_install, service, config, auth]
+
+- name: Restart PostgreSQL to apply md5 authentication
+  systemd:
+    name: "{{ postgresql_config.service_name }}"
+    state: restarted
+  become: yes
+  tags: [postgres, postgres_install, service, config, auth]
+
+- name: Wait for PostgreSQL after md5 auth restart
+  wait_for:
+    port: "{{ service_ports.postgres | int }}"
+    host: "127.0.0.1"
+    delay: 3
+    timeout: 60
+  tags: [postgres, postgres_install, service, config, auth]
+
+- name: ALTER SYSTEM SET password_encryption = md5
+  command: psql -d postgres -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET password_encryption = 'md5';"
+  become: yes
+  become_user: postgres
+  tags: [postgres, postgres_install, service, config, auth]
+
+- name: Reload PostgreSQL config after ALTER SYSTEM
+  command: psql -d postgres -c "SELECT pg_reload_conf();"
+  become: yes
+  become_user: postgres
+  tags: [postgres, postgres_install, service, config, auth]
+
+- name: Require password_encryption to be md5
+  command: psql -d postgres -At -c "SHOW password_encryption;"
+  become: yes
+  become_user: postgres
+  register: postgres_password_encryption
+  changed_when: false
+  failed_when: (postgres_password_encryption.stdout | default('') | trim) != 'md5'
+  tags: [postgres, postgres_install, service, config, auth]

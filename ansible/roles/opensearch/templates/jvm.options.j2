@@ -3,8 +3,8 @@
 # This file is managed by Ansible playbook
 
 # Heap Size Configuration
--Xms{{ opensearch_jvm.heap_size }}
--Xmx{{ opensearch_jvm.heap_size }}
+-Xms{{ (opensearch_jvm | default({'heap_size': '2g'})).heap_size }}
+-Xmx{{ (opensearch_jvm | default({'heap_size': '2g'})).heap_size }}
 
 # Garbage Collection
 -XX:+UseG1GC
@@ -18,4 +18,3 @@
 
 # Compressed OOPs
 -XX:+UseCompressedOops
-

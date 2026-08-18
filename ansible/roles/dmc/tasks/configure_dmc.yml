@@ -47,11 +47,11 @@
   tags: [dmc, config, debug]
 
 - name: Update JAVA_HOME in .profile.sicap
-  shell: |
-    # Remove any existing JAVA_HOME lines that point to /usr/j2se/current
-    sed -i '/export JAVA_HOME=\${JAVA_HOME:-\\/usr\\/j2se\\/current}/d' {{ dmc_home }}/.profile.sicap
-    # Update the main JAVA_HOME line to point to /usr/j2se/current
-    sed -i 's|JAVA_HOME=\${JAVA_HOME:-/usr/java}|JAVA_HOME=\${JAVA_HOME:-/usr/j2se/current}|' {{ dmc_home }}/.profile.sicap
+  lineinfile:
+    path: "{{ dmc_home }}/.profile.sicap"
+    regexp: '^export JAVA_HOME='
+    line: 'export JAVA_HOME=${JAVA_HOME:-{{ dmc_sicap_jdk_home }}}'
+    backup: yes
   become: yes
   tags: [dmc, config, java]
 
@@ -253,16 +253,129 @@
   become: yes
   tags: [dmc, config, properties]
 
-- name: Create cm-DRBProvider.properties
-  copy:
-    content: |
-      dmc.DRBProvider.deviceresources.helpURL.rootPart=http://{{ ansible_host }}:{{ dmc_http_port }}
-      dmc.DRBProvider.DRBUpdate.DeviceResources.checkVersion.url=http://{{ ansible_host }}:{{ dmc_http_port }}/sicap-dmc-deviceresources/versionstatus
-      dmc.DRBProvider.DRBUpdate.DeviceResources.rollbackVersion.url=http://{{ ansible_host }}:{{ dmc_http_port }}/sicap-dmc-deviceresources/rollback
-    dest: "{{ dmc_conf_dir }}/cm-DRBProvider.properties"
-    owner: "{{ dmc_user }}"
-    group: "{{ dmc_group }}"
-    mode: '0644'
+- name: Check cm-DRBProvider.properties exists (do not overwrite vendor file)
+  stat:
+    path: "{{ dmc_conf_dir }}/cm-DRBProvider.properties"
+  register: drbprovider_props_stat
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Fail if cm-DRBProvider.properties is missing
+  fail:
+    msg: "Missing {{ dmc_conf_dir }}/cm-DRBProvider.properties. This file should be provided by the DMC package; refusing to generate a truncated version."
+  when: not drbprovider_props_stat.stat.exists
+  tags: [dmc, config, properties]
+
+- name: Ensure DRBProvider rootPart key exists (do not append)
+  shell: >
+    grep -qE '^[[:space:]]*dmc\.DRBProvider\.deviceresources\.helpURL\.rootPart[[:space:]]*='
+    {{ dmc_conf_dir }}/cm-DRBProvider.properties
+  become: yes
+  changed_when: false
+  tags: [dmc, config, properties]
+
+- name: Update DRBProvider rootPart URL (replace existing line)
+  replace:
+    path: "{{ dmc_conf_dir }}/cm-DRBProvider.properties"
+    regexp: '(?m)^[ \t]*dmc\.DRBProvider\.deviceresources\.helpURL\.rootPart[ \t]*=.*$'
+    replace: "dmc.DRBProvider.deviceresources.helpURL.rootPart=http://{{ dmc_node_ip }}:{{ dmc_http_port }}"
+    backup: yes
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Verify DRBProvider rootPart URL updated
+  shell: >
+    grep -qF
+    "dmc.DRBProvider.deviceresources.helpURL.rootPart=http://{{ dmc_node_ip }}:{{ dmc_http_port }}"
+    {{ dmc_conf_dir }}/cm-DRBProvider.properties
+  become: yes
+  changed_when: false
+  tags: [dmc, config, properties]
+
+- name: Ensure DRBProvider checkVersion key exists (do not append)
+  shell: >
+    grep -qE '^[[:space:]]*dmc\.DRBProvider\.DRBUpdate\.DeviceResources\.checkVersion\.url[[:space:]]*='
+    {{ dmc_conf_dir }}/cm-DRBProvider.properties
+  become: yes
+  changed_when: false
+  tags: [dmc, config, properties]
+
+- name: Update DRBProvider checkVersion URL (replace existing line)
+  replace:
+    path: "{{ dmc_conf_dir }}/cm-DRBProvider.properties"
+    regexp: '(?m)^[ \t]*dmc\.DRBProvider\.DRBUpdate\.DeviceResources\.checkVersion\.url[ \t]*=.*$'
+    replace: "dmc.DRBProvider.DRBUpdate.DeviceResources.checkVersion.url=http://{{ dmc_node_ip }}:{{ dmc_http_port }}/sicap-dmc-deviceresources/versionstatus"
+    backup: yes
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Verify DRBProvider checkVersion URL updated
+  shell: >
+    grep -qF
+    "dmc.DRBProvider.DRBUpdate.DeviceResources.checkVersion.url=http://{{ dmc_node_ip }}:{{ dmc_http_port }}/sicap-dmc-deviceresources/versionstatus"
+    {{ dmc_conf_dir }}/cm-DRBProvider.properties
+  become: yes
+  changed_when: false
+  tags: [dmc, config, properties]
+
+- name: Ensure DRBProvider rollbackVersion key exists (do not append)
+  shell: >
+    grep -qE '^[[:space:]]*dmc\.DRBProvider\.DRBUpdate\.DeviceResources\.rollbackVersion\.url[[:space:]]*='
+    {{ dmc_conf_dir }}/cm-DRBProvider.properties
+  become: yes
+  changed_when: false
+  tags: [dmc, config, properties]
+
+- name: Update DRBProvider rollbackVersion URL (replace existing line)
+  replace:
+    path: "{{ dmc_conf_dir }}/cm-DRBProvider.properties"
+    regexp: '(?m)^[ \t]*dmc\.DRBProvider\.DRBUpdate\.DeviceResources\.rollbackVersion\.url[ \t]*=.*$'
+    replace: "dmc.DRBProvider.DRBUpdate.DeviceResources.rollbackVersion.url=http://{{ dmc_node_ip }}:{{ dmc_http_port }}/sicap-dmc-deviceresources/rollback"
+    backup: yes
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Verify DRBProvider rollbackVersion URL updated
+  shell: >
+    grep -qF
+    "dmc.DRBProvider.DRBUpdate.DeviceResources.rollbackVersion.url=http://{{ dmc_node_ip }}:{{ dmc_http_port }}/sicap-dmc-deviceresources/rollback"
+    {{ dmc_conf_dir }}/cm-DRBProvider.properties
+  become: yes
+  changed_when: false
+  tags: [dmc, config, properties]
+
+- name: Remove duplicate DRBProvider URL keys (keep first occurrence)
+  shell: |
+    {{ ansible_python_interpreter }} - <<'PY'
+    from __future__ import annotations
+
+    path = "{{ dmc_conf_dir }}/cm-DRBProvider.properties"
+    keys = [
+      "dmc.DRBProvider.deviceresources.helpURL.rootPart",
+      "dmc.DRBProvider.DRBUpdate.DeviceResources.checkVersion.url",
+      "dmc.DRBProvider.DRBUpdate.DeviceResources.rollbackVersion.url",
+    ]
+
+    with open(path, "r", encoding="utf-8", errors="surrogateescape") as f:
+      lines = f.readlines()
+
+    seen = {k: False for k in keys}
+    out: list[str] = []
+    for line in lines:
+      stripped = line.lstrip()
+      matched_key = next((k for k in keys if stripped.startswith(k) and "=" in stripped), None)
+      if matched_key is None:
+        out.append(line)
+        continue
+      if seen[matched_key]:
+        continue
+      seen[matched_key] = True
+      out.append(line)
+
+    if out != lines:
+      with open(path, "w", encoding="utf-8", errors="surrogateescape") as f:
+        f.writelines(out)
+    PY
   become: yes
   tags: [dmc, config, properties]
 
@@ -278,7 +391,54 @@
     owner: "{{ dmc_user }}"
     group: "{{ dmc_group }}"
     mode: '0644'
+    force: no
+    backup: yes
   become: yes
+  tags: [dmc, config, properties]
+
+- name: Check cm-ADDBackEnd.properties exists (do not overwrite vendor file)
+  stat:
+    path: "{{ dmc_conf_dir }}/cm-ADDBackEnd.properties"
+  register: addbackend_props_stat
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Fail if cm-ADDBackEnd.properties is missing
+  fail:
+    msg: "Missing {{ dmc_conf_dir }}/cm-ADDBackEnd.properties. This file should be provided by the DMC package; refusing to generate a truncated version."
+  when: not addbackend_props_stat.stat.exists
+  tags: [dmc, config, properties]
+
+- name: Update cm-ADDBackEnd.properties keys (replace existing lines)
+  replace:
+    path: "{{ dmc_conf_dir }}/cm-ADDBackEnd.properties"
+    regexp: "{{ item.regexp }}"
+    replace: "{{ item.replace }}"
+    backup: yes
+  loop:
+    - regexp: '(?m)^[ \t]*dmc\.addbe\.businessLogEnabled[ \t]*=.*$'
+      replace: 'dmc.addbe.businessLogEnabled=true'
+    - regexp: '(?m)^[ \t]*dmc\.addbe\.defaultSource\.ADD_FE1[ \t]*=.*$'
+      replace: 'dmc.addbe.defaultSource.ADD_FE1=HLR'
+    - regexp: '(?m)^[ \t]*dmc\.addbe\.defaultSource\.ADD_FE2[ \t]*=.*$'
+      replace: 'dmc.addbe.defaultSource.ADD_FE2=CHECK_IMEI'
+    - regexp: '(?m)^[ \t]*dmc\.addbe\.defaultProvider\.ADD_FE1[ \t]*=.*$'
+      replace: 'dmc.addbe.defaultProvider.ADD_FE1={{ dmc_provider_name }}'
+    - regexp: '(?m)^[ \t]*dmc\.addbe\.defaultProvider\.ADD_FE2[ \t]*=.*$'
+      replace: 'dmc.addbe.defaultProvider.ADD_FE2=[PROVIDER_NAME]'
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Verify cm-ADDBackEnd.properties keys updated
+  shell: |
+    set -e
+    grep -qF "dmc.addbe.businessLogEnabled=true" "{{ dmc_conf_dir }}/cm-ADDBackEnd.properties"
+    grep -qF "dmc.addbe.defaultSource.ADD_FE1=HLR" "{{ dmc_conf_dir }}/cm-ADDBackEnd.properties"
+    grep -qF "dmc.addbe.defaultSource.ADD_FE2=CHECK_IMEI" "{{ dmc_conf_dir }}/cm-ADDBackEnd.properties"
+    grep -qF "dmc.addbe.defaultProvider.ADD_FE1={{ dmc_provider_name }}" "{{ dmc_conf_dir }}/cm-ADDBackEnd.properties"
+    grep -qF "dmc.addbe.defaultProvider.ADD_FE2=[PROVIDER_NAME]" "{{ dmc_conf_dir }}/cm-ADDBackEnd.properties"
+  become: yes
+  changed_when: false
   tags: [dmc, config, properties]
 
 - name: Create cm-DeviceDefinitions.properties
@@ -293,7 +453,54 @@
     owner: "{{ dmc_user }}"
     group: "{{ dmc_group }}"
     mode: '0644'
+    force: no
+    backup: yes
   become: yes
+  tags: [dmc, config, properties]
+
+- name: Check cm-DeviceDefinitions.properties exists (do not overwrite vendor file)
+  stat:
+    path: "{{ dmc_conf_dir }}/cm-DeviceDefinitions.properties"
+  register: devdefs_props_stat
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Fail if cm-DeviceDefinitions.properties is missing
+  fail:
+    msg: "Missing {{ dmc_conf_dir }}/cm-DeviceDefinitions.properties. This file should be provided by the DMC package; refusing to generate a truncated version."
+  when: not devdefs_props_stat.stat.exists
+  tags: [dmc, config, properties]
+
+- name: Update cm-DeviceDefinitions.properties keys (replace existing lines)
+  replace:
+    path: "{{ dmc_conf_dir }}/cm-DeviceDefinitions.properties"
+    regexp: "{{ item.regexp }}"
+    replace: "{{ item.replace }}"
+    backup: yes
+  loop:
+    - regexp: '(?m)^[ \t]*dmc\.DeviceDefinitions\.DRBUpdate\.ReloadProcess\.performFKValidation[ \t]*=.*$'
+      replace: 'dmc.DeviceDefinitions.DRBUpdate.ReloadProcess.performFKValidation=false'
+    - regexp: '(?m)^[ \t]*dmc\.DeviceDefinitions\.DRBUpdate\.ReloadProcess\.permitIdempotentReloads[ \t]*=.*$'
+      replace: 'dmc.DeviceDefinitions.DRBUpdate.ReloadProcess.permitIdempotentReloads=true'
+    - regexp: '(?m)^[ \t]*dmc\.DeviceDefinitions\.DRBUpdate\.ReloadProcess\.writeSQLStatementsFile[ \t]*=.*$'
+      replace: 'dmc.DeviceDefinitions.DRBUpdate.ReloadProcess.writeSQLStatementsFile=3'
+    - regexp: '(?m)^[ \t]*dmc\.DeviceDefinitions\.device\.IMEI\.checkCRC[ \t]*=.*$'
+      replace: 'dmc.DeviceDefinitions.device.IMEI.checkCRC=NEVER'
+    - regexp: '(?m)^[ \t]*dmc\.DeviceDefinitions\.device\.IMEI\.acceptNoCRC[ \t]*=.*$'
+      replace: 'dmc.DeviceDefinitions.device.IMEI.acceptNoCRC=true'
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Verify cm-DeviceDefinitions.properties keys updated
+  shell: |
+    set -e
+    grep -qF "dmc.DeviceDefinitions.DRBUpdate.ReloadProcess.performFKValidation=false" "{{ dmc_conf_dir }}/cm-DeviceDefinitions.properties"
+    grep -qF "dmc.DeviceDefinitions.DRBUpdate.ReloadProcess.permitIdempotentReloads=true" "{{ dmc_conf_dir }}/cm-DeviceDefinitions.properties"
+    grep -qF "dmc.DeviceDefinitions.DRBUpdate.ReloadProcess.writeSQLStatementsFile=3" "{{ dmc_conf_dir }}/cm-DeviceDefinitions.properties"
+    grep -qF "dmc.DeviceDefinitions.device.IMEI.checkCRC=NEVER" "{{ dmc_conf_dir }}/cm-DeviceDefinitions.properties"
+    grep -qF "dmc.DeviceDefinitions.device.IMEI.acceptNoCRC=true" "{{ dmc_conf_dir }}/cm-DeviceDefinitions.properties"
+  become: yes
+  changed_when: false
   tags: [dmc, config, properties]
 
 - name: Create cm-sicap-enabler-gateway.properties
@@ -307,7 +514,60 @@
     owner: "{{ dmc_user }}"
     group: "{{ dmc_group }}"
     mode: '0644'
+    force: no
+    backup: yes
   become: yes
+  tags: [dmc, config, properties]
+
+- name: Check cm-sicap-enabler-gateway.properties exists (do not overwrite vendor file)
+  stat:
+    path: "{{ dmc_conf_dir }}/cm-sicap-enabler-gateway.properties"
+  register: enabler_gw_props_stat
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Fail if cm-sicap-enabler-gateway.properties is missing
+  fail:
+    msg: "Missing {{ dmc_conf_dir }}/cm-sicap-enabler-gateway.properties. This file should be provided by the DMC package; refusing to generate a truncated version."
+  when: not enabler_gw_props_stat.stat.exists
+  tags: [dmc, config, properties]
+
+- name: Update cm-sicap-enabler-gateway.properties keys (replace existing lines)
+  replace:
+    path: "{{ dmc_conf_dir }}/cm-sicap-enabler-gateway.properties"
+    regexp: "{{ item.regexp }}"
+    replace: "{{ item.replace }}"
+    backup: yes
+  loop:
+    - regexp: '(?m)^[ \t]*SMS\.active[ \t]*=.*$'
+      replace: 'SMS.active=true'
+    - regexp: '(?m)^[ \t]*SMS\.trigger\.active[ \t]*=.*$'
+      replace: 'SMS.trigger.active=true'
+    - regexp: '(?m)^[ \t]*IOS\.active[ \t]*=.*$'
+      replace: 'IOS.active=true'
+    - regexp: '(?m)^[ \t]*IOS\.trigger\.active[ \t]*=.*$'
+      replace: 'IOS.trigger.active=true'
+    - regexp: '(?m)^[ \t]*SICAP_DM_AGENT\.jndi\.provider_url[ \t]*=.*$'
+      replace: 'SICAP_DM_AGENT.jndi.provider_url=http-remoting://{{ dmc_node_ip }}:{{ dmc_http_port }}'
+    - regexp: '(?m)^[ \t]*IOS\.jndi\.provider_url[ \t]*=.*$'
+      replace: 'IOS.jndi.provider_url=http-remoting://{{ dmc_node_ip }}:{{ dmc_http_port }}'
+    - regexp: '(?m)^[ \t]*OMADM\.jndi\.provider_url[ \t]*=.*$'
+      replace: 'OMADM.jndi.provider_url=http-remoting://{{ dmc_node_ip }}:{{ dmc_http_port }}'
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Verify cm-sicap-enabler-gateway.properties keys updated
+  shell: |
+    set -e
+    grep -qF "SMS.active=true" "{{ dmc_conf_dir }}/cm-sicap-enabler-gateway.properties"
+    grep -qF "SMS.trigger.active=true" "{{ dmc_conf_dir }}/cm-sicap-enabler-gateway.properties"
+    grep -qF "IOS.active=true" "{{ dmc_conf_dir }}/cm-sicap-enabler-gateway.properties"
+    grep -qF "IOS.trigger.active=true" "{{ dmc_conf_dir }}/cm-sicap-enabler-gateway.properties"
+    grep -qF "SICAP_DM_AGENT.jndi.provider_url=http-remoting://{{ dmc_node_ip }}:{{ dmc_http_port }}" "{{ dmc_conf_dir }}/cm-sicap-enabler-gateway.properties"
+    grep -qF "IOS.jndi.provider_url=http-remoting://{{ dmc_node_ip }}:{{ dmc_http_port }}" "{{ dmc_conf_dir }}/cm-sicap-enabler-gateway.properties"
+    grep -qF "OMADM.jndi.provider_url=http-remoting://{{ dmc_node_ip }}:{{ dmc_http_port }}" "{{ dmc_conf_dir }}/cm-sicap-enabler-gateway.properties"
+  become: yes
+  changed_when: false
   tags: [dmc, config, properties]
 
 - name: Create cm-DMCProtocolMMG.properties
@@ -322,7 +582,73 @@
     owner: "{{ dmc_user }}"
     group: "{{ dmc_group }}"
     mode: '0644'
+    force: no
+    backup: yes
   become: yes
+  tags: [dmc, config, properties]
+
+- name: Check cm-DMCProtocolMMG.properties exists (do not overwrite vendor file)
+  stat:
+    path: "{{ dmc_conf_dir }}/cm-DMCProtocolMMG.properties"
+  register: dmcprotocol_mmg_props_stat
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Fail if cm-DMCProtocolMMG.properties is missing
+  fail:
+    msg: "Missing {{ dmc_conf_dir }}/cm-DMCProtocolMMG.properties. This file should be provided by the DMC package; refusing to generate a truncated version."
+  when: not dmcprotocol_mmg_props_stat.stat.exists
+  tags: [dmc, config, properties]
+
+- name: Fail if inventory has no MMSOAP host ([mmsoap] group)
+  fail:
+    msg: >-
+      MMSOAP host is required for cm-DMCProtocolMMG.properties. Define `[mmsoap]` in your inventory
+      (e.g. inventories/TT/hosts.ini) with `ansible_host=<MMSOAP_IP>`.
+  when: groups['mmsoap'] is not defined or (groups['mmsoap'] | length) == 0
+  tags: [dmc, config, properties]
+
+- name: Fail if MMSOAP ansible_host is empty
+  fail:
+    msg: >-
+      Host {{ groups['mmsoap'][0] }} is in [mmsoap] but has no ansible_host. Set ansible_host in inventory.
+  when: >-
+    groups['mmsoap'] is defined and (groups['mmsoap'] | length) > 0
+    and (
+      (hostvars[groups['mmsoap'][0]]['ansible_host'] | default('') | string | trim | length) == 0
+    )
+  tags: [dmc, config, properties]
+
+- name: Update cm-DMCProtocolMMG.properties keys (replace existing lines)
+  replace:
+    path: "{{ dmc_conf_dir }}/cm-DMCProtocolMMG.properties"
+    regexp: "{{ item.regexp }}"
+    replace: "{{ item.replace }}"
+    backup: yes
+  loop:
+    - regexp: '(?m)^[ \t]*mmg\.serviceUrl\.default[ \t]*=.*$'
+      replace: 'mmg.serviceUrl.default=http://{{ dmc_mmsoap_host }}:{{ dmc_mmsoap_port }}/soapserver/soapserver'
+    - regexp: '(?m)^[ \t]*mmg\.dmcNodeId[ \t]*=.*$'
+      replace: 'mmg.dmcNodeId={{ dmc_node_id }}'
+    - regexp: '(?m)^[ \t]*mmg\.username\.default[ \t]*=.*$'
+      replace: 'mmg.username.default={{ dmc_mmsoap_username }}'
+    - regexp: '(?m)^[ \t]*mmg\.password\.default[ \t]*=.*$'
+      replace: 'mmg.password.default={{ dmc_mmsoap_password }}'
+    - regexp: '(?m)^[ \t]*mmg\.serviceId\.default[ \t]*=.*$'
+      replace: 'mmg.serviceId.default={{ dmc_mmsoap_service_id }}'
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Verify cm-DMCProtocolMMG.properties keys updated
+  shell: |
+    set -e
+    grep -qF "mmg.serviceUrl.default=http://{{ dmc_mmsoap_host }}:{{ dmc_mmsoap_port }}/soapserver/soapserver" "{{ dmc_conf_dir }}/cm-DMCProtocolMMG.properties"
+    grep -qF "mmg.dmcNodeId={{ dmc_node_id }}" "{{ dmc_conf_dir }}/cm-DMCProtocolMMG.properties"
+    grep -qF "mmg.username.default={{ dmc_mmsoap_username }}" "{{ dmc_conf_dir }}/cm-DMCProtocolMMG.properties"
+    grep -qF "mmg.password.default={{ dmc_mmsoap_password }}" "{{ dmc_conf_dir }}/cm-DMCProtocolMMG.properties"
+    grep -qF "mmg.serviceId.default={{ dmc_mmsoap_service_id }}" "{{ dmc_conf_dir }}/cm-DMCProtocolMMG.properties"
+  become: yes
+  changed_when: false
   tags: [dmc, config, properties]
 
 - name: Create cm-BatchAdvancedDMCCore.properties
@@ -333,7 +659,38 @@
     owner: "{{ dmc_user }}"
     group: "{{ dmc_group }}"
     mode: '0644'
+    force: no
+    backup: yes
   become: yes
+  tags: [dmc, config, properties]
+
+- name: Check cm-BatchAdvancedDMCCore.properties exists (do not overwrite vendor file)
+  stat:
+    path: "{{ dmc_conf_dir }}/cm-BatchAdvancedDMCCore.properties"
+  register: batchadv_props_stat
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Fail if cm-BatchAdvancedDMCCore.properties is missing
+  fail:
+    msg: "Missing {{ dmc_conf_dir }}/cm-BatchAdvancedDMCCore.properties. This file should be provided by the DMC package; refusing to generate a truncated version."
+  when: not batchadv_props_stat.stat.exists
+  tags: [dmc, config, properties]
+
+- name: Update cm-BatchAdvancedDMCCore.properties country (replace existing line)
+  replace:
+    path: "{{ dmc_conf_dir }}/cm-BatchAdvancedDMCCore.properties"
+    regexp: '(?m)^[ \t]*default\.country[ \t]*=.*$'
+    replace: 'default.country={{ dmc_country }}'
+    backup: yes
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Verify cm-BatchAdvancedDMCCore.properties country updated
+  shell: >
+    grep -qF "default.country={{ dmc_country }}" "{{ dmc_conf_dir }}/cm-BatchAdvancedDMCCore.properties"
+  become: yes
+  changed_when: false
   tags: [dmc, config, properties]
 
 - name: Create cm-ContentPersonalizeInfo.properties
@@ -344,7 +701,38 @@
     owner: "{{ dmc_user }}"
     group: "{{ dmc_group }}"
     mode: '0644'
+    force: no
+    backup: yes
   become: yes
+  tags: [dmc, config, properties]
+
+- name: Check cm-ContentPersonalizeInfo.properties exists (do not overwrite vendor file)
+  stat:
+    path: "{{ dmc_conf_dir }}/cm-ContentPersonalizeInfo.properties"
+  register: personalize_props_stat
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Fail if cm-ContentPersonalizeInfo.properties is missing
+  fail:
+    msg: "Missing {{ dmc_conf_dir }}/cm-ContentPersonalizeInfo.properties. This file should be provided by the DMC package; refusing to generate a truncated version."
+  when: not personalize_props_stat.stat.exists
+  tags: [dmc, config, properties]
+
+- name: Update cm-ContentPersonalizeInfo.properties country (replace existing line)
+  replace:
+    path: "{{ dmc_conf_dir }}/cm-ContentPersonalizeInfo.properties"
+    regexp: '(?m)^[ \t]*country[ \t]*=.*$'
+    replace: 'country = {{ dmc_country }}'
+    backup: yes
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Verify cm-ContentPersonalizeInfo.properties country updated
+  shell: >
+    grep -qF "country = {{ dmc_country }}" "{{ dmc_conf_dir }}/cm-ContentPersonalizeInfo.properties"
+  become: yes
+  changed_when: false
   tags: [dmc, config, properties]
 
 - name: Set provider ID to default value for initial configuration
@@ -370,6 +758,8 @@
     owner: "{{ dmc_user }}"
     group: "{{ dmc_group }}"
     mode: '0644'
+    force: no
+    backup: yes
   become: yes
   tags: [dmc, config, properties]
 
@@ -385,6 +775,8 @@
     owner: "{{ dmc_user }}"
     group: "{{ dmc_group }}"
     mode: '0644'
+    force: no
+    backup: yes
   become: yes
   tags: [dmc, config, properties]
 
@@ -396,6 +788,8 @@
     owner: "{{ dmc_user }}"
     group: "{{ dmc_group }}"
     mode: '0644'
+    force: no
+    backup: yes
   become: yes
   tags: [dmc, config, properties]
 
@@ -408,6 +802,37 @@
   become: yes
   tags: [dmc, config, properties]
 
+- name: Normalize rest-api.properties line endings (strip CRLF)
+  replace:
+    path: "{{ dmc_conf_dir }}/rest-api.properties"
+    regexp: '\r'
+    replace: ''
+    backup: yes
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Find DMC .properties files under conf dir
+  find:
+    paths: "{{ dmc_conf_dir }}"
+    patterns: "*.properties"
+    file_type: file
+  register: dmc_properties_files
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Normalize all DMC .properties line endings (strip CRLF)
+  replace:
+    path: "{{ item.path }}"
+    regexp: '\r'
+    replace: ''
+    backup: yes
+  loop: "{{ dmc_properties_files.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path }}"
+  become: yes
+  when: (dmc_properties_files.matched | default(0)) | int > 0
+  tags: [dmc, config, properties]
+
 - name: Update cache providers list in rest-api.properties
   lineinfile:
     path: "{{ dmc_conf_dir }}/rest-api.properties"
@@ -417,11 +842,47 @@
   become: yes
   tags: [dmc, config, properties]
 
+- name: Update search-engine address in rest-api.properties
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/rest-api.properties"
+    regexp: '^search-engine\.address\s*='
+    line: 'search-engine.address=http://{{ dmc_search_engine_host }}:{{ dmc_search_engine_port }}/'
+    backup: yes
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Update search-engine size in rest-api.properties
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/rest-api.properties"
+    regexp: '^search-engine\.size\s*='
+    line: 'search-engine.size=1000'
+    backup: yes
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Update search-engine username in rest-api.properties
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/rest-api.properties"
+    regexp: '^search-engine\.username\s*='
+    line: 'search-engine.username={{ dmc_elasticsearch_username }}'
+    backup: yes
+  become: yes
+  tags: [dmc, config, properties]
+
+- name: Update search-engine password in rest-api.properties
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/rest-api.properties"
+    regexp: '^search-engine\.password\s*='
+    line: 'search-engine.password={{ dmc_elasticsearch_password }}'
+    backup: yes
+  become: yes
+  tags: [dmc, config, properties]
+
 - name: Update Elasticsearch address in rest-api.properties
   lineinfile:
     path: "{{ dmc_conf_dir }}/rest-api.properties"
     regexp: '^es\.address\s*='
-    line: 'es.address=http://{{ dmc_elasticsearch_host }}:{{ dmc_elasticsearch_port }}/'
+    line: 'es.address=http://{{ dmc_search_engine_host }}:{{ dmc_search_engine_port }}/'
     backup: yes
   become: yes
   tags: [dmc, config, properties]
@@ -463,6 +924,8 @@
     owner: "{{ dmc_user }}"
     group: "{{ dmc_group }}"
     mode: '0644'
+    force: no
+    backup: yes
   become: yes
   tags: [dmc, config, properties]
 
@@ -645,6 +1108,3 @@
   become: yes
   when: dmc_ios_enabler.enabled | bool
   tags: [dmc, config, properties, ios_enabler]
-
-
-

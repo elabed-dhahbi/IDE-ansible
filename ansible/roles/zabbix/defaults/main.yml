@@ -56,11 +56,23 @@ zabbix_web: "{{ zabbix.web | default({}) }}"
 # Zabbix database configuration
 zabbix_db: "{{ zabbix.db | default({}) }}"
 
+# Canonical Zabbix DB settings (align with official docs)
+zabbix_db_name: "{{ zabbix_db.name | default('zabbix') }}"
+zabbix_db_user: "{{ zabbix_db.user | default('zabbix') }}"
+zabbix_db_password: "{{ zabbix_db.password | default('zabbix') }}"
+
 # SELinux configuration
 zabbix_selinux: "{{ zabbix.selinux | default({}) }}"
 
+# Zabbix frontend prerequisite: system locale
+# Zabbix installer expects an UTF-8 locale (the web UI preflight checks "System locale").
+zabbix_system_locale: "{{ zabbix.system_locale | default('en_US.UTF-8') }}"
+zabbix_locale_langpack_package: "{{ zabbix.locale_langpack_package | default('glibc-langpack-en') }}"
+
 # Package configuration
-zabbix_packages: "{{ zabbix.packages | default({}) }}"
+# Package lists live in `config/packages.yaml` as `zabbix_packages` (package-only file).
+# Keep backwards compatibility if someone still defines `zabbix.packages`.
+zabbix_packages: "{{ zabbix.packages | default(zabbix_packages | default({})) }}"
 
 # Paths configuration
 paths: "{{ paths | default({}) }}"

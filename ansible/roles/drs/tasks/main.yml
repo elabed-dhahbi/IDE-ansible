@@ -5,11 +5,12 @@
   include_tasks: install_drs.yml
   tags: [drs, install]
 
+# RPM creates the drs user and /opt/drs layout. Only verify, do not recreate.
 - name: Include DRS user configuration tasks
   include_tasks: configure_user.yml
   tags: [drs, user]
 
-- name: Include DRS directory setup tasks
+- name: Include DRS directory verification tasks
   include_tasks: configure_directories.yml
   tags: [drs, directories]
 
@@ -20,7 +21,3 @@
 - name: Include DRS service configuration tasks
   include_tasks: configure_service.yml
   tags: [drs, service]
-
-
-
-

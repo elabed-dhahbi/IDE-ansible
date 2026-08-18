@@ -5,12 +5,17 @@
 # In skip mode: uses psql commands from localhost (Ansible control node)
 # In normal mode: uses Ansible PostgreSQL modules
 
-- name: Set database connection parameters
+- name: Set database connection parameters (raw)
   set_fact:
     db_host: "{{ database_config.external_host | default(ansible_host) }}"
-    db_port: "{{ database_config.external_port | default(service_ports.postgres) }}"
+    db_port_raw: "{{ database_config.external_port | default(service_ports.postgres | default(5432)) }}"
     db_user: "{{ 'postgres' }}"
     db_password: "{{ system_config.service_passwords.postgres }}"
+  tags: [postgres, databases, config]
+
+- name: Normalize database port (fallback to 5432 when unset/invalid)
+  set_fact:
+    db_port: "{{ (db_port_raw | int) if (db_port_raw | int) > 0 else 5432 }}"
   tags: [postgres, databases, config]
 
 - name: Check if we're in skip mode
@@ -255,6 +260,24 @@
     - not (use_psql_commands | default(false))
     - postgresql_config.users.mdba is defined
   tags: [postgres, databases, users, mdba]
+
+- name: Re-hash application role passwords after md5 encryption is active
+  command: >
+    psql -d postgres -v ON_ERROR_STOP=1
+    -c "ALTER USER {{ item.name }} WITH PASSWORD '{{ item.password }}';"
+  become: yes
+  become_user: postgres
+  loop:
+    - name: "{{ postgresql_config.users.dmc4.name | default('dmc4') }}"
+      password: "{{ postgresql_config.users.dmc4.password }}"
+    - name: "{{ postgresql_config.users.mmg.name | default('mmg') }}"
+      password: "{{ postgresql_config.users.mmg.password | default('') }}"
+    - name: "{{ postgresql_config.users.mdba.name | default('mdba') }}"
+      password: "{{ postgresql_config.users.mdba.password | default('') }}"
+  when:
+    - not (use_psql_commands | default(false))
+    - item.password | length > 0
+  tags: [postgres, databases, users, auth, dmc]
 
 - name: Create DMC database (skip mode - using psql)
   shell: |

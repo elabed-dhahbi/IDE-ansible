@@ -1,49 +1,35 @@
 ---
-# =============================================================================
-# Java Installation Tasks - Production-Grade Refactored
-# =============================================================================
-# This task file has been refactored for:
-# - Idempotence: Checks if Java is already installed before proceeding
-# - Portability: All paths and versions are parameterized via variables
-# - Robustness: Includes validation and error handling blocks
-# =============================================================================
+# Java for DMC: use full JDK path from sicap_java (dmc_sicap_jdk_home), not /usr/j2se/current.
 
-# =============================================================================
-# Pre-flight Validation
-# =============================================================================
 - name: Validate Java installation variables
   assert:
     that:
       - java_install_dir is defined
       - java_legacy_version is defined
       - paths.offline_dir is defined
-    fail_msg: "Required Java variables not defined. Check vars/release.yml and config/values.yaml"
+      - dmc_sicap_jdk_home is defined
+    fail_msg: "Required Java variables not defined. Check vars/release.yml, roles/dmc/defaults/main.yml, and config/values.yaml"
     success_msg: "All required Java variables are defined"
   tags: [dmc, java, install, validation, always]
 
-# =============================================================================
-# Java Installation Directory Setup
-# =============================================================================
-# Use variables instead of hardcoded paths for portability
+- name: Resolve Java installation directory (single source of truth)
+  set_fact:
+    dmc_java_install_dir_resolved: "{{ sicap_java.install_dir | default(java_install_dir | default(system_paths.java_install_dir)) }}"
+  tags: [dmc, java, install, validation, always]
 
 - name: Ensure Java installation directory exists
   file:
-    path: "{{ java_install_dir | default(system_paths.java_install_dir) }}"
+    path: "{{ dmc_java_install_dir_resolved }}"
     state: directory
     mode: '0755'
   become: yes
   tags: [dmc, java, install, directories]
 
-# =============================================================================
-# Java Package Discovery
-# =============================================================================
-# Use variables for package patterns instead of hardcoded values
-
 - name: Find Java package in offline directory
   find:
     paths: "{{ paths.offline_dir }}"
     patterns:
-      - "{{ package_globs.jdk8_64bit | default('1_8_0_92-jdk.tar.gz') }}"
+      - "{{ sicap_java.offline_package | default(package_globs.jdk8_64bit | default('1_8_0_92-jdk.tar.gz')) }}"
       - "openlogic-openjdk-{{ java_full_version | default('8u412') }}*linux*.tar.gz"
     file_type: file
   register: java_package_files
@@ -54,74 +40,104 @@
     that:
       - java_package_files.files | length > 0
     fail_msg: "No Java package found in {{ paths.offline_dir }}. Ensure Java package is present."
-    success_msg: "Found Java package: {{ java_package_files.files[0].path }}"
+    success_msg: "Found at least one Java archive under offline dir"
   tags: [dmc, java, install, validation]
 
-# =============================================================================
-# Java Installation with Idempotence Check
-# =============================================================================
-# Check if Java is already installed before extracting
-
-- name: Check if Java is already installed
-  stat:
-    path: "{{ java_install_dir | default(system_paths.java_install_dir) }}/current/bin/java"
-  register: java_installed
+- name: Check whether SICAP JDK java is usable
+  command: "{{ dmc_sicap_jdk_home }}/bin/java -version"
+  register: java_sicap_jdk_check
+  changed_when: false
+  failed_when: false
+  become: yes
   tags: [dmc, java, install, validation]
 
-- name: Extract JDK8 package (only if not already installed)
+- name: Determine whether SICAP JDK is already installed
+  set_fact:
+    java_sicap_jdk_ok: "{{ (java_sicap_jdk_check.rc | default(1)) == 0 }}"
+  tags: [dmc, java, install, validation]
+
+- name: Select Java archive (prefer sicap_java.offline_package)
+  set_fact:
+    dmc_java_archive_selected: >-
+      {{
+        (
+          java_package_files.files
+          | default([])
+          | selectattr('path', 'search', '/' ~ (sicap_java.offline_package | default('1_8_0_92-jdk.tar.gz') | regex_escape()) ~ '$')
+          | list
+          | first
+        )
+        | default(
+          (java_package_files.files | default([]) | sort(attribute='mtime', reverse=true) | first)
+        )
+      }}
+  tags: [dmc, java, install, validation]
+
+- name: Validate selected Java archive
+  assert:
+    that:
+      - dmc_java_archive_selected is defined
+      - dmc_java_archive_selected.path is defined
+      - dmc_java_archive_selected.path | length > 0
+  tags: [dmc, java, install, validation]
+
+- name: Stage Java archive into install directory
+  copy:
+    src: "{{ dmc_java_archive_selected.path }}"
+    dest: "{{ dmc_java_install_dir_resolved }}/{{ dmc_java_archive_selected.path | basename }}"
+    remote_src: yes
+    owner: root
+    group: root
+    mode: '0644'
+  become: yes
+  when: not java_sicap_jdk_ok
+  tags: [dmc, java, install]
+
+- name: Set staged Java archive path
+  set_fact:
+    dmc_java_archive_staged: "{{ dmc_java_install_dir_resolved }}/{{ dmc_java_archive_selected.path | basename }}"
+  when: not java_sicap_jdk_ok
+  tags: [dmc, java, install]
+
+- name: Extract JDK package (only if SICAP JDK not usable)
   unarchive:
-    src: "{{ java_package_files.files[0].path }}"
-    dest: "{{ java_install_dir | default(system_paths.java_install_dir) }}"
+    src: "{{ dmc_java_archive_staged | default(dmc_java_archive_selected.path) }}"
+    dest: "{{ dmc_java_install_dir_resolved }}"
     remote_src: yes
     owner: root
     group: root
     mode: '0755'
   become: yes
-  when: not java_installed.stat.exists
+  when: not java_sicap_jdk_ok
   tags: [dmc, java, install]
 
-# =============================================================================
-# Java Symlink Management
-# =============================================================================
-# Create symlink using variables for portability
-
-- name: Find extracted Java directory
-  find:
-    paths: "{{ java_install_dir | default(system_paths.java_install_dir) }}"
-    patterns:
-      - "{{ java_legacy_version }}-jdk"
-      - "jdk{{ java_full_version | default('8u412') }}*"
-    file_type: directory
-  register: java_directories
+- name: Validate SICAP JDK java binary exists
+  stat:
+    path: "{{ dmc_sicap_jdk_home }}/bin/java"
+  register: dmc_sicap_java_stat
   become: yes
-  when: not java_installed.stat.exists
-  tags: [dmc, java, install, symlink]
+  failed_when: not (dmc_sicap_java_stat.stat.exists | default(false))
+  tags: [dmc, java, verify, validation]
 
-- name: Create Java symlink (idempotent)
+- name: Optional compatibility symlink current -> SICAP JDK
   file:
-    src: "{{ java_directories.files[0].path if java_directories.files | length > 0 else java_install_dir | default(system_paths.java_install_dir) + '/' + java_legacy_version + '-jdk' }}"
-    dest: "{{ java_install_dir | default(system_paths.java_install_dir) }}/current"
+    src: "{{ dmc_sicap_jdk_home }}"
+    dest: "{{ dmc_java_install_dir_resolved }}/current"
     state: link
     force: yes
   become: yes
-  when: not java_installed.stat.exists or not java_installed.stat.islnk
-  tags: [dmc, java, symlink]
+  tags: [dmc, java, install, symlink]
 
 - name: Set Java directory permissions
   file:
-    path: "{{ java_install_dir | default(system_paths.java_install_dir) }}"
+    path: "{{ dmc_java_install_dir_resolved }}"
     mode: '0755'
     recurse: yes
   become: yes
   tags: [dmc, java, permissions]
 
-# =============================================================================
-# Java Installation Verification
-# =============================================================================
-# Verify Java is properly installed and accessible
-
 - name: Verify Java installation
-  command: "{{ java_install_dir | default(system_paths.java_install_dir) }}/current/bin/java -version"
+  command: "{{ dmc_sicap_jdk_home }}/bin/java -version"
   register: java_version
   changed_when: false
   failed_when: java_version.rc != 0
@@ -133,18 +149,11 @@
     msg: "{{ java_version.stderr_lines | default(java_version.stdout_lines) }}"
   tags: [dmc, java, verify]
 
-# =============================================================================
-# Environment Configuration
-# =============================================================================
-# Set JAVA_HOME using variables for portability
-
 - name: Set JAVA_HOME environment variable in .profile.sicap
   lineinfile:
     path: "{{ dmc_home }}/.profile.sicap"
     regexp: '^export JAVA_HOME='
-    line: 'export JAVA_HOME=${JAVA_HOME:-{{ java_install_dir | default(system_paths.java_install_dir) }}/current}'
+    line: 'export JAVA_HOME=${JAVA_HOME:-{{ dmc_sicap_jdk_home }}}'
     backup: yes
   become: yes
   tags: [dmc, java, environment, config]
-
-

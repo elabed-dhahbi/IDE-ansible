@@ -1,6 +1,16 @@
 ---
 # Logstash OSS Configuration Tasks
 
+- name: Create logstash conf.d directory
+  file:
+    path: "{{ logstash_oss_config_dir }}/conf.d"
+    state: directory
+    owner: "{{ logstash_oss_user }}"
+    group: "{{ logstash_oss_group }}"
+    mode: '0755'
+  become: yes
+  tags: [logstash_oss, config, main]
+
 - name: Create logstash configuration file
   template:
     src: logstash_oss.conf.j2
@@ -43,6 +53,7 @@
       log.level: info
       path.data: {{ logstash_oss_data_dir }}
       path.logs: {{ logstash_oss_logs_dir }}
+      path.config: "{{ logstash_oss_config.path_config }}"
       pipeline.workers: 2
       pipeline.batch.size: 125
       pipeline.batch.delay: 50
@@ -56,9 +67,22 @@
   become: yes
   tags: [logstash_oss, config, main]
 
+# RPM pipelines.yml wins over path.config when it defines a pipeline.
+- name: Create Logstash pipelines.yml
+  copy:
+    content: |
+      - pipeline.id: main
+        path.config: "{{ logstash_oss_config.path_config }}"
+    dest: "{{ logstash_oss_config_dir }}/pipelines.yml"
+    owner: "{{ logstash_oss_user }}"
+    group: "{{ logstash_oss_group }}"
+    mode: '0644'
+  become: yes
+  tags: [logstash_oss, config, main]
+
 - name: Create systemd override directory
   file:
-    path: /etc/systemd/system/logstash.service.d
+    path: "/etc/systemd/system/{{ logstash_oss_service_name }}.service.d"
     state: directory
     mode: '0755'
   become: yes
@@ -70,23 +94,9 @@
       [Service]
       LimitMEMLOCK={{ logstash_oss_system.memlock_limit }}
       LimitNOFILE={{ logstash_oss_system.nofile_limit }}
-    dest: /etc/systemd/system/logstash.service.d/override.conf
+      TimeoutStartSec={{ logstash_oss_systemd_timeout_start_sec }}
+      TimeoutStopSec={{ logstash_oss_systemd_timeout_stop_sec }}
+    dest: "/etc/systemd/system/{{ logstash_oss_service_name }}.service.d/override.conf"
     mode: '0644'
   become: yes
-  tags: [logstash_oss, config, systemd]
-
-- name: Check if logstash systemd service file exists
-  stat:
-    path: /usr/lib/systemd/system/logstash.service
-  register: logstash_service_file
-  tags: [logstash_oss, config, systemd]
-
-- name: Update logstash systemd service file
-  lineinfile:
-    path: /usr/lib/systemd/system/logstash.service
-    regexp: '^LimitNOFILE='
-    line: 'LimitNOFILE={{ logstash_oss_system.nofile_limit }}'
-    backup: yes
-  become: yes
-  when: logstash_service_file.stat.exists
   tags: [logstash_oss, config, systemd]

@@ -1,0 +1,3 @@
+---
+# Role vars (higher precedence than defaults). Offline-only: never use Rubygems/internet.
+logstash_oss_plugin_install_allow_online: false

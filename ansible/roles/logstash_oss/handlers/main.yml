@@ -1,24 +1,60 @@
 ---
 # Logstash OSS handlers
+# configure_service.yml already runs daemon-reload before start. Combining
+# daemon-reload with restart here times out systemd D-Bus on busy DMC nodes.
 
 - name: reload systemd
   systemd:
     daemon_reload: true
+  become: true
   ignore_errors: true
 
 - name: restart logstash-oss
   systemd:
     name: "{{ logstash_oss_service_name }}"
     state: restarted
+  become: true
+  register: _logstash_restart
   ignore_errors: true
+  listen: restart logstash-oss
+
+- name: Logstash systemd status (after restart attempt)
+  command: "systemctl status {{ logstash_oss_service_name }} --no-pager -l"
+  become: true
+  register: _logstash_systemctl_status
+  changed_when: false
+  failed_when: false
+  when: _logstash_restart is defined and (_logstash_restart.failed | default(false))
+  listen: restart logstash-oss
+
+- name: Logstash journal logs (after restart attempt)
+  command: "journalctl -u {{ logstash_oss_service_name }} --no-pager -l -n 200"
+  become: true
+  register: _logstash_journal
+  changed_when: false
+  failed_when: false
+  when: _logstash_restart is defined and (_logstash_restart.failed | default(false))
+  listen: restart logstash-oss
+
+- name: Show Logstash restart diagnostics
+  debug:
+    msg:
+      - "logstash restart failed={{ _logstash_restart.failed | default(false) }} msg={{ _logstash_restart.msg | default('') | trim }}"
+      - "systemctl status {{ logstash_oss_service_name }}:\n{{ _logstash_systemctl_status.stdout | default('') | trim }}"
+      - "journalctl -u {{ logstash_oss_service_name }} -n 200:\n{{ _logstash_journal.stdout | default('') | trim }}"
+  when: _logstash_restart is defined and (_logstash_restart.failed | default(false))
+  listen: restart logstash-oss
 
 - name: start logstash-oss
   systemd:
     name: "{{ logstash_oss_service_name }}"
     state: started
     enabled: true
+  become: true
 
 - name: stop logstash-oss
   systemd:
     name: "{{ logstash_oss_service_name }}"
     state: stopped
+  become: true
+

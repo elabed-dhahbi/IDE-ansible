@@ -66,7 +66,7 @@
     password: "{{ postgresql_config.users.dmc4.password }}"
     state: present
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: postgresql_config.users.dmc4 is defined
@@ -78,7 +78,7 @@
     password: "{{ postgresql_config.users.mmg.password }}"
     state: present
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: postgresql_config.users.mmg is defined
@@ -90,7 +90,7 @@
     password: "{{ postgresql_config.users.mdba.password }}"
     state: present
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: postgresql_config.users.mdba is defined
@@ -102,7 +102,7 @@
     owner: "{{ postgresql_config.databases.dmc46.owner }}"
     state: present
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: postgresql_config.databases.dmc46 is defined
@@ -114,7 +114,7 @@
     owner: "{{ postgresql_config.databases.mmg.owner }}"
     state: present
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: postgresql_config.databases.mmg is defined
@@ -125,7 +125,7 @@
     query: "CREATE SCHEMA IF NOT EXISTS {{ postgresql_config.databases.dmc46.schema }} AUTHORIZATION {{ postgresql_config.databases.dmc46.owner }}"
     db: "{{ postgresql_config.databases.dmc46.name }}"
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: postgresql_config.databases.dmc46 is defined
@@ -136,7 +136,7 @@
     query: "ALTER ROLE {{ postgresql_config.databases.dmc46.owner }} IN DATABASE {{ postgresql_config.databases.dmc46.name }} SET search_path = {{ postgresql_config.databases.dmc46.schema }}"
     db: "{{ postgresql_config.databases.dmc46.name }}"
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: postgresql_config.databases.dmc46 is defined
@@ -147,7 +147,7 @@
     query: "GRANT CONNECT ON DATABASE {{ postgresql_config.databases.dmc46.name }} TO {{ postgresql_config.databases.dmc46.owner }}"
     db: "{{ postgresql_config.databases.dmc46.name }}"
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: postgresql_config.databases.dmc46 is defined
@@ -158,7 +158,7 @@
     query: "GRANT USAGE ON SCHEMA {{ postgresql_config.databases.dmc46.schema }} TO {{ postgresql_config.databases.dmc46.owner }}"
     db: "{{ postgresql_config.databases.dmc46.name }}"
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: postgresql_config.databases.dmc46 is defined
@@ -169,7 +169,7 @@
     query: "CREATE SCHEMA IF NOT EXISTS {{ postgresql_config.databases.mmg.schema }} AUTHORIZATION {{ postgresql_config.databases.mmg.owner }}"
     db: "{{ postgresql_config.databases.mmg.name }}"
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: postgresql_config.databases.mmg is defined
@@ -180,7 +180,7 @@
     query: "ALTER ROLE {{ postgresql_config.databases.mmg.owner }} IN DATABASE {{ postgresql_config.databases.mmg.name }} SET search_path = {{ postgresql_config.databases.mmg.schema }}"
     db: "{{ postgresql_config.databases.mmg.name }}"
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: postgresql_config.databases.mmg is defined
@@ -191,7 +191,7 @@
     query: "GRANT CONNECT ON DATABASE {{ postgresql_config.databases.mmg.name }} TO {{ postgresql_config.databases.mmg.owner }}"
     db: "{{ postgresql_config.databases.mmg.name }}"
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: postgresql_config.databases.mmg is defined
@@ -202,7 +202,7 @@
     query: "GRANT USAGE ON SCHEMA {{ postgresql_config.databases.mmg.schema }} TO {{ postgresql_config.databases.mmg.owner }}"
     db: "{{ postgresql_config.databases.mmg.name }}"
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: postgresql_config.databases.mmg is defined
@@ -213,7 +213,7 @@
     query: "CREATE SCHEMA IF NOT EXISTS {{ postgresql_config.users.mdba.schema }} AUTHORIZATION {{ postgresql_config.users.mdba.name | default('mdba') }}"
     db: "{{ postgresql_config.databases.dmc46.name }}"
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: postgresql_config.users.mdba is defined
@@ -224,7 +224,7 @@
     query: "ALTER ROLE {{ postgresql_config.users.mdba.name | default('mdba') }} IN DATABASE {{ postgresql_config.databases.dmc46.name }} SET search_path = {{ postgresql_config.users.mdba.schema }}"
     db: "{{ postgresql_config.databases.dmc46.name }}"
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: postgresql_config.users.mdba is defined
@@ -235,7 +235,7 @@
     query: "GRANT USAGE ON SCHEMA {{ postgresql_config.databases.dmc46.schema }} TO {{ postgresql_config.users.mdba.name | default('mdba') }}"
     db: "{{ postgresql_config.databases.dmc46.name }}"
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: postgresql_config.users.mdba is defined
@@ -245,7 +245,7 @@
   postgresql_query:
     query: "SELECT 1 FROM pg_tablespace WHERE spcname = '{{ postgresql_config.databases.dmc46.tablespaces.data }}'"
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   register: dmc_data_tablespace_exists
@@ -257,7 +257,7 @@
     query: "CREATE TABLESPACE {{ postgresql_config.databases.dmc46.tablespaces.data }} OWNER {{ postgresql_config.databases.dmc46.owner }} LOCATION '{{ install_paths.postgres_tablespaces_base }}/{{ postgresql_config.databases.dmc46.tablespaces.data }}'"
     autocommit: yes
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: 
@@ -269,7 +269,7 @@
   postgresql_query:
     query: "SELECT 1 FROM pg_tablespace WHERE spcname = '{{ postgresql_config.databases.dmc46.tablespaces.index }}'"
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   register: dmc_index_tablespace_exists
@@ -281,7 +281,7 @@
     query: "CREATE TABLESPACE {{ postgresql_config.databases.dmc46.tablespaces.index }} OWNER {{ postgresql_config.databases.dmc46.owner }} LOCATION '{{ install_paths.postgres_tablespaces_base }}/{{ postgresql_config.databases.dmc46.tablespaces.index }}'"
     autocommit: yes
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: 
@@ -293,7 +293,7 @@
   postgresql_query:
     query: "SELECT 1 FROM pg_tablespace WHERE spcname = '{{ postgresql_config.databases.mmg.tablespaces.data }}'"
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   register: mmg_data_tablespace_exists
@@ -305,7 +305,7 @@
     query: "CREATE TABLESPACE {{ postgresql_config.databases.mmg.tablespaces.data }} OWNER {{ postgresql_config.databases.mmg.owner }} LOCATION '{{ install_paths.postgres_tablespaces_base }}/{{ postgresql_config.databases.mmg.tablespaces.data }}'"
     autocommit: yes
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: 
@@ -317,7 +317,7 @@
   postgresql_query:
     query: "SELECT 1 FROM pg_tablespace WHERE spcname = '{{ postgresql_config.databases.mmg.tablespaces.index }}'"
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   register: mmg_index_tablespace_exists
@@ -329,7 +329,7 @@
     query: "CREATE TABLESPACE {{ postgresql_config.databases.mmg.tablespaces.index }} OWNER {{ postgresql_config.databases.mmg.owner }} LOCATION '{{ install_paths.postgres_tablespaces_base }}/{{ postgresql_config.databases.mmg.tablespaces.index }}'"
     autocommit: yes
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: 
@@ -341,7 +341,7 @@
   postgresql_query:
     query: "SELECT 1 FROM pg_tablespace WHERE spcname = '{{ postgresql_config.users.mdba.tablespaces.data }}'"
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   register: mdba_data_tablespace_exists
@@ -353,7 +353,7 @@
     query: "CREATE TABLESPACE {{ postgresql_config.users.mdba.tablespaces.data }} OWNER {{ postgresql_config.users.mdba.name | default('mdba') }} LOCATION '{{ install_paths.postgres_tablespaces_base }}/{{ postgresql_config.users.mdba.tablespaces.data }}'"
     autocommit: yes
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: 
@@ -365,7 +365,7 @@
   postgresql_query:
     query: "SELECT 1 FROM pg_tablespace WHERE spcname = '{{ postgresql_config.users.mdba.tablespaces.index }}'"
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   register: mdba_index_tablespace_exists
@@ -377,7 +377,7 @@
     query: "CREATE TABLESPACE {{ postgresql_config.users.mdba.tablespaces.index }} OWNER {{ postgresql_config.users.mdba.name | default('mdba') }} LOCATION '{{ install_paths.postgres_tablespaces_base }}/{{ postgresql_config.users.mdba.tablespaces.index }}'"
     autocommit: yes
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   when: 
@@ -389,7 +389,7 @@
   postgresql_info:
     filter: "settings"
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   register: postgres_settings
@@ -401,7 +401,7 @@
     query: "ALTER SYSTEM SET listen_addresses = '*'"
     autocommit: yes
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   tags: [postgres, databases, config, network]
@@ -411,7 +411,7 @@
     query: "ALTER SYSTEM SET max_prepared_transactions = 64"
     autocommit: yes
     login_host: "{{ ansible_host }}"
-    login_port: "{{ service_ports.postgres }}"
+    login_port: "{{ service_ports.postgres | int }}"
     login_user: postgres
     login_password: "{{ system_config.service_passwords.postgres }}"
   tags: [postgres, databases, config, network]
@@ -422,3 +422,4 @@
     state: restarted
   become: yes
   tags: [postgres, databases, config, service]
+

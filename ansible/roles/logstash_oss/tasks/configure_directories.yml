@@ -1,4 +1,6 @@
 ---
+# FILE: roles/logstash_oss/tasks/configure_directories.yml
+# Task list (must start with "- name:"). Do not copy defaults/main.yml over this file.
 # Logstash OSS Directory Configuration Tasks
 
 - name: Create logstash data directory
@@ -20,6 +22,30 @@
     mode: '0755'
   become: yes
   tags: [logstash_oss, directories, logs]
+
+# RPM / log4j2 still use these even when path.data/path.logs are /var/opt/logstash.
+- name: Ensure RPM Logstash data and log directories exist
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ logstash_oss_user }}"
+    group: "{{ logstash_oss_group }}"
+    mode: '0755'
+  loop:
+    - /var/lib/logstash
+    - /var/log/logstash
+  become: yes
+  tags: [logstash_oss, directories, rpm-paths]
+
+- name: Create logstash conf.d directory
+  file:
+    path: "{{ logstash_oss_config_dir }}/conf.d"
+    state: directory
+    owner: "{{ logstash_oss_user }}"
+    group: "{{ logstash_oss_group }}"
+    mode: '0755'
+  become: yes
+  tags: [logstash_oss, directories, config]
 
 - name: Create logstash patterns directory
   file:
@@ -61,15 +87,15 @@
   become: yes
   tags: [logstash_oss, directories, config-ownership]
 
-- name: Remove existing directories that will become symlinks
+- name: Ensure Logstash home directory exists
   file:
-    path: "{{ logstash_oss_home }}/{{ item }}"
-    state: absent
-  loop:
-    - "bin"
-    - "data"
+    path: "{{ logstash_oss_home }}"
+    state: directory
+    owner: "{{ logstash_oss_user }}"
+    group: "{{ logstash_oss_group }}"
+    mode: '0755'
   become: yes
-  tags: [logstash_oss, directories, symlinks]
+  tags: [logstash_oss, directories, home]
 
 - name: Check if logstash bin directory exists
   stat:
@@ -77,57 +103,60 @@
   register: logstash_bin_exists
   tags: [logstash_oss, directories, symlinks]
 
-- name: Create symbolic links in logstash home
+# Convenience links for the logstash user home. The RPM service uses
+# --path.settings /etc/logstash and does not need these.
+# Do not set owner/group on the link: Ansible may follow it and chown the
+# target (/etc/logstash), which fails with Permission denied while linking.
+# follow: false so state=absent never deletes the real /etc/logstash.
+- name: Remove Logstash home paths that would block symlinks
+  file:
+    path: "{{ logstash_oss_home }}/{{ item }}"
+    state: absent
+    follow: false
+  loop:
+    - bin
+    - data
+    - logs
+    - ls_home
+    - conf
+    - sys_conf
+  become: yes
+  tags: [logstash_oss, directories, symlinks]
+
+- name: Create convenience symlinks in Logstash home
   file:
     src: "{{ item.src }}"
     dest: "{{ logstash_oss_home }}/{{ item.dest }}"
     state: link
-    owner: "{{ logstash_oss_user }}"
-    group: "{{ logstash_oss_group }}"
+    force: true
+    follow: false
   loop:
     - { src: "{{ logstash_oss_install_dir }}", dest: "ls_home" }
     - { src: "{{ logstash_oss_install_dir }}/bin", dest: "bin" }
-  when: logstash_bin_exists.stat.exists
-  become: yes
-  tags: [logstash_oss, directories, symlinks]
-
-- name: Create remaining symbolic links in logstash home
-  file:
-    src: "{{ item.src }}"
-    dest: "{{ logstash_oss_home }}/{{ item.dest }}"
-    state: link
-    owner: "{{ logstash_oss_user }}"
-    group: "{{ logstash_oss_group }}"
-  loop:
     - { src: "{{ logstash_oss_logs_dir }}", dest: "logs" }
     - { src: "{{ logstash_oss_data_dir }}", dest: "data" }
+  when: item.dest != 'bin' or (logstash_bin_exists.stat.exists | default(false))
   become: yes
   tags: [logstash_oss, directories, symlinks]
 
-- name: Create sysconfig symlink if file exists
-  file:
-    src: "/etc/sysconfig/logstash"
-    dest: "{{ logstash_oss_home }}/sys_conf"
-    state: link
-    owner: "{{ logstash_oss_user }}"
-    group: "{{ logstash_oss_group }}"
-  when: ansible_facts.stat is defined and ansible_facts.stat.exists
-  become: yes
-  tags: [logstash_oss, directories, symlinks]
-
-- name: Remove existing conf directory if it exists
-  file:
-    path: "{{ logstash_oss_home }}/conf"
-    state: absent
-  become: yes
-  tags: [logstash_oss, directories, conf]
-
-- name: Create conf symlink
+# Optional operator shortcut. The service uses /etc/logstash directly.
+# owner/group on this link made Ansible follow /etc/logstash and fail with EACCES.
+- name: Create conf convenience symlink in Logstash home
   file:
     src: "{{ logstash_oss_config_dir }}"
     dest: "{{ logstash_oss_home }}/conf"
     state: link
-    owner: "{{ logstash_oss_user }}"
-    group: "{{ logstash_oss_group }}"
+    force: true
+    follow: false
   become: yes
+  register: logstash_oss_conf_link
+  failed_when: false
+  tags: [logstash_oss, directories, conf-symlink]
+
+- name: Report Logstash home conf symlink result
+  debug:
+    msg: >-
+      {{ logstash_oss_home }}/conf -> {{ logstash_oss_config_dir }}
+      {{ 'created' if (logstash_oss_conf_link is changed) else 'ok' }}.
+      {{ logstash_oss_conf_link.msg | default('') }}
   tags: [logstash_oss, directories, conf-symlink]

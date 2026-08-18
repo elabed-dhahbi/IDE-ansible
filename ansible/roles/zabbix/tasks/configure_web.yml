@@ -1,3 +1,29 @@
 ---
 # Zabbix Web Configuration Tasks
-# No custom configuration - use default RPM setup
+# Ensure system locale meets Zabbix frontend prerequisites.
+
+- name: Install locale langpack for Zabbix (RedHat family)
+  package:
+    name: "{{ zabbix_locale_langpack_package }}"
+    state: present
+  become: yes
+  when: ansible_facts.os_family | default('') == 'RedHat'
+  tags: [zabbix, web, locale]
+
+- name: Set system locale for Zabbix web installer (RedHat family)
+  command: "localectl set-locale LANG={{ zabbix_system_locale }}"
+  become: yes
+  changed_when: true
+  when: ansible_facts.os_family | default('') == 'RedHat'
+  tags: [zabbix, web, locale]
+
+- name: Ensure /etc/locale.conf has LANG set (RedHat family)
+  lineinfile:
+    path: /etc/locale.conf
+    regexp: '^LANG='
+    line: "LANG={{ zabbix_system_locale }}"
+    create: true
+    mode: '0644'
+  become: yes
+  when: ansible_facts.os_family | default('') == 'RedHat'
+  tags: [zabbix, web, locale]

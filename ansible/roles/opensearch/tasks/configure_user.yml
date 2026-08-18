@@ -1,6 +1,20 @@
 ---
 # OpenSearch User Configuration Tasks
 
+- name: Set default OpenSearch connection settings for user profile helpers
+  set_fact:
+    opensearch_config: >-
+      {{
+        opensearch_config | default({}) | combine(
+          {
+            'http_port': (opensearch_config.http_port | default(9200)),
+            'admin_password': (opensearch_config.admin_password | default(service_passwords.opensearch | default('')))
+          },
+          recursive=True
+        )
+      }}
+  tags: [opensearch, user, defaults]
+
 - name: Update OpenSearch user home directory and shell in /etc/passwd
   lineinfile:
     path: /etc/passwd
@@ -127,7 +141,3 @@
     append: yes
   become: yes
   tags: [opensearch, user, groups]
-
-
-
-

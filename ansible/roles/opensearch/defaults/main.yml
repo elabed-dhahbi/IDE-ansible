@@ -14,6 +14,8 @@ opensearch_group: "opensearch"
 
 # Directory configuration
 opensearch_home: "/usr/share/opensearch"
+# JDK 21+ bootstrap javaagent (must NOT use opensearch-agent-policy-*.jar — that JAR is not a javaagent)
+opensearch_javaagent_jar: "{{ opensearch_home }}/agent/opensearch-agent.jar"
 opensearch_config_dir: "/etc/opensearch"
 opensearch_data_dir: "/var/lib/opensearch"
 opensearch_logs_dir: "/var/log/opensearch"
@@ -78,11 +80,11 @@ opensearch_certificates:
     validity_days: "{{ opensearch_cert_validity.admin | default(730) }}"
     key_size: "{{ opensearch_cert_key_size.admin | default(2048) }}"
     subject:
-      C: "{{ certificate_org.country | default('CA') }}"
-      ST: "{{ certificate_org.state | default('ONTARIO') }}"
-      L: "{{ certificate_org.city | default('TORONTO') }}"
-      O: "{{ certificate_org.organization | default('ORG') }}"
-      OU: "{{ certificate_org.organizational_unit | default('UNIT') }}"
+      C: "{{ certificate_org.country | default('US') }}"
+      ST: "{{ certificate_org.state | default('CA') }}"
+      L: "{{ certificate_org.city | default('San Francisco') }}"
+      O: "{{ certificate_org.organization | default('SICAP') }}"
+      OU: "{{ certificate_org.organizational_unit | default('IT Department') }}"
       CN: "{{ certificate_org.admin_cn | default('A') }}"
   node:
     validity_days: "{{ opensearch_cert_validity.node | default(3650) }}"

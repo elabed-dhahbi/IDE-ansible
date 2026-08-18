@@ -3,25 +3,25 @@
 # This file is managed by Ansible playbook
 
 # Cluster Configuration
-cluster.name: {{ opensearch_config.cluster_name }}
-node.name: {{ opensearch_config.node_name }}
+cluster.name: {{ opensearch_config.cluster_name | default('opensearch-cluster') }}
+node.name: {{ opensearch_config.node_name | default(ansible_hostname | default(inventory_hostname)) }}
 node.roles: [ data, ingest, cluster_manager ]
 
 # Network Configuration
-network.host: {{ opensearch_config.network_host }}
-http.port: {{ opensearch_config.http_port }}
-transport.port: {{ opensearch_config.transport_port }}
+network.host: {{ opensearch_config.network_host | default('0.0.0.0') }}
+http.port: {{ opensearch_config.http_port | default(9200) }}
+transport.port: {{ opensearch_config.transport_port | default(9300) }}
 
 # Discovery Configuration
-discovery.type: {{ opensearch_config.discovery_type }}
+discovery.type: {{ opensearch_config.discovery_type | default('single-node') }}
 
 # Bootstrap Configuration
-bootstrap.memory_lock: {{ opensearch_config.bootstrap_memory_lock | lower }}
+bootstrap.memory_lock: {{ (opensearch_config.bootstrap_memory_lock | default(true)) | lower }}
 
 # Path Configuration
-path.data: {{ opensearch_config.path_data }}
-path.logs: {{ opensearch_config.path_logs }}
-path.repo: ["{{ opensearch_config.path_repo }}"]
+path.data: {{ opensearch_config.path_data | default('/var/lib/opensearch') }}
+path.logs: {{ opensearch_config.path_logs | default('/var/log/opensearch') }}
+path.repo: ["{{ opensearch_config.path_repo | default('/var/opt/opensearch/ops_backup') }}"]
 
 # Security Plugin Settings
 plugins.security.disabled: false
@@ -42,8 +42,10 @@ plugins.security.ssl.http.pemtrustedcas_filepath: {{ opensearch_certificates.sec
 # Security Plugin Settings
 plugins.security.allow_unsafe_democertificates: false
 plugins.security.allow_default_init_securityindex: true
-plugins.security.authcz.admin_dn: ['CN={{ opensearch_certificates.admin.subject.CN }},OU={{ opensearch_certificates.admin.subject.OU }},O={{ opensearch_certificates.admin.subject.O }},L={{ opensearch_certificates.admin.subject.L }},ST={{ opensearch_certificates.admin.subject.ST }},C={{ opensearch_certificates.admin.subject.C }}']
-plugins.security.nodes_dn: ['CN={{ opensearch_certificates.node.subject.CN }},OU={{ opensearch_certificates.node.subject.OU }},O={{ opensearch_certificates.node.subject.O }},L={{ opensearch_certificates.node.subject.L }},ST={{ opensearch_certificates.node.subject.ST }},C={{ opensearch_certificates.node.subject.C }}']
+plugins.security.authcz.admin_dn:
+  - "CN={{ opensearch_certificates.admin.subject.CN }},OU={{ opensearch_certificates.admin.subject.OU }},O={{ opensearch_certificates.admin.subject.O }},L={{ opensearch_certificates.admin.subject.L }},ST={{ opensearch_certificates.admin.subject.ST }},C={{ opensearch_certificates.admin.subject.C }}"
+plugins.security.nodes_dn:
+  - "CN={{ opensearch_certificates.node.subject.CN }},OU={{ opensearch_certificates.node.subject.OU }},O={{ opensearch_certificates.node.subject.O }},L={{ opensearch_certificates.node.subject.L }},ST={{ opensearch_certificates.node.subject.ST }},C={{ opensearch_certificates.node.subject.C }}"
 
 # Audit Configuration
 plugins.security.audit.type: internal_opensearch
@@ -61,16 +63,15 @@ plugins.security.restapi.roles_enabled: [all_access, security_rest_api_access]
 plugins.security.system_indices.enabled: true
 
 # Performance Settings
-indices.memory.index_buffer_size: {{ opensearch_config.indices_memory_index_buffer_size }}
-indices.queries.cache.size: {{ opensearch_config.indices_queries_cache_size }}
-indices.fielddata.cache.size: {{ opensearch_config.indices_fielddata_cache_size }}
+indices.memory.index_buffer_size: {{ opensearch_config.indices_memory_index_buffer_size | default('20%') }}
+indices.queries.cache.size: {{ opensearch_config.indices_queries_cache_size | default('10%') }}
+indices.fielddata.cache.size: {{ opensearch_config.indices_fielddata_cache_size | default('20%') }}
 
 # Cluster Settings
-cluster.routing.allocation.disk.threshold_enabled: {{ opensearch_config.cluster_routing_allocation_disk_threshold_enabled | lower }}
-cluster.routing.allocation.disk.watermark.low: {{ opensearch_config.cluster_routing_allocation_disk_watermark_low }}
-cluster.routing.allocation.disk.watermark.high: {{ opensearch_config.cluster_routing_allocation_disk_watermark_high }}
-cluster.routing.allocation.disk.watermark.flood_stage: {{ opensearch_config.cluster_routing_allocation_disk_watermark_flood_stage }}
+cluster.routing.allocation.disk.threshold_enabled: {{ (opensearch_config.cluster_routing_allocation_disk_threshold_enabled | default(true)) | lower }}
+cluster.routing.allocation.disk.watermark.low: {{ opensearch_config.cluster_routing_allocation_disk_watermark_low | default('85%') }}
+cluster.routing.allocation.disk.watermark.high: {{ opensearch_config.cluster_routing_allocation_disk_watermark_high | default('90%') }}
+cluster.routing.allocation.disk.watermark.flood_stage: {{ opensearch_config.cluster_routing_allocation_disk_watermark_flood_stage | default('95%') }}
 
 # Node Settings
 node.max_local_storage_nodes: 3
-

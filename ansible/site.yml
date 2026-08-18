@@ -8,23 +8,21 @@
 # - Idempotent operations using native Ansible modules
 # - Comprehensive validation and error handling
 # =============================================================================
-
-# =============================================================================
-# Variable Loading Order
-# =============================================================================
+#
+# Variable Loading Order:
 # 1. vars/release.yml - Centralized version numbers (highest priority for versions)
 # 2. vars/env/default.yml - Default environment configuration
 # 3. config/packages.yaml - Package glob patterns
 # 4. config/values.yaml - Customer-specific overrides (lowest priority)
-# =============================================================================
+#
 
 # a) Preflight checks on all hosts
 - name: Preflight system checks
   hosts: all
   gather_facts: yes
   vars_files:
-    - "vars/release.yml"          # Centralized versions (load first)
-    - "vars/env/default.yml"      # Default environment config
+    - "vars/release.yml"
+    - "vars/env/default.yml"
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:
@@ -32,13 +30,107 @@
   tags:
     - preflight
 
+# a2) When DMC2 exists, sync offline packages from controller (DMC1) before any package installs.
+# Run ansible-playbook from DMC1 where /tmp/offline is populated; uses controller SSH to DMC2.
+- name: Sync offline packages from DMC1 to DMC2
+  hosts: dmc2
+  gather_facts: yes
+  vars_files:
+    - "vars/release.yml"
+    - "vars/env/default.yml"
+    - "../config/packages.yaml"
+    - "../config/values.yaml"
+  tags:
+    - preflight
+    - dmc1
+    - dmc2
+    - offline_sync
+    - logstash-oss
+    - zabbix-agents
+  tasks:
+    - name: Require DMC1 in inventory to sync offline packages
+      assert:
+        that:
+          - groups['dmc1'] is defined
+          - (groups['dmc1'] | length) > 0
+        fail_msg: >-
+          Inventory has dmc2 ({{ inventory_hostname }}) but no dmc1 host.
+          Add dmc1 or place packages under {{ paths.offline_dir | default('/tmp/offline') }}.
+
+    - name: Resolve offline directory path
+      set_fact:
+        offline_sync_dir: "{{ paths.offline_dir | default('/tmp/offline') }}"
+
+    - name: Ensure offline directory exists on DMC2
+      file:
+        path: "{{ offline_sync_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0777'
+      become: yes
+
+    - name: Ensure offline directory tree is writable on DMC2
+      file:
+        path: "{{ offline_sync_dir }}"
+        state: directory
+        mode: '0777'
+        recurse: yes
+      become: yes
+
+    - name: Check offline packages on Ansible controller
+      find:
+        paths: "{{ offline_sync_dir }}"
+        file_type: any
+      register: controller_offline_files
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_connection: local
+
+    - name: Require offline packages on Ansible controller
+      assert:
+        that:
+          - (controller_offline_files.matched | default(0) | int) > 0
+        fail_msg: >-
+          No packages under {{ offline_sync_dir }} on the Ansible controller.
+          Upload offline packages on DMC1 and run ansible-playbook from that host.
+
+    - name: Sync offline packages from Ansible controller to DMC2
+      shell: |
+        set -euo pipefail
+        SRC="{{ offline_sync_dir }}"
+        DEST_HOST="{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}"
+        DEST_USER="{{ hostvars[inventory_hostname].ansible_user | default(ansible_user) | default('ansible') }}"
+        SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes"
+        {% if ansible_ssh_private_key_file is defined and ansible_ssh_private_key_file %}
+        SSH_OPTS="${SSH_OPTS} -i {{ ansible_ssh_private_key_file }}"
+        {% endif %}
+        rsync -rlptD --timeout=600 \
+          -e "ssh ${SSH_OPTS}" \
+          --rsync-path="sudo -n rsync" \
+          --chmod=Du=rwx,Dgo=rwx,Fu=rwx,Fgo=rwx \
+          "${SRC}/" "${DEST_USER}@${DEST_HOST}:${SRC}/"
+      args:
+        executable: /bin/bash
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_connection: local
+
+    - name: Show offline sync result
+      debug:
+        msg: >-
+          Synced {{ offline_sync_dir }}/ from Ansible controller
+          to {{ inventory_hostname }} ({{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}).
+
 # b) PostgreSQL database installation
 - name: Install and configure PostgreSQL
   hosts: postgres
   gather_facts: yes
   vars_files:
-    - "vars/release.yml"          # Centralized versions
-    - "vars/env/default.yml"      # Default environment config
+    - "vars/release.yml"
+    - "vars/env/default.yml"
     - "../config/packages.yaml"
     - "../config/values.yaml"
   roles:
@@ -115,6 +207,8 @@
     - logstash_oss
   tags:
     - logstash-oss
+  pre_tasks:
+    - import_tasks: tasks/install_logstash_opensearch_plugin.yml
 
 # e2.2) Zabbix monitoring installation (server + web)
 - name: Install and configure Zabbix server and web
@@ -168,7 +262,7 @@
   tags:
     - opensearch_dashboards
 
-# f) DMC installation on first node (with DRS and Logstash)
+# f) DMC installation on first node (with DRS, Logstash, and DMC Statistics)
 - name: Install and configure DMC (Node 1)
   hosts: dmc1
   gather_facts: yes
@@ -181,10 +275,14 @@
     - dmc
     - drs
     - "{{ 'logstash_oss' if stack_type == 'opensearch' else 'logstash' }}"
+    - elkstatistic
   tags:
     - dmc1
+  pre_tasks:
+    - import_tasks: tasks/install_logstash_opensearch_plugin.yml
+      when: stack_type | default('') == 'opensearch'
 
-# g) DMC installation on second node (with DRS and Logstash)
+# g) DMC installation on second node (with DRS, Logstash, and DMC Statistics)
 - name: Install and configure DMC (Node 2)
   hosts: dmc2
   gather_facts: yes
@@ -197,22 +295,12 @@
     - dmc
     - drs
     - "{{ 'logstash_oss' if stack_type == 'opensearch' else 'logstash' }}"
+    - elkstatistic
   tags:
     - dmc2
-
-# g.1) ELK Statistics Stack installation for CSV export generation (after DMC)
-- name: Install and configure ELK Statistics Stack
-  hosts: elkstatistic
-  gather_facts: yes
-  vars_files:
-    - "vars/release.yml"
-    - "vars/env/default.yml"
-    - "../config/packages.yaml"
-    - "../config/values.yaml"
-  roles:
-    - elkstatistic
-  tags:
-    - elkstatistic
+  pre_tasks:
+    - import_tasks: tasks/install_logstash_opensearch_plugin.yml
+      when: stack_type | default('') == 'opensearch'
 
 # h) MMG installation
 - name: Install and configure MMG
@@ -280,7 +368,6 @@
     - "../config/values.yaml"
   tags:
     - sls
-  # Add a pause here for manual license upload
   tasks:
     - name: SLS Installation Complete - Manual License Upload Required
       pause:
@@ -288,15 +375,15 @@
           ================================================
           SLS INSTALLATION COMPLETE
           ================================================
-          
+
           Next steps:
           1. Open browser and go to: http://{{ ansible_host }}:50420
           2. Upload all required licenses via the web interface
           3. Verify SLS is working properly
           4. Run the remaining services installation:
-             
+
              make install-tag TAG=sicap-services
-          
+
           Press ENTER when licenses are uploaded and SLS is verified...
       when: inventory_hostname in groups['sls']
 
@@ -313,10 +400,3 @@
     - haproxy
   tags:
     - haproxy
-
-# IMPORTANT NOTES:
-# - All roles must read versions.* and package_globs.* from values.yaml
-# - RPM discovery is handled via glob patterns (checked in preflight)
-# - Roles later consume exact filenames or use with_fileglob for package installation
-# - Package paths are constructed as: paths.offline_dir + resolved filenames
-

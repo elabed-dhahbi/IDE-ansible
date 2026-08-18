@@ -69,35 +69,8 @@
     msg: "DMC current link exists: {{ dmc_current_link.stat.exists }}"
   tags: [dmc, install, verify]
 
-- name: Remove existing current symlink and create new one
-  shell: |
-    cd {{ dmc_install_dir }}
-    unlink current
-    ln -sf {{ dmc_version }} current
-  become: yes
-  tags: [dmc, install, fix]
-
-- name: Verify DMC current link was created correctly
-  stat:
-    path: "{{ dmc_current_dir }}"
-  register: dmc_current_link_final
-  become: yes
-  tags: [dmc, install, verify]
-
-- name: Display final DMC current link status
-  debug:
-    msg: "DMC current link points to: {{ dmc_current_link_final.stat.lnk_target if dmc_current_link_final.stat.islnk else 'Not a link' }}"
-  tags: [dmc, install, verify]
-
-
-- name: Ensure DMC conf symlink exists
-  file:
-    src: "{{ dmc_current_dir }}/standalone/configuration"
-    dest: "{{ dmc_install_dir }}/{{ dmc_version }}/conf"
-    state: link
-    force: yes
-  become: yes
-  tags: [dmc, install, fix]
+# Symlinks under /opt/dmc (e.g. current, conf, configuration) are owned by the SCPdmc RPM.
+# Do not recreate them here.
 
 - name: Verify DMC user was created
   getent:
@@ -149,5 +122,3 @@
   tags: [dmc, install, debug]
 
 # Debugging tasks removed - focus on the main issue
-
-

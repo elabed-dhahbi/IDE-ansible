@@ -3,11 +3,38 @@
 # Used for idempotent service management
 
 - name: restart opensearch
-  systemd:
-    name: "{{ opensearch_service_name }}"
-    state: restarted
-    daemon_reload: yes
-  become: yes
+  block:
+    - name: Restart OpenSearch service
+      systemd:
+        name: "{{ opensearch_service_name }}"
+        state: restarted
+        daemon_reload: yes
+      become: yes
+  rescue:
+    - name: Capture OpenSearch service status
+      command: systemctl status "{{ opensearch_service_name }}" --no-pager -l
+      register: opensearch_service_status_debug
+      changed_when: false
+      failed_when: false
+      become: yes
+
+    - name: Capture OpenSearch service logs
+      command: journalctl -u "{{ opensearch_service_name }}" -n 200 --no-pager
+      register: opensearch_service_journal_debug
+      changed_when: false
+      failed_when: false
+      become: yes
+
+    - name: Fail with OpenSearch restart diagnostics
+      fail:
+        msg: |
+          Unable to restart {{ opensearch_service_name }}.
+
+          === systemctl status ===
+          {{ opensearch_service_status_debug.stdout | default('no output') }}
+
+          === journalctl (last 200 lines) ===
+          {{ opensearch_service_journal_debug.stdout | default('no output') }}
 
 - name: reload opensearch
   systemd:
@@ -15,4 +42,11 @@
     state: reloaded
     daemon_reload: yes
   become: yes
+
+
+
+
+
+
+
 

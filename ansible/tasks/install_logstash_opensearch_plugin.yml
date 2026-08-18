@@ -1,0 +1,107 @@
+---
+# Runs as play pre_tasks (before the logstash_oss role).
+# The role on the controller may still be an old copy that fails on
+# logstash-offline-plugins-*.zip. Installing first makes that fail skip.
+# No extra tags: inherit the play tag (dmc1 / dmc2 / logstash-oss).
+
+- name: PRE - playbook_dir and install_plugins.yml copies on controller
+  shell: |
+    set +e
+    echo "playbook_dir={{ playbook_dir }}"
+    echo "PWD=$(pwd)"
+    echo "ANSIBLE_ROLES_PATH=${ANSIBLE_ROLES_PATH:-unset}"
+    ansible-config dump 2>/dev/null | grep -E 'DEFAULT_ROLES_PATH' || true
+    find "{{ playbook_dir }}" "{{ playbook_dir }}/.." -path '*logstash_oss/tasks/install_plugins.yml' 2>/dev/null | sort -u | while read -r f; do
+      echo "FILE $f"
+      ls -l "$f"
+      grep -n '^- name: Fail when offline pack is present' "$f" || true
+      grep -n '^- name: Install logstash-output-opensearch' "$f" || true
+      grep -n '^- name: PRE -' "$f" || true
+    done
+  args:
+    executable: /bin/bash
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_connection: local
+  changed_when: false
+  register: ls_pre_plugin_file_debug
+
+- name: PRE - show install_plugins.yml copies
+  debug:
+    msg: "{{ ls_pre_plugin_file_debug.stdout_lines }}"
+
+- name: PRE - check if Logstash plugin CLI is present
+  stat:
+    path: /usr/share/logstash/bin/logstash-plugin
+  register: ls_pre_plugin_bin
+  when: stack_type | default('') == 'opensearch'
+
+- name: PRE - skip OpenSearch plugin until Logstash RPM is installed
+  debug:
+    msg: >-
+      /usr/share/logstash is not installed yet on this host (fresh/rolled-back VM).
+      Offline packs are not missing; the role will install logstash-oss RPM first,
+      then install plugins from /tmp/offline.
+  when:
+    - stack_type | default('') == 'opensearch'
+    - not (ls_pre_plugin_bin.stat.exists | default(false))
+
+- name: PRE - install logstash-output-opensearch (manual file:// flow)
+  shell: |
+    set -euo pipefail
+    OD="{{ paths.offline_dir | default('/tmp/offline') | trim }}"
+    LS="/usr/share/logstash"
+    export LS_JAVA_OPTS="-Xmx2g -Xms1g"
+
+    if [ ! -d "$LS" ] || [ ! -x "$LS/bin/logstash-plugin" ]; then
+      echo "Logstash not installed yet; role will install RPM first"
+      exit 0
+    fi
+    cd "$LS"
+
+    if bin/logstash-plugin list 2>/dev/null | grep -Fq "logstash-output-opensearch"; then
+      echo "logstash-output-opensearch already installed"
+      exit 0
+    fi
+
+    SRC=""
+    while IFS= read -r cand; do
+      [ -n "$cand" ] || continue
+      SRC="$cand"
+      break
+    done < <(
+      find "$OD" -maxdepth 2 -type f -name 'logstash-output-plugins-openseach*.zip' 2>/dev/null
+      find "$OD" -maxdepth 2 -type f -name 'logstash-output-plugins-opensearch*.zip' 2>/dev/null
+      find "$OD" -maxdepth 2 -type f -name 'logstash-output-opensearch*.gem' 2>/dev/null
+    )
+
+    echo "offline_dir=$OD"
+    ls -l "$OD"/logstash-output-plugins-openseach*.zip "$OD"/logstash-output-opensearch*.gem 2>/dev/null || true
+    echo "SRC=${SRC:-EMPTY}"
+
+    if [ -z "$SRC" ]; then
+      echo "ERROR: no OpenSearch plugin pack/gem under $OD" >&2
+      exit 1
+    fi
+
+    if [[ "$SRC" == *.zip ]]; then
+      python3 -c 'import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); m=[n for n in z.namelist() if "logstash-output-opensearch" in n]; print("\n".join(m) if m else "NOT FOUND"); raise SystemExit(0 if m else 1)' "$SRC"
+    fi
+
+    BASE="$(basename "$SRC")"
+    cp -f "$SRC" "$LS/$BASE"
+    bin/logstash-plugin install "file://$LS/$BASE"
+    bin/logstash-plugin list | grep -F "logstash-output-opensearch"
+  args:
+    executable: /bin/bash
+  become: yes
+  register: ls_pre_opensearch_install
+  when:
+    - stack_type | default('') == 'opensearch'
+    - ls_pre_plugin_bin.stat.exists | default(false)
+
+- name: PRE - show OpenSearch plugin install log
+  debug:
+    msg: "{{ ls_pre_opensearch_install.stdout_lines | default(['skipped']) }}"
+  when: stack_type | default('') == 'opensearch'

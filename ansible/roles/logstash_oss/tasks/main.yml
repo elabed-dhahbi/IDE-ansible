@@ -1,6 +1,52 @@
 ---
+# FILE: roles/logstash_oss/tasks/main.yml
+# This is the role TASK LIST. Do not replace it with defaults/main.yml
+# (that file also named main.yml; it starts with stack_type: and is variables only).
 # Logstash OSS Main Tasks
 # Installs and configures Logstash OSS for OpenSearch stack
+
+- name: Log which logstash_oss role directory Ansible loaded
+  shell: |
+    set +e
+    echo "role_path={{ role_path }}"
+    echo "playbook_dir={{ playbook_dir }}"
+    echo "inventory_hostname={{ inventory_hostname }}"
+    f="{{ role_path }}/tasks/install_plugins.yml"
+    echo "loaded_file=$f"
+    ls -l "$f"
+    echo "--- identity strings ---"
+    grep -n '^- name: Fail when offline pack is present' "$f" || echo "no stale fail task"
+    grep -n '^- name: Install logstash-output-opensearch' "$f" || echo "no file:// install task"
+    grep -n '^- name: PRE -' "$f" || echo "no PRE tasks (good for this file)"
+    echo "--- task names ---"
+    grep -n "^- name:" "$f"
+  args:
+    executable: /bin/bash
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_connection: local
+  changed_when: false
+  register: ls_role_plugin_identity
+  tags: [logstash_oss, plugins, install, config, service, pipeline, user, directories]
+
+- name: Show loaded logstash_oss plugin task file
+  debug:
+    msg: "{{ ls_role_plugin_identity.stdout_lines }}"
+  tags: [logstash_oss, plugins, install, config, service, pipeline, user, directories]
+
+- name: Fail if install_plugins.yml is not the file:// plugin installer
+  fail:
+    msg: >-
+      {{ role_path }}/tasks/install_plugins.yml is the wrong file
+      (size/task names in the previous task). It must contain:
+        - name: Install logstash-output-opensearch (manual file:// flow)
+      Do not overwrite it with ansible/tasks/install_logstash_opensearch_plugin.yml.
+      Those are two files: PRE tasks vs role plugin install.
+  when: >-
+    '- name: Install logstash-output-opensearch (manual file:// flow)'
+    not in (ls_role_plugin_identity.stdout | default(''))
+  tags: [logstash_oss, plugins, install, config, service, pipeline, user, directories]
 
 - name: Include Logstash OSS installation tasks
   include_tasks: install_logstash_oss.yml
@@ -22,10 +68,17 @@
   include_tasks: install_plugins.yml
   tags: [logstash_oss, plugins]
 
+# Pipeline must exist in /etc/logstash/conf.d before the service starts.
+# Logstash 8 exits if that glob is empty (API binds, then SystemExit).
+- name: Include Logstash OSS pipeline configuration tasks
+  include_tasks:
+    file: configure_pipeline.yml
+    apply:
+      tags:
+        - logstash_oss
+        - pipeline
+  tags: [logstash_oss, pipeline]
+
 - name: Include Logstash OSS service configuration tasks
   include_tasks: configure_service.yml
   tags: [logstash_oss, service]
-
-- name: Include Logstash OSS pipeline configuration tasks
-  include_tasks: configure_pipeline.yml
-  tags: [logstash_oss, pipeline]

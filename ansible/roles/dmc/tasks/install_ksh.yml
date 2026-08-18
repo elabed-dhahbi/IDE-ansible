@@ -1,0 +1,63 @@
+---
+# ksh is required for DMC ctl scripts (shebang /bin/ksh). Install early so any
+# later configuration or manual ctl use succeeds.
+
+- name: Check whether /bin/ksh exists
+  stat:
+    path: /bin/ksh
+  register: dmc_ksh_stat
+  become: yes
+  tags: [dmc, ksh, packages, install, service]
+
+- name: Install ksh via package manager (best effort)
+  package:
+    name: ksh
+    state: present
+  become: yes
+  register: dmc_ksh_pkg_install
+  failed_when: false
+  when: not (dmc_ksh_stat.stat.exists | default(false))
+  tags: [dmc, ksh, packages, install, service]
+
+- name: Re-check whether /bin/ksh exists after package install
+  stat:
+    path: /bin/ksh
+  register: dmc_ksh_stat_after_pkg
+  become: yes
+  when: not (dmc_ksh_stat.stat.exists | default(false))
+  tags: [dmc, ksh, packages, install, service]
+
+- name: Find ksh RPM in offline directory (fallback)
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "ksh-*.rpm"
+    file_type: file
+  register: dmc_ksh_rpms
+  when: not (dmc_ksh_stat.stat.exists | default(false)) and not (dmc_ksh_stat_after_pkg.stat.exists | default(false))
+  tags: [dmc, ksh, packages, install, service]
+
+- name: Validate ksh RPM is available offline
+  assert:
+    that:
+      - dmc_ksh_rpms.files | length > 0
+    fail_msg: "ksh is required for ctl but was not installed and no ksh-*.rpm was found under {{ paths.offline_dir }}."
+    success_msg: "Found offline ksh RPM: {{ (dmc_ksh_rpms.files | sort(attribute='mtime', reverse=true) | first).path }}"
+  when: not (dmc_ksh_stat.stat.exists | default(false)) and not (dmc_ksh_stat_after_pkg.stat.exists | default(false))
+  tags: [dmc, ksh, packages, install, service]
+
+- name: Install ksh from offline RPM (fallback)
+  command: rpm -Uvh --force "{{ (dmc_ksh_rpms.files | sort(attribute='mtime', reverse=true) | first).path }}"
+  become: yes
+  register: dmc_ksh_rpm_install
+  changed_when: dmc_ksh_rpm_install.rc == 0
+  when: not (dmc_ksh_stat.stat.exists | default(false)) and not (dmc_ksh_stat_after_pkg.stat.exists | default(false))
+  tags: [dmc, ksh, packages, install, service]
+
+- name: Final verify ksh interpreter is present
+  stat:
+    path: /bin/ksh
+  register: dmc_ksh_final
+  become: yes
+  failed_when: not (dmc_ksh_final.stat.exists | default(false))
+  tags: [dmc, ksh, packages, install, service]

@@ -47,14 +47,28 @@
   become: yes
   tags: [opensearch, validation, always]
 
+- name: Initialize OpenSearch restart flag
+  set_fact:
+    opensearch_restart_needed: false
+  tags: [opensearch, config, restart, always]
+
 # Phase 1.3: Template-based Configuration (Idempotent)
+- name: Check if OpenSearch configuration exists
+  stat:
+    path: "{{ opensearch_config_dir }}/opensearch.yml"
+  register: opensearch_yml_stat
+  become: yes
+  tags: [opensearch, config, main, backup]
+
 - name: Backup existing OpenSearch configuration
   copy:
     src: "{{ opensearch_config_dir }}/opensearch.yml"
     dest: "{{ opensearch_config_dir }}/opensearch.yml.backup-{{ ansible_date_time.epoch }}"
     remote_src: yes
   become: yes
-  when: opensearch_config_backup | default(true) and (opensearch_config_dir + '/opensearch.yml') | exists
+  when:
+    - opensearch_config_backup | default(true)
+    - opensearch_yml_stat.stat.exists
   failed_when: false
   changed_when: false
   tags: [opensearch, config, main, backup]
@@ -65,11 +79,40 @@
     dest: "{{ opensearch_config_dir }}/opensearch.yml"
     owner: "{{ opensearch_user }}"
     group: "{{ opensearch_group }}"
-    mode: '0644'
+    mode: '0600'
     backup: yes
   become: yes
-  notify: restart opensearch
+  register: opensearch_config_template_result
   tags: [opensearch, config, main]
+
+- name: Find OpenSearch YAML backups with insecure permissions
+  find:
+    paths: "{{ opensearch_config_dir }}"
+    patterns:
+      - "opensearch.yml.backup-*"
+      - "opensearch.yml.rpmsave"
+    file_type: file
+  register: opensearch_yml_backups_found
+  become: yes
+  changed_when: false
+  failed_when: false
+  tags: [opensearch, config, main, permissions]
+
+- name: Enforce secure permissions on OpenSearch YAML and backups
+  file:
+    path: "{{ item }}"
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    mode: '0600'
+  loop: "{{ ([opensearch_config_dir ~ '/opensearch.yml'] + (opensearch_yml_backups_found.files | default([]) | map(attribute='path') | list)) | unique }}"
+  become: yes
+  tags: [opensearch, config, main, permissions]
+
+- name: Mark OpenSearch restart needed (config template changed)
+  set_fact:
+    opensearch_restart_needed: true
+  when: opensearch_config_template_result is changed
+  tags: [opensearch, config, main, restart]
 
 # Phase 1.1: Idempotent Service Management
 - name: Check if OpenSearch service is running
@@ -129,7 +172,6 @@
     - "{{ opensearch_config_dir }}/kirk.pem"
     - "{{ opensearch_config_dir }}/kirk-key.pem"
   become: yes
-  when: certs_need_regeneration
   tags: [opensearch, config, security, certificates]
 
 - name: Create OpenSearch security certificates directory
@@ -293,6 +335,8 @@
   stat:
     path: "{{ opensearch_config_dir }}/opensearch-security/internal_users.yml"
   register: internal_users_file
+  become: yes
+  failed_when: false
   tags: [opensearch, config, security, password]
 
 - name: Extract existing password hash from internal_users.yml
@@ -326,9 +370,9 @@
   set_fact:
     opensearch_admin_password_hash: >
       {% if opensearch_password_hash_result is defined and opensearch_password_hash_result.stdout_lines is defined and opensearch_password_hash_result.stdout_lines | length > 0 %}
-      {{ opensearch_password_hash_result.stdout_lines[-1] }}
+      {{ (opensearch_password_hash_result.stdout_lines[-1] | regex_search('\\$2[aby]\\$[0-9]{2}\\$[A-Za-z0-9./]{53}')) | default(opensearch_password_hash_result.stdout_lines[-1]) | trim }}
       {% elif existing_password_hash is defined and existing_password_hash.stdout is defined and existing_password_hash.stdout | length > 0 %}
-      {{ existing_password_hash.stdout }}
+      {{ existing_password_hash.stdout | trim }}
       {% else %}
       ""
       {% endif %}
@@ -350,13 +394,13 @@
          config_version: 2
       # Define your internal users here
       admin:
-         hash: "{{ opensearch_admin_password_hash }}"
+         hash: "{{ opensearch_admin_password_hash | trim }}"
          reserved: true
          backend_roles:
          - "admin"
          description: "Admin user"
       kibanaserver:
-         hash: "{{ opensearch_kibanaserver_password_hash }}"
+         hash: "{{ opensearch_kibanaserver_password_hash | trim }}"
          reserved: true
          backend_roles: []
          description: "OpenSearch Dashboards server user"
@@ -366,7 +410,7 @@
     mode: '0644'
     backup: yes
   become: yes
-  notify: restart opensearch
+  register: opensearch_internal_users_result
   tags: [opensearch, config, security, users]
 
 - name: Fix YAML indentation for kibanaserver user hash
@@ -375,9 +419,11 @@
   become: yes
   tags: [opensearch, config, security, users]
 
-- name: Notify restart after user configuration changes
-  meta: flush_handlers
-  tags: [opensearch, config, security, users]
+- name: Mark OpenSearch restart needed (internal users changed)
+  set_fact:
+    opensearch_restart_needed: true
+  when: opensearch_internal_users_result is changed
+  tags: [opensearch, config, security, users, restart]
 
 - name: Configure OpenSearch roles mapping (following official docs)
   copy:
@@ -409,8 +455,23 @@
     mode: '0644'
     backup: yes
   become: yes
-  notify: restart opensearch
+  register: opensearch_roles_mapping_result
   tags: [opensearch, config, security, roles]
+
+- name: Mark OpenSearch restart needed (roles mapping changed)
+  set_fact:
+    opensearch_restart_needed: true
+  when: opensearch_roles_mapping_result is changed
+  tags: [opensearch, config, security, roles, restart]
+
+- name: Ensure performance analyzer directory owned by opensearch before start
+  shell: |
+    mkdir -p /dev/shm/performanceanalyzer
+    chown opensearch:opensearch /dev/shm/performanceanalyzer
+    chmod 755 /dev/shm/performanceanalyzer
+  become: yes
+  when: certs_need_regeneration
+  tags: [opensearch, config, security, certificates]
 
 - name: Start OpenSearch service with new certificates
   systemd:
@@ -432,16 +493,6 @@
   when: certs_need_regeneration
   tags: [opensearch, config, security, certificates]
 
-- name: Apply security configuration changes using securityadmin.sh (following official docs)
-  shell: |
-    cd /usr/share/opensearch/plugins/opensearch-security/tools
-    OPENSEARCH_JAVA_HOME={{ opensearch_java_home }} ./securityadmin.sh -cd {{ opensearch_config_dir }}/opensearch-security/ -h {{ ansible_host }} -p {{ opensearch_config.http_port }} -cert {{ opensearch_certificates.security_dir }}/admin.pem -key {{ opensearch_certificates.security_dir }}/admin-key.pem -cacert {{ opensearch_certificates.security_dir }}/root-ca.pem -icl -nhnv
-  become: yes
-  register: securityadmin_result
-  failed_when: securityadmin_result.rc != 0
-  changed_when: "'Done with success' in securityadmin_result.stdout"
-  tags: [opensearch, config, security, apply]
-
 # Demo certificates already disabled in template (plugins.security.allow_unsafe_democertificates: false)
 # Service restart handled by handler when configuration template changes
 # Health checks will verify service is ready after handlers execute
@@ -449,29 +500,181 @@
 # Performance settings now handled by opensearch.yml.j2 template
 # No separate task needed - all settings in template
 
-# Phase 1.3: Template-based JVM Configuration
-- name: Backup existing JVM configuration
-  copy:
-    src: "{{ opensearch_config_dir }}/jvm.options"
-    dest: "{{ opensearch_config_dir }}/jvm.options.backup-{{ ansible_date_time.epoch }}"
-    remote_src: yes
-  become: yes
-  when: opensearch_config_backup | default(true) and (opensearch_config_dir + '/jvm.options') | exists
-  failed_when: false
-  changed_when: false
-  tags: [opensearch, config, jvm, backup]
+# Phase 1.3: JVM Configuration (safe)
+# Do NOT overwrite {{ opensearch_config_dir }}/jvm.options.
+# OpenSearch 3.x ships required JVM flags (including a -javaagent) in the package-provided file.
+# Replacing it can remove those flags and prevent the service from starting.
 
-- name: Generate JVM configuration from template
+- name: Check JVM options files (system + packaged defaults)
+  stat:
+    path: "{{ item }}"
+  register: opensearch_jvm_options_files
+  become: yes
+  failed_when: false
+  loop:
+    - "{{ opensearch_config_dir }}/jvm.options"
+    - "/usr/share/opensearch/config/jvm.options"
+  tags: [opensearch, config, jvm]
+
+- name: Check whether current jvm.options contains required -javaagent line
+  command: grep -qE '^([0-9]+-)?-javaagent:' "{{ opensearch_config_dir }}/jvm.options"
+  register: opensearch_jvm_has_javaagent
+  become: yes
+  changed_when: false
+  failed_when: false
+  tags: [opensearch, config, jvm]
+
+- name: Detect mistaken use of policy JAR as javaagent (invalid Premain-Class)
+  command: grep -qE '^([0-9]+-)?-javaagent:.*opensearch-agent-policy' "{{ opensearch_config_dir }}/jvm.options"
+  register: opensearch_jvm_policy_as_javaagent
+  become: yes
+  changed_when: false
+  failed_when: false
+  tags: [opensearch, config, jvm]
+
+- name: Extract configured javaagent path (if any)
+  shell: |
+    set -euo pipefail
+    grep -E '^([0-9]+-)?-javaagent:' "{{ opensearch_config_dir }}/jvm.options" | head -1 | sed -E 's/^([0-9]+-)?-javaagent://' || true
+  args:
+    executable: /bin/bash
+  register: opensearch_javaagent_path
+  become: yes
+  changed_when: false
+  failed_when: false
+  tags: [opensearch, config, jvm]
+
+# Vendor jvm.options often uses a relative agent path (agent/opensearch-agent.jar). JVM resolves
+# -javaagent relative to the process working directory, not OPENSEARCH_HOME — normalize for checks.
+- name: Resolve javaagent path to absolute for existence checks
+  set_fact:
+    opensearch_javaagent_resolved_path: "{{ '' if (p | length == 0) else (p if p.startswith('/') else opensearch_home ~ '/' ~ p) }}"
+  vars:
+    p: "{{ opensearch_javaagent_path.stdout | default('') | trim }}"
+  tags: [opensearch, config, jvm]
+
+- name: Check javaagent jar exists (if configured)
+  stat:
+    path: "{{ opensearch_javaagent_resolved_path }}"
+  register: opensearch_javaagent_jar_stat
+  become: yes
+  failed_when: false
+  when: opensearch_javaagent_resolved_path | length > 0
+  tags: [opensearch, config, jvm]
+
+- name: Set default bootstrap javaagent path (when role defaults not loaded)
+  set_fact:
+    opensearch_home: "{{ opensearch_home | default('/usr/share/opensearch') }}"
+    opensearch_javaagent_jar: "{{ opensearch_javaagent_jar | default((opensearch_home | default('/usr/share/opensearch')) ~ '/agent/opensearch-agent.jar') }}"
+  tags: [opensearch, config, jvm]
+
+- name: Stat vendor bootstrap javaagent JAR (JDK 21+)
+  stat:
+    path: "{{ opensearch_javaagent_jar }}"
+  register: opensearch_bootstrap_agent_jar
+  become: yes
+  failed_when: false
+  tags: [opensearch, config, jvm]
+
+- name: Remove invalid javaagent line when no valid agent JAR is present
+  lineinfile:
+    path: "{{ opensearch_config_dir }}/jvm.options"
+    regexp: '^([0-9]+-)?-javaagent:'
+    state: absent
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    mode: '0644'
+  become: yes
+  register: opensearch_javaagent_removed_result
+  when:
+    - not (opensearch_bootstrap_agent_jar.stat.exists | default(false))
+    - (opensearch_jvm_policy_as_javaagent.rc | default(1)) == 0
+      or (
+        (opensearch_javaagent_resolved_path | length > 0)
+        and (not (opensearch_javaagent_jar_stat.stat.exists | default(false)))
+      )
+  tags: [opensearch, config, jvm]
+
+- name: Mark OpenSearch restart needed (invalid javaagent removed)
+  set_fact:
+    opensearch_restart_needed: true
+  when: opensearch_javaagent_removed_result is changed
+  tags: [opensearch, config, jvm, restart]
+
+- name: Restore packaged jvm.options if current file is missing critical flags
+  copy:
+    src: "/usr/share/opensearch/config/jvm.options"
+    dest: "{{ opensearch_config_dir }}/jvm.options"
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    mode: '0644'
+    remote_src: yes
+    backup: yes
+  become: yes
+  when:
+    - (opensearch_jvm_has_javaagent.rc | default(1)) != 0
+      or (opensearch_jvm_policy_as_javaagent.rc | default(1)) == 0
+      or (
+        (opensearch_javaagent_path.stdout | default('') | trim | length > 0)
+        and (not (opensearch_javaagent_jar_stat.stat.exists | default(false)))
+      )
+    - (opensearch_jvm_options_files.results | selectattr('item','equalto','/usr/share/opensearch/config/jvm.options') | first).stat.exists | default(false)
+  register: opensearch_jvm_restored
+  tags: [opensearch, config, jvm]
+
+- name: Mark OpenSearch restart needed (jvm.options restored)
+  set_fact:
+    opensearch_restart_needed: true
+  when: opensearch_jvm_restored is changed
+  tags: [opensearch, config, jvm, restart]
+
+- name: Ensure bootstrap javaagent line points at vendor agent JAR
+  lineinfile:
+    path: "{{ opensearch_config_dir }}/jvm.options"
+    regexp: '^([0-9]+-)?-javaagent:'
+    line: "21-:-javaagent:{{ opensearch_javaagent_jar }}"
+    create: yes
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    mode: '0644'
+  become: yes
+  register: opensearch_javaagent_line_result
+  when: opensearch_bootstrap_agent_jar.stat.exists | default(false)
+  tags: [opensearch, config, jvm]
+
+- name: Mark OpenSearch restart needed (javaagent line updated)
+  set_fact:
+    opensearch_restart_needed: true
+  when: opensearch_javaagent_line_result is changed
+  tags: [opensearch, config, jvm, restart]
+
+- name: Ensure jvm.options.d directory exists
+  file:
+    path: "{{ opensearch_config_dir }}/jvm.options.d"
+    state: directory
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    mode: '0755'
+  become: yes
+  tags: [opensearch, config, jvm]
+
+- name: Write Ansible-managed JVM overrides (heap/gc) as drop-in
   template:
     src: jvm.options.j2
-    dest: "{{ opensearch_config_dir }}/jvm.options"
+    dest: "{{ opensearch_config_dir }}/jvm.options.d/99-ansible.options"
     owner: "{{ opensearch_user }}"
     group: "{{ opensearch_group }}"
     mode: '0644'
     backup: yes
   become: yes
-  notify: restart opensearch
+  register: opensearch_jvm_dropin_result
   tags: [opensearch, config, jvm]
+
+- name: Mark OpenSearch restart needed (JVM drop-in changed)
+  set_fact:
+    opensearch_restart_needed: true
+  when: opensearch_jvm_dropin_result is changed
+  tags: [opensearch, config, jvm, restart]
 
 - name: Configure systemd service limits
   lineinfile:
@@ -534,6 +737,26 @@
   ignore_errors: yes
   tags: [opensearch, config, performance_analyzer]
 
+- name: Ensure /var/opt/opensearch exists with correct ownership
+  file:
+    path: "/var/opt/opensearch"
+    state: directory
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    mode: '0755'
+  become: yes
+  tags: [opensearch, config, directories, ownership]
+
+- name: Ensure OpenSearch backup directory exists with correct ownership
+  file:
+    path: "{{ opensearch_backup_dir }}"
+    state: directory
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    mode: '0755'
+  become: yes
+  tags: [opensearch, config, directories, ownership]
+
 - name: Ensure all OpenSearch directories are owned by opensearch user
   command: chown -R {{ opensearch_user }}:{{ opensearch_group }} {{ item }}
   become: yes
@@ -547,8 +770,66 @@
   ignore_errors: yes
   tags: [opensearch, config, ownership]
 
-# Service restart handled by handlers when configuration changes
-# No direct restart needed - template changes trigger handler
+- name: Restart OpenSearch if configuration changed (single restart point)
+  block:
+    - name: Restart OpenSearch service (batched changes)
+      systemd:
+        name: "{{ opensearch_service_name }}"
+        state: restarted
+        daemon_reload: yes
+      become: yes
+  rescue:
+    - name: Capture OpenSearch service status (batched restart)
+      command: systemctl status "{{ opensearch_service_name }}" --no-pager -l
+      register: opensearch_service_status_debug
+      changed_when: false
+      failed_when: false
+      become: yes
+
+    - name: Capture OpenSearch service logs (batched restart)
+      command: journalctl -u "{{ opensearch_service_name }}" -n 200 --no-pager
+      register: opensearch_service_journal_debug
+      changed_when: false
+      failed_when: false
+      become: yes
+
+    - name: Capture effective JVM javaagent configuration (batched restart)
+      shell: |
+        set -euo pipefail
+        echo "=== /etc/opensearch/jvm.options (javaagent lines) ==="
+        grep -nE '^([0-9]+-)?-javaagent:' /etc/opensearch/jvm.options || true
+        echo ""
+        echo "=== /etc/opensearch/jvm.options.d ==="
+        ls -la /etc/opensearch/jvm.options.d || true
+        echo ""
+        echo "=== agent jar existence ==="
+        agent=$(grep -E '^([0-9]+-)?-javaagent:' /etc/opensearch/jvm.options | head -1 | sed -E 's/^([0-9]+-)?-javaagent://' || true)
+        echo "agent_path=${agent}"
+        if [ -n "${agent}" ]; then
+          ls -la "${agent}" || true
+        fi
+      args:
+        executable: /bin/bash
+      register: opensearch_jvm_debug
+      changed_when: false
+      failed_when: false
+      become: yes
+
+    - name: Fail with OpenSearch restart diagnostics (batched restart)
+      fail:
+        msg: |
+          Unable to restart {{ opensearch_service_name }} after configuration changes.
+
+          === systemctl status ===
+          {{ opensearch_service_status_debug.stdout | default('no output') }}
+
+          === journalctl (last 200 lines) ===
+          {{ opensearch_service_journal_debug.stdout | default('no output') }}
+
+          === JVM javaagent debug ===
+          {{ opensearch_jvm_debug.stdout | default('no output') }}
+  when: opensearch_restart_needed | default(false)
+  tags: [opensearch, config, restart]
 
 - name: Wait for OpenSearch service to be fully started
   wait_for:
@@ -558,6 +839,19 @@
     timeout: 60
   become: yes
   tags: [opensearch, config, restart]
+
+- name: Apply security configuration changes using securityadmin.sh (following official docs)
+  shell: |
+    cd /usr/share/opensearch/plugins/opensearch-security/tools
+    OPENSEARCH_JAVA_HOME={{ opensearch_java_home }} ./securityadmin.sh -cd {{ opensearch_config_dir }}/opensearch-security/ -h {{ ansible_host }} -p {{ opensearch_config.http_port }} -cert {{ opensearch_certificates.security_dir }}/admin.pem -key {{ opensearch_certificates.security_dir }}/admin-key.pem -cacert {{ opensearch_certificates.security_dir }}/root-ca.pem -icl -nhnv
+  become: yes
+  register: securityadmin_result
+  retries: 5
+  delay: 5
+  until: securityadmin_result.rc == 0
+  failed_when: securityadmin_result.rc != 0
+  changed_when: "'Done with success' in securityadmin_result.stdout"
+  tags: [opensearch, config, security, apply]
 
 # Phase 4: Production Health Checks (after handlers flush)
 - name: Wait for OpenSearch to be ready
@@ -588,14 +882,23 @@
   register: cluster_health
   retries: 10
   delay: 5
-  until: cluster_health.json.status in ['green', 'yellow']
-  failed_when: cluster_health.json.status == 'red'
+  until:
+    - cluster_health.status == 200
+    - cluster_health.json is defined
+    - cluster_health.json.status is defined
+    - cluster_health.json.status in ['green', 'yellow']
+  failed_when:
+    - cluster_health.status is defined
+    - cluster_health.status == 200
+    - cluster_health.json is defined
+    - cluster_health.json.status is defined
+    - cluster_health.json.status == 'red'
   become: yes
   tags: [opensearch, config, health]
 
 - name: Display OpenSearch cluster status
   debug:
-    msg: "OpenSearch cluster status: {{ cluster_health.json.status }}"
+    msg: "OpenSearch cluster status: {{ (cluster_health.json.status if (cluster_health.json is defined and cluster_health.json.status is defined) else 'unknown') }}"
   tags: [opensearch, config, health]
 
 - name: Verify OpenSearch node is responding

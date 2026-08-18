@@ -18,6 +18,11 @@
   when: not (skip_postgres_install | default(false))
   tags: [postgres, postgres_install, service]
 
+- name: Include PostgreSQL MD5 authentication enforcement
+  include_tasks: ensure_md5_auth.yml
+  when: not (skip_postgres_install | default(false))
+  tags: [postgres, postgres_install, service, databases, auth]
+
 # DMC SQL-Only Setup Tasks (ALWAYS runs)
 # These tasks create databases, users, schemas, and grant privileges using ONLY SQL
 # They work with both local and remote PostgreSQL instances

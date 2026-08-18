@@ -60,212 +60,109 @@ package_globs:
   # HAProxy packages
   haproxy_rpm: "haproxy-{{ versions.haproxy }}.el8.x86_64.rpm"
 
-# =============================================================================
-# STANDARD PATHS - Convention-based, rarely changed
-# =============================================================================
-
-paths:
-  offline_dir: /tmp/offline
-  postgres_data_dir: /data/pgsql
-  postgres_home_dir: /home/postgres
-  postgres_tablespaces_dir: /data/pgsql
 
 # =============================================================================
-# SYSTEM FLAGS - Defaults
+# ZABBIX PACKAGE LISTS (package-only)
 # =============================================================================
 
-flags:
-  selinux: permissive
-  firewalld: disabled
-  es_single_node: true
-
-# =============================================================================
-# DATABASE CONFIGURATION - Standard names
-# =============================================================================
-
-database_config:
-  # DMC database
-  dmc_database: "dmc46"
-  dmc_schema: "dmc4"
-  dmc_user: "dmc4"
-  dmc_password: "dmc4"
-  tablespace_data: "dmc4tab"
-  tablespace_index: "dmc4idx"
-  
-  # MDBA schema for ELK statistics
-  mdba_schema: "mdba"
-  mdba_user: "mdba"
-  mdba_password: "mdba"
-  
-  # MMG database
-  mmg_database: "mmg"
-  mmg_schema: "mmg"
-  mmg_user: "mmg"
-  mmg_password: "mmg"
-  
-  # PostgreSQL admin
-  postgres_admin_password: "{{ service_passwords.postgres }}"
-
-# =============================================================================
-# SERVICE PORTS - Standard ports
-# =============================================================================
-
-service_ports:
-  # PostgreSQL
-  postgres: 5432
-  
-  # Elasticsearch/Kibana
-  elasticsearch: 9200
-  kibana: 5601
-  
-  # OpenSearch
-  opensearch_http: 9200
-  opensearch_transport: 9300
-  opensearch_dashboards_http: 5601
-  
-  # Logstash
-  logstash_api: 9600
-  logstash_beats: 5044
-  logstash_oss_api: 9600
-  logstash_oss_beats: 5044
-  
-  # DMC
-  dmc_http: 8080
-  dmc_https: 8443
-  dmc_jmx: 9999
-  dmc_debug: 8787
-  
-  # DRS
-  drs_http: 50453
-  drs_https: 50454
-  drs_jmx: 9998
-  
-  # MMG
-  mmg_http: 50434
-  mmg_https: 50435
-  mmg_jmx: 9996
-  
-  # SLS
-  sls_http: 50420
-  sls_https: 50421
-  sls_jmx: 9997
-  
-  # MMSOAP
-  mmsoap_http: 50425
-  mmsoap_https: 50426
-  mmsoap_jmx: 9995
-  
-  # SMPPC
-  smppc_http: 50429
-  smppc_https: 50430
-  smppc_jmx: 9994
-  
-  # HAProxy
-  haproxy_stats: 8081
-  haproxy_http: 80
-  haproxy_https: 443
-  
-  # Zabbix
-  zabbix_server: 10051
-  zabbix_agent: 10050
-  zabbix_java_gateway: 10052
-
-# =============================================================================
-# POSTGRESQL CONFIGURATION
-# =============================================================================
-
-postgresql_config:
-  service_name: "postgresql-{{ versions.postgres }}"
-  data_directory: "{{ paths.postgres_data_dir }}/{{ versions.postgres }}/data"
-  home_directory: "{{ paths.postgres_home_dir }}"
-  databases:
-    dmc46:
-      name: "{{ database_config.dmc_database }}"
-      owner: "{{ database_config.dmc_user }}"
-      schema: "{{ database_config.dmc_schema }}"
-      tablespaces:
-        data: "{{ database_config.tablespace_data }}"
-        index: "{{ database_config.tablespace_index }}"
-    mmg:
-      name: "{{ database_config.mmg_database }}"
-      owner: "{{ database_config.mmg_user }}"
-      schema: "{{ database_config.mmg_schema }}"
-      tablespaces:
-        data: "mmgtab"
-        index: "mmgidx"
-  users:
-    dmc4:
-      name: "{{ database_config.dmc_user }}"
-      password: "{{ database_config.dmc_password }}"
-    mmg:
-      name: "{{ database_config.mmg_user }}"
-      password: "{{ database_config.mmg_password }}"
-    mdba:
-      name: "{{ database_config.mdba_user }}"
-      password: "{{ database_config.mdba_password }}"
-      schema: "{{ database_config.mdba_schema }}"
-      tablespaces:
-        data: "mdbatab"
-        index: "mdbaidx"
-
-install_paths:
-  postgres_tablespaces_base: "{{ paths.postgres_tablespaces_dir }}"
-
-# =============================================================================
-# DMC CONFIGURATION
-# =============================================================================
-
-dmc_config:
-  version: "4.6.18"
-  release: "release1"
-  cluster_name: "dmc_cluster"
-  provider_id: "1"
-
-# =============================================================================
-# OPENSEARCH CONFIGURATION
-# =============================================================================
-
-opensearch_config:
-  cluster_name: "opensearch-cluster"
-  path_repo: "/mnt/opensearch_backup"
-  admin_password: "{{ service_passwords.opensearch }}"
-
-# =============================================================================
-# CUSTOMER NAME
-# =============================================================================
-
-customer_name: "sicapdmc46"
-
-# =============================================================================
-# IOS ENABLER (Optional)
-# =============================================================================
-
-ios_enabler:
-  enabled: false
-  public_ip: "YOUR_PUBLIC_IP_HERE"
-  mmg_port: 50434
-  mmg_username: "dmc"
-  mmg_password: "ZG1j"
-  node_id_dmc1: "iosenabler01"
-  node_id_dmc2: "iosenabler02"
-  connector_port: 50452
-  scep_port: 50455
-  challenge_port: 50400
-
-# =============================================================================
-# ZABBIX DETAILED CONFIGURATION
-# =============================================================================
-
-zabbix:
-  version: "{{ versions.zabbix }}"
-  user: "zabbix"
-  group: "zabbix"
-  web_user: "apache"
-  web_group: "apache"
+zabbix_packages:
+  server:
+    - "zabbix-server-pgsql-7.4.3-release1.el9.x86_64.rpm"
+    - "zabbix-sql-scripts-7.4.3-release1.el9.noarch.rpm"
+    - "zabbix-selinux-policy-7.4.3-release1.el9.x86_64.rpm"
+  agent:
+    - "zabbix-agent2-7.4.3-release1.el9.x86_64.rpm"
+  agent2:
+    - "zabbix-agent2-7.4.3-release1.el9.x86_64.rpm"
+    - "zabbix-agent2-plugin-postgresql-7.4.3-release1.el9.x86_64.rpm"
+    - "zabbix-agent2-plugin-mongodb-7.4.3-release1.el9.x86_64.rpm"
+    - "zabbix-agent2-plugin-mssql-7.4.3-release1.el9.x86_64.rpm"
+  java_gateway:
+    - "zabbix-java-gateway"
   web:
-    php_timezone: "Europe/Berlin"
-    php_max_execution_time: 300
-    php_memory_limit: "128M"
+    - "zabbix-web-7.4.3-release1.el9.noarch.rpm"
+    - "zabbix-web-deps-7.4.3-release1.el9.noarch.rpm"
+    - "zabbix-web-pgsql-7.4.3-release1.el9.noarch.rpm"
+    - "zabbix-apache-conf-7.4.3-release1.el9.noarch.rpm"
+  dependencies:
+    - "httpd-2.4.62-4.el9_6.4.x86_64.rpm"
+    - "httpd-core-2.4.62-4.el9_6.4.x86_64.rpm"
+    - "java-17-openjdk-headless-17.0.16.0.8-2.el9.x86_64.rpm"
+    - "tzdata-java-2025b-1.el9.noarch.rpm"
+    - "httpd-tools-2.4.62-4.el9_6.4.x86_64.rpm"
+    - "httpd-filesystem-2.4.62-4.el9_6.4.noarch.rpm"
+    - "mod_http2-2.0.26-4.el9_6.1.x86_64.rpm"
+    - "mod_lua-2.4.62-4.el9_6.4.x86_64.rpm"
+    - "php-fpm-8.0.30-3.el9_6.x86_64.rpm"
+    - "php-common-8.0.30-3.el9_6.x86_64.rpm"
+    - "php-bcmath-8.0.30-3.el9_6.x86_64.rpm"
+    - "php-gd-8.0.30-3.el9_6.x86_64.rpm"
+    - "php-ldap-8.0.30-3.el9_6.x86_64.rpm"
+    - "php-mbstring-8.0.30-3.el9_6.x86_64.rpm"
+    - "php-mysqlnd-8.0.30-3.el9_6.x86_64.rpm"
+    - "php-pdo-8.0.30-3.el9_6.x86_64.rpm"
+    - "php-pgsql-8.0.30-3.el9_6.x86_64.rpm"
+    - "php-xml-8.0.30-3.el9_6.x86_64.rpm"
+    - "js-jquery-3.6.0-1.el9.noarch.rpm"
+    - "rocky-logos-httpd-90.16-1.el9.noarch.rpm"
+    - "web-assets-filesystem-5-15.el9.noarch.rpm"
+    - "apr-1.7.0-12.el9_3.x86_64.rpm"
+    - "apr-util-1.6.1-23.el9.x86_64.rpm"
+    - "apr-util-bdb-1.6.1-23.el9.x86_64.rpm"
+    - "apr-util-openssl-1.6.1-23.el9.x86_64.rpm"
+    - "libssh2-1.11.0-1.el9.x86_64.rpm"
+    - "unixODBC-2.3.9-4.el9_6.x86_64.rpm"
+    - "net-snmp-libs-5.9.1-17.el9.x86_64.rpm"
+    - "OpenIPMI-libs-2.0.36-1.el9_6.x86_64.rpm"
+    - "fping-5.2-1.el9.x86_64.rpm"
+
+zabbix_dependency_install_order:
+  - name: "PostgreSQL client library"
+    packages:
+      - "postgresql15-libs-15.8-1.el9_3.x86_64.rpm"
+  - name: "Base APR packages"
+    packages:
+      - "apr-1.7.0-12.el9_3.x86_64.rpm"
+      - "apr-util-1.6.1-23.el9.x86_64.rpm"
+      - "apr-util-bdb-1.6.1-23.el9.x86_64.rpm"
+      - "apr-util-openssl-1.6.1-23.el9.x86_64.rpm"
+  - name: "HTTPD packages"
+    packages:
+      - "httpd-core-2.4.62-4.el9_6.4.x86_64.rpm"
+      - "httpd-tools-2.4.62-4.el9_6.4.x86_64.rpm"
+      - "httpd-filesystem-2.4.62-4.el9_6.4.noarch.rpm"
+      - "httpd-2.4.62-4.el9_6.4.x86_64.rpm"
+  - name: "HTTPD modules"
+    packages:
+      - "mod_http2-2.0.26-4.el9_6.1.x86_64.rpm"
+      - "mod_lua-2.4.62-4.el9_6.4.x86_64.rpm"
+  - name: "PHP packages"
+    packages:
+      - "php-common-8.0.30-3.el9_6.x86_64.rpm"
+      - "php-bcmath-8.0.30-3.el9_6.x86_64.rpm"
+      - "php-gd-8.0.30-3.el9_6.x86_64.rpm"
+      - "php-ldap-8.0.30-3.el9_6.x86_64.rpm"
+      - "php-mbstring-8.0.30-3.el9_6.x86_64.rpm"
+      - "php-mysqlnd-8.0.30-3.el9_6.x86_64.rpm"
+      - "php-pdo-8.0.30-3.el9_6.x86_64.rpm"
+      - "php-pgsql-8.0.30-3.el9_6.x86_64.rpm"
+      - "php-xml-8.0.30-3.el9_6.x86_64.rpm"
+      - "php-fpm-8.0.30-3.el9_6.x86_64.rpm"
+  - name: "Java packages"
+    packages:
+      - "javapackages-filesystem-6.4.0-1.el9.noarch.rpm"
+      - "tzdata-java-2025b-1.el9.noarch.rpm"
+      - "java-17-openjdk-headless-17.0.16.0.8-2.el9.x86_64.rpm"
+  - name: "Other dependencies"
+    packages:
+      - "js-jquery-3.6.0-1.el9.noarch.rpm"
+      - "rocky-logos-httpd-90.16-1.el9.noarch.rpm"
+      - "web-assets-filesystem-5-15.el9.noarch.rpm"
+      - "libssh2-1.11.0-1.el9.x86_64.rpm"
+      - "unixODBC-2.3.9-4.el9_6.x86_64.rpm"
+      - "net-snmp-libs-5.9.1-17.el9.x86_64.rpm"
+      - "OpenIPMI-libs-2.0.36-1.el9_6.x86_64.rpm"
+      - "fping-5.2-1.el9.x86_64.rpm"
 
 # =============================================================================
 # DEPENDENCY PACKAGE LISTS
@@ -320,3 +217,4 @@ offline_packages:
       - "libXpm-*.rpm"
       - "mailcap-*.rpm"
       - "nginx-filesystem-*.rpm"
+

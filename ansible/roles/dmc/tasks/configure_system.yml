@@ -99,7 +99,7 @@
 
 - name: Calculate safe hugepages setting (max 50% of total memory)
   set_fact:
-    safe_hugepages: "{{ [dmc_hugepages, (total_memory_gb.stdout | int * 1024 / 2) | int] | min }}"
+    safe_hugepages: "{{ [dmc_hugepages | int, ((total_memory_gb.stdout | int) * 1024 / 2) | int] | min }}"
   tags: [dmc, system, hugepages]
 
 - name: Apply hugepages sysctl configuration
@@ -148,3 +148,4 @@
   debug:
     msg: "{{ memory_status.stdout_lines }}"
   tags: [dmc, system, verify]
+

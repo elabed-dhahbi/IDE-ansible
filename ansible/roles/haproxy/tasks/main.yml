@@ -1,28 +1,114 @@
 ---
-- name: Check if HAProxy offline package exists
-  stat:
-    path: "{{ haproxy_offline_package_path }}"
-  register: haproxy_rpm_file
-  when: haproxy_offline_install
+# HAProxy Installation Tasks
+# Supports both offline and online installation
 
-- name: Fail if offline package not found
+- name: Ensure offline directory exists on target
+  file:
+    path: "{{ paths.offline_dir }}"
+    state: directory
+    mode: '0755'
+  become: yes
+  tags: [haproxy, install, packages]
+
+- name: Get HAProxy package files from control node
+  set_fact:
+    haproxy_source_files: "{{ lookup('fileglob', paths.offline_dir + '/haproxy-*.rpm', wantlist=True, errors='ignore') }}"
+  tags: [haproxy, install, packages]
+
+- name: Display HAProxy source files found on control node
+  debug:
+    msg: "HAProxy source files found: {{ haproxy_source_files }}"
+  tags: [haproxy, install, packages, debug]
+
+- name: Copy HAProxy package to target
+  copy:
+    src: "{{ item }}"
+    dest: "{{ paths.offline_dir }}/"
+    mode: '0644'
+  loop: "{{ haproxy_source_files | default([]) }}"
+  become: yes
+  when: haproxy_source_files | length > 0
+  tags: [haproxy, install, packages]
+
+- name: Find HAProxy package in offline directory
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "haproxy-*.rpm"
+      - "{{ package_globs.haproxy_rpm }}"
+    file_type: file
+  register: haproxy_package_files
+  tags: [haproxy, install, packages]
+
+- name: Display HAProxy packages found
+  debug:
+    msg: "HAProxy packages found: {{ haproxy_package_files.files | map(attribute='path') | map('basename') | list }}"
+  when: haproxy_package_files.files | length > 0
+  tags: [haproxy, install, packages, debug]
+
+- name: Filter HAProxy packages by OS version (prefer EL9, skip EL8)
+  set_fact:
+    haproxy_packages_filtered: "{{ haproxy_package_files.files | selectattr('path', 'match', '.*el9.*') | list }}"
+  when: haproxy_package_files.files | length > 0
+  tags: [haproxy, install, packages]
+
+- name: Fallback to all packages if no EL9 packages found
+  set_fact:
+    haproxy_packages_filtered: "{{ haproxy_package_files.files }}"
+  when:
+    - haproxy_package_files.files | length > 0
+    - haproxy_packages_filtered | default([]) | length == 0
+  tags: [haproxy, install, packages]
+
+- name: Display filtered HAProxy packages
+  debug:
+    msg: "HAProxy packages to install: {{ haproxy_packages_filtered | default([]) | map(attribute='path') | map('basename') | list }}"
+  when: haproxy_packages_filtered | default([]) | length > 0
+  tags: [haproxy, install, packages, debug]
+
+- name: Install HAProxy dependencies
+  dnf:
+    name:
+      - openssl-libs
+      - lua
+    state: present
+    disablerepo: epel,epel-modular
+  become: yes
+  ignore_errors: yes
+  tags: [haproxy, install, packages, dependencies]
+
+- name: Install HAProxy package (offline using rpm)
+  command: rpm -Uvh --force "{{ item.path }}"
+  loop: "{{ haproxy_packages_filtered | default([]) }}"
+  become: yes
+  when: haproxy_packages_filtered | default([]) | length > 0
+  register: haproxy_install_result
+  tags: [haproxy, install, packages]
+
+- name: Install HAProxy package with --nodeps if dependency install failed
+  command: rpm -Uvh --force --nodeps "{{ item.path }}"
+  loop: "{{ haproxy_packages_filtered | default([]) }}"
+  become: yes
+  when: 
+    - haproxy_packages_filtered | default([]) | length > 0
+    - haproxy_install_result.results | selectattr('rc', 'ne', 0) | list | length > 0
+  register: haproxy_install_nodeps
+  tags: [haproxy, install, packages]
+
+- name: Warn if installed with --nodeps
+  debug:
+    msg: "WARNING: HAProxy installed with --nodeps flag. Some features may not work if dependencies are missing."
+  when:
+    - haproxy_packages_filtered | default([]) | length > 0
+    - haproxy_install_result.results | selectattr('rc', 'ne', 0) | list | length > 0
+    - haproxy_install_nodeps.results | selectattr('rc', 'eq', 0) | list | length > 0
+  tags: [haproxy, install, packages]
+
+- name: Fail if no HAProxy package found
   fail:
-    msg: "HAProxy offline package not found at {{ haproxy_offline_package_path }}"
-  when: haproxy_offline_install and not haproxy_rpm_file.stat.exists
-
-- name: Install HAProxy package (online)
-  package:
-    name: haproxy
-    state: present
-  become: yes
-  when: not haproxy_offline_install
-
-- name: Install HAProxy package (offline)
-  yum:
-    name: "{{ haproxy_offline_package_path }}"
-    state: present
-  become: yes
-  when: haproxy_offline_install
+    msg: "No HAProxy package found in {{ paths.offline_dir }}. Please ensure haproxy-*.rpm is available."
+  when: haproxy_package_files.files | length == 0
+  tags: [haproxy, install, packages]
 
 - name: Create HAProxy directories
   file:

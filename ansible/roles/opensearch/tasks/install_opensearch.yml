@@ -46,6 +46,13 @@
   become: yes
   tags: [opensearch, install, rpm]
 
+- name: Set default OpenSearch paths (when missing from opensearch_config)
+  set_fact:
+    opensearch_data_dir: "{{ opensearch_data_dir | default('/var/lib/opensearch') }}"
+    opensearch_logs_dir: "{{ opensearch_logs_dir | default('/var/log/opensearch') }}"
+    opensearch_config: "{{ opensearch_config | default({}) | combine({'path_data': (opensearch_config.path_data | default(opensearch_data_dir)), 'path_logs': (opensearch_config.path_logs | default(opensearch_logs_dir))}, recursive=True) }}"
+  tags: [opensearch, install, ownership]
+
 - name: Create performance analyzer configuration directory
   file:
     path: /etc/opensearch/opensearch-performance-analyzer
@@ -91,5 +98,4 @@
     daemon_reload: yes
   become: yes
   tags: [opensearch, install, service]
-
 

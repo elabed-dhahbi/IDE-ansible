@@ -33,16 +33,127 @@
   become: yes
   tags: [postgres, postgres_install, install, dependencies]
 
-- name: Install PostgreSQL packages in correct order
-  command: rpm -Uvh --force "{{ paths.offline_dir }}/{{ item }}"
-  loop:
-    - "postgresql15-libs-15.14-1PGDG.rhel9.x86_64.rpm"
-    - "postgresql15-15.14-1PGDG.rhel9.x86_64.rpm"
-    - "postgresql15-server-15.14-1PGDG.rhel9.x86_64.rpm"
-    - "postgresql15-contrib-15.14-1PGDG.rhel9.x86_64.rpm"
-    - "libpq5-17.6-1PGDG.rhel9.x86_64.rpm"
-    - "python3-psycopg2-2.8.6-6.el9.x86_64.rpm"
+- name: Find all PostgreSQL packages in offline directory
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns:
+      - "postgresql{{ postgresql_major_version }}*.rpm"
+      - "libpq5*.rpm"
+      - "python3-psycopg2*.rpm"
+    file_type: file
+  register: postgresql_packages_found
+  tags: [postgres, postgres_install, install, packages]
+
+- name: Display found PostgreSQL packages
+  debug:
+    msg: "Found PostgreSQL packages: {{ postgresql_packages_found.files | map(attribute='path') | map('basename') | list }}"
+  when: postgresql_packages_found.files | length > 0
+  tags: [postgres, postgres_install, install, packages, debug]
+
+- name: Extract package basenames
+  set_fact:
+    postgresql_package_names: "{{ postgresql_packages_found.files | map(attribute='path') | map('basename') | list }}"
+  when: postgresql_packages_found.files | length > 0
+  tags: [postgres, postgres_install, install, packages]
+
+- name: Identify PostgreSQL package types
+  set_fact:
+    postgresql_libs_packages: "{{ postgresql_package_names | select('match', '.*postgresql.*-libs.*') | list }}"
+    postgresql_server_packages: "{{ postgresql_package_names | select('match', '.*postgresql.*-server.*') | list }}"
+    postgresql_contrib_packages: "{{ postgresql_package_names | select('match', '.*postgresql.*-contrib.*') | list }}"
+    libpq_packages: "{{ postgresql_package_names | select('match', '.*libpq.*') | list }}"
+    psycopg2_packages: "{{ postgresql_package_names | select('match', '.*python3-psycopg2.*') | list }}"
+  when: postgresql_package_names is defined
+  tags: [postgres, postgres_install, install, packages]
+
+- name: Initialize base PostgreSQL packages list
+  set_fact:
+    postgresql_base_packages: []
+  when: postgresql_package_names is defined
+  tags: [postgres, postgres_install, install, packages]
+
+- name: Identify base PostgreSQL package (exclude libs, server, contrib)
+  set_fact:
+    postgresql_base_packages: "{{ postgresql_base_packages + [item] }}"
+  loop: "{{ postgresql_package_names | default([]) }}"
+  when: 
+    - item is match('^postgresql' + postgresql_major_version | string + '-[0-9]+')
+    - item is not match('.*-libs.*')
+    - item is not match('.*-server.*')
+    - item is not match('.*-contrib.*')
+  tags: [postgres, postgres_install, install, packages]
+  
+- name: Debug - Show postgresql_base_packages after set_fact
+  debug:
+    msg: "postgresql_base_packages after set_fact: {{ postgresql_base_packages | default('NOT SET') }}"
+  tags: [postgres, postgres_install, install, packages, debug]
+
+- name: Sort PostgreSQL packages in installation order
+  set_fact:
+    postgresql_packages_sorted: "{{
+      postgresql_libs_packages +
+      postgresql_base_packages +
+      postgresql_server_packages +
+      postgresql_contrib_packages +
+      libpq_packages +
+      psycopg2_packages
+    }}"
+  when: postgresql_package_names is defined
+  tags: [postgres, postgres_install, install, packages]
+
+- name: Debug - Show base package matches
+  debug:
+    msg: |
+      All packages: {{ postgresql_package_names | default([]) }}
+      Packages starting with postgresql15-: {{ postgresql_package_names | select('match', '^postgresql15-') | list }}
+      Packages matching ^postgresql15-[0-9]+: {{ postgresql_package_names | select('match', '^postgresql15-[0-9]+') | list }}
+      After reject libs: {{ postgresql_package_names | select('match', '^postgresql15-[0-9]+') | reject('match', '.*-libs.*') | list }}
+      After reject server: {{ postgresql_package_names | select('match', '^postgresql15-[0-9]+') | reject('match', '.*-libs.*') | reject('match', '.*-server.*') | list }}
+      After reject contrib: {{ postgresql_package_names | select('match', '^postgresql15-[0-9]+') | reject('match', '.*-libs.*') | reject('match', '.*-server.*') | reject('match', '.*-contrib.*') | list }}
+      Final base packages: {{ postgresql_base_packages | default([]) }}
+  when: postgresql_package_names is defined
+  tags: [postgres, postgres_install, install, packages, debug]
+
+- name: Display sorted PostgreSQL packages for debugging
+  debug:
+    msg: "Sorted PostgreSQL packages: {{ postgresql_packages_sorted | default([]) }}"
+  when: postgresql_packages_sorted is defined
+  tags: [postgres, postgres_install, install, packages, debug]
+
+- name: Validate critical PostgreSQL packages exist
+  assert:
+    that:
+      - postgresql_libs_packages | length > 0
+      - postgresql_base_packages | length > 0
+    fail_msg: "Critical PostgreSQL packages not found. Required: postgresql{{ postgresql_major_version }}-libs and postgresql{{ postgresql_major_version }} base package. Found libs: {{ postgresql_libs_packages }}, Found base: {{ postgresql_base_packages }}"
+    success_msg: "All critical PostgreSQL packages found"
+  when: postgresql_package_names is defined
+  tags: [postgres, postgres_install, install, packages]
+
+- name: Fail if no PostgreSQL packages found
+  fail:
+    msg: "No PostgreSQL packages found in {{ paths.offline_dir }}. Expected patterns: postgresql{{ postgresql_major_version }}*.rpm, libpq5*.rpm, python3-psycopg2*.rpm"
+  when: postgresql_packages_found.files | length == 0
+  tags: [postgres, postgres_install, install, packages]
+
+- name: Install PostgreSQL packages together (RPM will handle dependencies)
+  shell: rpm -Uvh --force {{ postgresql_packages_sorted | map('regex_replace', '^', paths.offline_dir + '/') | join(' ') }}
   become: yes
+  when: 
+    - postgresql_packages_sorted is defined
+    - postgresql_packages_sorted | length > 0
+  register: postgresql_install_result
+  failed_when: false
+  tags: [postgres, postgres_install, install, packages]
+
+- name: Install PostgreSQL packages individually if batch install failed
+  command: rpm -Uvh --force "{{ paths.offline_dir }}/{{ item }}"
+  loop: "{{ postgresql_packages_sorted | default([]) }}"
+  become: yes
+  when: 
+    - postgresql_install_result is defined
+    - postgresql_install_result.rc != 0
+    - postgresql_packages_sorted is defined
   tags: [postgres, postgres_install, install, packages]
 
 - name: Check if PostgreSQL is already initialized in custom directory
@@ -54,7 +165,7 @@
 
 - name: Check if PostgreSQL is already initialized in default directory
   stat:
-    path: "/var/lib/pgsql/{{ versions.postgres }}/data/postgresql.conf"
+    path: "/var/lib/pgsql/{{ postgresql_major_version }}/data/postgresql.conf"
   register: postgres_initialized_default
   become: yes
   tags: [postgres, postgres_install, install, init]
@@ -70,17 +181,82 @@
     state: directory
     owner: postgres
     group: postgres
-    mode: '0700'
   become: yes
   when: not postgres_initialized.stat.exists
   tags: [postgres, postgres_install, install, init]
 
+- name: Set correct permissions on data directory after creation
+  command: chmod 0700 "{{ postgresql_config.data_directory }}"
+  become: yes
+  when: not postgres_initialized.stat.exists
+  register: chmod_after_create
+  changed_when: chmod_after_create.rc == 0
+  failed_when: chmod_after_create.rc != 0
+  tags: [postgres, postgres_install, install, init]
+
 - name: Initialize PostgreSQL database if not already initialized
-  command: /usr/pgsql-{{ versions.postgres }}/bin/initdb -D {{ postgresql_config.data_directory }}
+  command: /usr/pgsql-{{ postgresql_major_version }}/bin/initdb -D {{ postgresql_config.data_directory }}
   become: yes
   become_user: postgres
   when: not postgres_initialized.stat.exists
+  register: postgresql_initdb_result
   tags: [postgres, postgres_install, install, init]
+
+- name: Fix PostgreSQL data directory permissions after initialization
+  command: chmod 0700 "{{ postgresql_config.data_directory }}"
+  become: yes
+  when: not postgres_initialized.stat.exists
+  register: chmod_after_init
+  changed_when: chmod_after_init.rc == 0
+  failed_when: chmod_after_init.rc != 0
+  tags: [postgres, postgres_install, install, init]
+
+- name: Ensure PostgreSQL data directory has correct permissions (always)
+  command: chmod 0700 "{{ postgresql_config.data_directory }}"
+  become: yes
+  register: chmod_always
+  changed_when: chmod_always.rc == 0
+  failed_when: chmod_always.rc != 0
+  tags: [postgres, postgres_install, install, init, service]
+
+- name: Display initdb output
+  debug:
+    msg: "{{ postgresql_initdb_result.stdout_lines }}"
+  when: 
+    - postgresql_initdb_result.stdout_lines is defined
+    - postgresql_initdb_result.stdout_lines | length > 0
+  tags: [postgres, postgres_install, install, init, debug]
+
+- name: Display initdb errors
+  debug:
+    msg: "{{ postgresql_initdb_result.stderr_lines }}"
+  when: 
+    - postgresql_initdb_result.stderr_lines is defined
+    - postgresql_initdb_result.stderr_lines | length > 0
+  tags: [postgres, postgres_install, install, init, debug]
+
+- name: Verify PostgreSQL was initialized
+  stat:
+    path: "{{ postgresql_config.data_directory }}/postgresql.conf"
+  register: postgresql_init_verify
+  become: yes
+  when: not postgres_initialized.stat.exists
+  tags: [postgres, postgres_install, install, init]
+
+- name: Fail if initialization didn't create postgresql.conf
+  fail:
+    msg: "PostgreSQL initialization failed. postgresql.conf was not created in {{ postgresql_config.data_directory }}"
+  when: 
+    - not postgres_initialized.stat.exists
+    - not postgresql_init_verify.stat.exists
+  tags: [postgres, postgres_install, install, init]
+
+- name: Check if PostgreSQL systemd service file exists
+  stat:
+    path: "{{ postgresql_config.systemd_service_file }}"
+  register: systemd_service_file_stat
+  become: yes
+  tags: [postgres, postgres_install, service, systemd]
 
 - name: Update PostgreSQL systemd service file with custom data directory
   lineinfile:
@@ -89,6 +265,7 @@
     line: "Environment=PGDATA={{ postgresql_config.data_directory }}"
     backup: yes
   become: yes
+  when: systemd_service_file_stat.stat.exists
   tags: [postgres, postgres_install, service, systemd]
 
 - name: Update PostgreSQL user bash profile with PGDATA
@@ -109,20 +286,346 @@
   become: yes
   tags: [postgres, postgres_install, service, systemd]
 
-- name: Start and enable PostgreSQL service
+- name: Check current permissions before fixing
+  command: stat -c "%a" "{{ postgresql_config.data_directory }}"
+  register: perms_before
+  changed_when: false
+  failed_when: false
+  become: yes
+  tags: [postgres, postgres_install, service]
+
+- name: Ensure data directory has correct permissions before starting service (CRITICAL)
+  shell: /bin/chmod 0700 "{{ postgresql_config.data_directory }}"
+  become: yes
+  register: chmod_data_dir
+  changed_when: chmod_data_dir.rc == 0
+  failed_when: chmod_data_dir.rc != 0
+  tags: [postgres, postgres_install, service]
+
+- name: Display chmod result
+  debug:
+    msg: |
+      Permissions before: {{ perms_before.stdout | default('unknown') }}
+      chmod command executed: /bin/chmod 0700 {{ postgresql_config.data_directory }}
+      Return code: {{ chmod_data_dir.rc }}
+      stdout: {{ chmod_data_dir.stdout }}
+      stderr: {{ chmod_data_dir.stderr }}
+  when: chmod_data_dir is defined
+  tags: [postgres, postgres_install, service]
+
+- name: Verify data directory permissions before service start
+  command: stat -c "%a %U:%G" "{{ postgresql_config.data_directory }}"
+  register: data_dir_perms
+  changed_when: false
+  failed_when: false
+  become: yes
+  tags: [postgres, postgres_install, service]
+
+- name: Display data directory permissions
+  debug:
+    msg: "Data directory permissions: {{ data_dir_perms.stdout }} (should be 700 postgres:postgres)"
+  when: data_dir_perms.stdout is defined
+  tags: [postgres, postgres_install, service]
+
+- name: Fix permissions again if they are incorrect
+  command: chmod 0700 "{{ postgresql_config.data_directory }}"
+  become: yes
+  register: chmod_fix
+  changed_when: chmod_fix.rc == 0
+  failed_when: chmod_fix.rc != 0
+  when: 
+    - data_dir_perms.stdout is defined
+    - data_dir_perms.stdout is not match('^700.*')
+  tags: [postgres, postgres_install, service]
+
+- name: Verify permissions are correct after fix
+  command: stat -c "%a" "{{ postgresql_config.data_directory }}"
+  register: data_dir_perms_after
+  changed_when: false
+  become: yes
+  when: chmod_fix is defined and chmod_fix.changed
+  tags: [postgres, postgres_install, service]
+
+- name: Stop PostgreSQL service if running (before fixing permissions)
   systemd:
     name: "{{ postgresql_config.service_name }}"
-    state: started
+    state: stopped
+  become: yes
+  register: postgresql_service_stop
+  failed_when: false
+  tags: [postgres, postgres_install, service]
+
+- name: Fix permissions one final time before restart (CRITICAL)
+  shell: |
+    /bin/chmod 0700 "{{ postgresql_config.data_directory }}"
+    /bin/chmod 0700 "{{ postgresql_config.data_directory }}"
+  become: yes
+  register: chmod_final
+  changed_when: chmod_final.rc == 0
+  failed_when: chmod_final.rc != 0
+  tags: [postgres, postgres_install, service]
+
+- name: Display chmod final result
+  debug:
+    msg: |
+      chmod final command executed: /bin/chmod 0700 {{ postgresql_config.data_directory }}
+      Return code: {{ chmod_final.rc }}
+      stdout: {{ chmod_final.stdout }}
+      stderr: {{ chmod_final.stderr }}
+  when: chmod_final is defined
+  tags: [postgres, postgres_install, service]
+
+- name: Verify permissions are 700 before restart
+  command: /bin/stat -c "%a %U:%G" "{{ postgresql_config.data_directory }}"
+  register: perms_final_check
+  changed_when: false
+  failed_when: false
+  become: yes
+  tags: [postgres, postgres_install, service]
+
+- name: Display final permissions check
+  debug:
+    msg: "Final permissions check: {{ perms_final_check.stdout }} (must be 700 postgres:postgres)"
+  when: perms_final_check.stdout is defined
+  tags: [postgres, postgres_install, service]
+
+- name: Force fix permissions if still wrong (using ls to verify)
+  shell: |
+    /bin/chmod 0700 "{{ postgresql_config.data_directory }}" && /bin/ls -ld "{{ postgresql_config.data_directory }}"
+  become: yes
+  register: chmod_force
+  changed_when: chmod_force.rc == 0
+  failed_when: chmod_force.rc != 0
+  when: 
+    - perms_final_check.stdout is defined
+    - perms_final_check.stdout is not match('^700.*')
+  tags: [postgres, postgres_install, service]
+
+- name: Display force chmod result
+  debug:
+    msg: |
+      Force chmod executed because permissions were wrong
+      ls output: {{ chmod_force.stdout }}
+      Return code: {{ chmod_force.rc }}
+  when: 
+    - chmod_force is defined
+    - chmod_force.stdout is defined
+  tags: [postgres, postgres_install, service]
+
+- name: Fail if permissions are still not 700
+  fail:
+    msg: |
+      CRITICAL: Data directory permissions are still incorrect after multiple chmod attempts
+      Current permissions: {{ perms_final_check.stdout | default('unknown') }}
+      Expected: 700 postgres:postgres
+      Please run manually: chmod 0700 {{ postgresql_config.data_directory }}
+      Then check: ls -ld {{ postgresql_config.data_directory }}
+  when: 
+    - perms_final_check.stdout is defined
+    - perms_final_check.stdout is not match('^700.*')
+    - chmod_force is not defined or chmod_force.rc != 0
+  tags: [postgres, postgres_install, service]
+
+- name: Set permissions using file module (MORE RELIABLE than chmod)
+  file:
+    path: "{{ postgresql_config.data_directory }}"
+    mode: '0700'
+    owner: postgres
+    group: postgres
+  become: yes
+  register: file_module_perms
+  tags: [postgres, postgres_install, service]
+
+- name: Final chmod right before restart (ABSOLUTE LAST STEP - backup method)
+  shell: /bin/chmod 0700 "{{ postgresql_config.data_directory }}"
+  become: yes
+  register: chmod_absolute_final
+  changed_when: chmod_absolute_final.rc == 0
+  failed_when: chmod_absolute_final.rc != 0
+  tags: [postgres, postgres_install, service]
+
+- name: Verify permissions one last time
+  command: /bin/stat -c "%a %U:%G" "{{ postgresql_config.data_directory }}"
+  register: perms_absolute_final
+  changed_when: false
+  failed_when: false
+  become: yes
+  tags: [postgres, postgres_install, service]
+
+- name: Display absolute final permissions
+  debug:
+    msg: |
+      ABSOLUTE FINAL permissions: {{ perms_absolute_final.stdout }}
+      MUST be: 700 postgres:postgres
+      File module changed: {{ file_module_perms.changed | default('N/A') }}
+      Chmod return code: {{ chmod_absolute_final.rc | default('N/A') }}
+  when: perms_absolute_final.stdout is defined
+  tags: [postgres, postgres_install, service]
+
+- name: Restart and enable PostgreSQL service
+  systemd:
+    name: "{{ postgresql_config.service_name }}"
+    state: restarted
     enabled: yes
   become: yes
+  register: postgresql_service_start
+  failed_when: false
+  tags: [postgres, postgres_install, service]
+
+- name: Check PostgreSQL service status
+  command: systemctl status "{{ postgresql_config.service_name }}" --no-pager
+  register: postgresql_service_status
+  changed_when: false
+  failed_when: false
+  become: yes
+  tags: [postgres, postgres_install, service, debug]
+
+- name: Display PostgreSQL service status
+  debug:
+    msg: "{{ postgresql_service_status.stdout_lines }}"
+  when: postgresql_service_status.stdout_lines is defined
+  tags: [postgres, postgres_install, service]
+
+- name: Show PostgreSQL service logs if service failed
+  command: journalctl -u "{{ postgresql_config.service_name }}" --no-pager -n 50
+  register: postgresql_service_logs
+  changed_when: false
+  failed_when: false
+  become: yes
+  when: postgresql_service_start.failed | default(false) or postgresql_service_status.rc != 0
+  tags: [postgres, postgres_install, service]
+
+- name: Display PostgreSQL service logs
+  debug:
+    msg: "{{ postgresql_service_logs.stdout_lines }}"
+  when: 
+    - (postgresql_service_start.failed | default(false) or postgresql_service_status.rc != 0)
+    - postgresql_service_logs.stdout_lines is defined
+  tags: [postgres, postgres_install, service]
+
+- name: Check if PostgreSQL data directory exists
+  stat:
+    path: "{{ postgresql_config.data_directory }}"
+  register: postgresql_data_dir_stat
+  become: yes
+  when: postgresql_service_start.failed | default(false) or postgresql_service_status.rc != 0
+  tags: [postgres, postgres_install, service]
+
+- name: Display PostgreSQL data directory status
+  debug:
+    msg: |
+      PostgreSQL data directory: {{ postgresql_config.data_directory }}
+      Exists: {{ postgresql_data_dir_stat.stat.exists }}
+      Is directory: {{ postgresql_data_dir_stat.stat.isdir | default('N/A') }}
+      Owner: {{ postgresql_data_dir_stat.stat.pw_name | default('N/A') }}
+      Group: {{ postgresql_data_dir_stat.stat.gr_name | default('N/A') }}
+      Mode: {{ postgresql_data_dir_stat.stat.mode | default('N/A') }}
+  when: 
+    - (postgresql_service_start.failed | default(false) or postgresql_service_status.rc != 0)
+    - postgresql_data_dir_stat.stat is defined
+  tags: [postgres, postgres_install, service]
+
+- name: Check if PostgreSQL is initialized
+  stat:
+    path: "{{ postgresql_config.data_directory }}/postgresql.conf"
+  register: postgresql_initialized_check
+  become: yes
+  when: postgresql_service_start.failed | default(false) or postgresql_service_status.rc != 0
+  tags: [postgres, postgres_install, service]
+
+- name: Display PostgreSQL initialization status
+  debug:
+    msg: |
+      PostgreSQL initialization check:
+      postgresql.conf exists: {{ postgresql_initialized_check.stat.exists }}
+      Path: {{ postgresql_config.data_directory }}/postgresql.conf
+  when: 
+    - (postgresql_service_start.failed | default(false) or postgresql_service_status.rc != 0)
+    - postgresql_initialized_check.stat is defined
+  tags: [postgres, postgres_install, service]
+
+- name: Check systemd service PGDATA environment
+  command: systemctl show "{{ postgresql_config.service_name }}" -p Environment
+  register: postgresql_systemd_env
+  changed_when: false
+  failed_when: false
+  become: yes
+  when: postgresql_service_start.failed | default(false) or postgresql_service_status.rc != 0
+  tags: [postgres, postgres_install, service]
+
+- name: Display systemd PGDATA environment
+  debug:
+    msg: "{{ postgresql_systemd_env.stdout }}"
+  when: 
+    - (postgresql_service_start.failed | default(false) or postgresql_service_status.rc != 0)
+    - postgresql_systemd_env.stdout is defined
+  tags: [postgres, postgres_install, service]
+
+- name: Check PostgreSQL log files
+  find:
+    paths: "{{ postgresql_config.data_directory }}"
+    patterns: "*.log"
+    recurse: true
+  register: postgresql_log_files
+  become: yes
+  when: 
+    - (postgresql_service_start.failed | default(false) or postgresql_service_status.rc != 0)
+    - postgresql_data_dir_stat.stat.exists
+  tags: [postgres, postgres_install, service]
+
+- name: Display PostgreSQL log file contents
+  slurp:
+    src: "{{ item }}"
+  register: postgresql_log_content
+  loop: "{{ postgresql_log_files.files | default([]) | map(attribute='path') | list | last }}"
+  become: yes
+  when: 
+    - (postgresql_service_start.failed | default(false) or postgresql_service_status.rc != 0)
+    - postgresql_log_files.files | length > 0
+  tags: [postgres, postgres_install, service]
+
+- name: Show PostgreSQL log file contents
+  debug:
+    msg: "{{ item.content | b64decode | split('\n')[-20:] }}"
+  loop: "{{ postgresql_log_content.results | default([]) }}"
+  when: 
+    - (postgresql_service_start.failed | default(false) or postgresql_service_status.rc != 0)
+    - postgresql_log_content.results is defined
   tags: [postgres, postgres_install, service]
 
 - name: Wait for PostgreSQL to be ready
   wait_for:
-    port: "{{ service_ports.postgres }}"
+    port: "{{ service_ports.postgres | int }}"
     host: "{{ ansible_host }}"
     delay: 5
     timeout: 60
+  register: postgresql_wait_result
+  failed_when: false
   tags: [postgres, postgres_install, service, wait]
 
+- name: Check if PostgreSQL is listening
+  command: ss -tlnp | grep ":{{ service_ports.postgres }}"
+  register: postgresql_listening_check
+  changed_when: false
+  failed_when: false
+  become: yes
+  when: postgresql_wait_result.failed | default(false)
+  tags: [postgres, postgres_install, service, debug]
 
+- name: Display PostgreSQL listening status
+  debug:
+    msg: "PostgreSQL listening check: {{ postgresql_listening_check.stdout if postgresql_listening_check.stdout else 'Not listening on port {{ service_ports.postgres }}' }}"
+  when: postgresql_wait_result.failed | default(false)
+  tags: [postgres, postgres_install, service, debug]
+
+- name: Fail if PostgreSQL is not ready
+  fail:
+    msg: |
+      PostgreSQL service is not responding on port {{ service_ports.postgres }}.
+      Please check:
+      1. Service status: systemctl status {{ postgresql_config.service_name }}
+      2. Service logs: journalctl -u {{ postgresql_config.service_name }} -n 50
+      3. PostgreSQL logs: tail -n 50 {{ postgresql_config.data_directory }}/log/postgresql-*.log
+      4. Check if PostgreSQL is listening: ss -tlnp | grep :{{ service_ports.postgres }}
+  when: postgresql_wait_result.failed | default(false)
+  tags: [postgres, postgres_install, service]

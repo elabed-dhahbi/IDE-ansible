@@ -1,171 +1,165 @@
 ---
-# Logstash OSS Plugin Installation Tasks
+# Offline plugin install. OpenSearch output uses the proven manual flow:
+#   python zipfile check -> cp to /usr/share/logstash -> logstash-plugin install file://
+# logstash-offline-plugins-*.zip is the rest pack and is not used for OpenSearch.
 
-- name: Check if plugins are already installed
-  shell: /usr/share/logstash/bin/logstash-plugin list | grep -E "(logstash-filter-rest|logstash-output-opensearch)"
-  register: plugins_check
-  failed_when: false
-  become: yes
+- name: Force offline-only Logstash plugin installs
+  set_fact:
+    logstash_oss_plugin_install_allow_online: false
   tags: [logstash_oss, plugins, check]
 
-- name: Find offline plugins packages
-  find:
-    paths: "{{ paths.offline_dir }}"
-    patterns: "logstash-*.zip"
-  register: offline_plugin_zips
-  tags: [logstash_oss, plugins, find]
-
-- name: Filter out source code zip files
-  set_fact:
-    plugin_zips: "{{ offline_plugin_zips.files | reject('match', '.*-main\\.zip$') | list }}"
-  tags: [logstash_oss, plugins, filter]
-
-- name: Debug - Show found plugin files
-  debug:
-    msg: "Found plugin files: {{ offline_plugin_zips.files | map(attribute='path') | list }}"
-  tags: [logstash_oss, plugins, debug]
-
-- name: Copy offline plugin zips to logstash directory
-  copy:
-    src: "{{ item.path }}"
-    dest: "/usr/share/logstash/{{ item.path | basename }}"
-    mode: '0644'
-  loop: "{{ plugin_zips }}"
-  become: yes
-  when: plugin_zips | length > 0
-  tags: [logstash_oss, plugins, copy]
-
-- name: Install plugins from offline zips
-  shell: |
-    cd /usr/share/logstash
-    export LS_JAVA_OPTS="-Xmx2g -Xms1g"
-    for zip in logstash-*.zip; do
-      if [ -f "$zip" ] && [[ "$zip" != *"-main.zip" ]]; then
-        echo "Installing plugin from $zip"
-        unzip -o "$zip"
-        bin/logstash-plugin install file:///usr/share/logstash/$zip
-      fi
-    done
-  become: yes
-  when: plugin_zips | length > 0
-  tags: [logstash_oss, plugins, install]
-
-- name: Verify rest filter plugin installation
-  shell: /usr/share/logstash/bin/logstash-plugin list | grep "logstash-filter-rest"
-  register: rest_plugin_verify
-  become: yes
-  tags: [logstash_oss, plugins, verify]
-
-- name: Install plugins directly from zip files if not found
-  shell: |
-    cd /usr/share/logstash
-    export LS_JAVA_OPTS="-Xmx2g -Xms1g"
-    for zip in logstash-*.zip; do
-      if [ -f "$zip" ] && [[ "$zip" != *"-main.zip" ]]; then
-        echo "Installing plugins from $zip"
-        bin/logstash-plugin install file:///usr/share/logstash/$zip
-      fi
-    done
-  become: yes
-  when: plugins_check.rc != 0
-  tags: [logstash_oss, plugins, install_direct]
-
-- name: Check if opensearch plugin is in offline-plugins zip
-  shell: |
-    cd /usr/share/logstash
-    if [ -f "logstash-offline-plugins-*.zip" ]; then
-      unzip -l logstash-offline-plugins-*.zip 2>/dev/null | grep -q "logstash-output-opensearch" && echo "found" || echo "not_found"
-    else
-      echo "not_found"
-    fi
-  register: opensearch_in_offline_pack
+- name: Check if logstash-output-opensearch is installed
+  shell: /usr/share/logstash/bin/logstash-plugin list | grep -F "logstash-output-opensearch"
+  register: ls_opensearch_plugin_check
   failed_when: false
   changed_when: false
   become: yes
-  when: 
-    - (plugins_check.rc != 0 or (plugins_check.stdout is defined and 'logstash-output-opensearch' not in plugins_check.stdout))
-  tags: [logstash_oss, plugins, check_offline_pack]
+  tags: [logstash_oss, plugins, check]
 
-- name: Find opensearch output plugin in offline directory
-  find:
-    paths: "{{ paths.offline_dir }}"
-    patterns: "logstash-output-opensearch*.zip"
-  register: opensearch_plugin_zips
-  delegate_to: localhost
-  tags: [logstash_oss, plugins, find_opensearch]
-
-- name: Copy opensearch output plugin zip to logstash directory
-  copy:
-    src: "{{ item.path }}"
-    dest: "/usr/share/logstash/{{ item.path | basename }}"
-    mode: '0644'
-  loop: "{{ opensearch_plugin_zips.files }}"
+- name: Check if logstash-filter-rest is installed
+  shell: /usr/share/logstash/bin/logstash-plugin list | grep -F "logstash-filter-rest"
+  register: ls_rest_plugin_check
+  failed_when: false
+  changed_when: false
   become: yes
-  when: 
-    - (plugins_check.rc != 0 or "'logstash-output-opensearch' not in plugins_check.stdout")
-    - opensearch_plugin_zips.files | length > 0
-  tags: [logstash_oss, plugins, copy_opensearch]
+  tags: [logstash_oss, plugins, check]
 
-- name: Install opensearch output plugin from offline zip if not found
-  shell: |
-    cd /usr/share/logstash
-    export LS_JAVA_OPTS="-Xmx2g -Xms1g"
-    for zip in logstash-output-opensearch*.zip; do
-      if [ -f "$zip" ]; then
-        if [[ "$zip" == *"-main.zip" ]]; then
-          echo "Detected source code zip: $zip"
-          echo "Extracting source code..."
-          BUILD_DIR="/tmp/logstash-plugin-build-$$"
-          mkdir -p "$BUILD_DIR"
-          unzip -q -o "$zip" -d "$BUILD_DIR"
-          PLUGIN_DIR=$(find "$BUILD_DIR" -maxdepth 1 -type d -name "logstash-output-opensearch*" | head -1)
-          if [ -z "$PLUGIN_DIR" ]; then
-            echo "ERROR: Could not find plugin directory in extracted zip"
-            rm -rf "$BUILD_DIR"
-            exit 1
-          fi
-          echo "Installing plugin from source directory: $PLUGIN_DIR"
-          cd /usr/share/logstash
-          if /usr/share/logstash/bin/logstash-plugin install "$PLUGIN_DIR" 2>/dev/null; then
-            echo "Successfully installed from source directory"
-            rm -rf "$BUILD_DIR"
-          else
-            echo "WARNING: Cannot install plugin directly from source code."
-            echo "For offline installations, prepare an offline pack on a machine with internet access:"
-            echo "  1. Install the plugin: /usr/share/logstash/bin/logstash-plugin install logstash-output-opensearch"
-            echo "  2. Create offline pack: /usr/share/logstash/bin/logstash-plugin prepare-offline-pack logstash-output-opensearch"
-            echo "  3. Copy the generated logstash-offline-plugins-*.zip to your offline directory"
-            echo "  4. Install from pack: bin/logstash-plugin install file:///path/to/logstash-offline-plugins-*.zip"
-            echo "Skipping plugin installation. You may need to install it manually later."
-            rm -rf "$BUILD_DIR"
-            exit 0
-          fi
-        else
-          echo "Installing opensearch output plugin from plugin pack: $zip"
-          bin/logstash-plugin install file:///usr/share/logstash/$zip
-        fi
-      fi
-    done
-  become: yes
-  when: 
-    - (plugins_check.rc != 0 or (plugins_check.stdout is defined and 'logstash-output-opensearch' not in plugins_check.stdout))
-    - opensearch_plugin_zips.files | length > 0
-  tags: [logstash_oss, plugins, install_opensearch]
+- name: Set flags for which Logstash plugins still need installation
+  set_fact:
+    logstash_opensearch_plugin_needed: "{{ (ls_opensearch_plugin_check.rc | default(1)) != 0 }}"
+    logstash_rest_plugin_needed: "{{ (ls_rest_plugin_check.rc | default(1)) != 0 }}"
+  tags: [logstash_oss, plugins, check]
 
-- name: Warn if opensearch output plugin not found in offline directory
+- name: Log OpenSearch plugin installer identity (file:// flow)
   debug:
-    msg: "WARNING: logstash-output-opensearch plugin not found in offline directory. Plugin installation from rubygems.org will be skipped in offline mode."
-  when: 
-    - (plugins_check.rc != 0 or "'logstash-output-opensearch' not in plugins_check.stdout")
-    - opensearch_plugin_zips.files | length == 0
-  tags: [logstash_oss, plugins, warn_opensearch]
+    msg:
+      - "This is the manual file:// installer (not the rest-pack fail task)."
+      - "role_path={{ role_path }}"
+      - "host={{ inventory_hostname }}"
+      - "offline_dir={{ paths.offline_dir | default('') }}"
+      - "opensearch_needed={{ logstash_opensearch_plugin_needed | default('') }}"
+  tags: [logstash_oss, plugins, check]
+
+- name: List Logstash plugin artifacts in offline directory
+  shell: |
+    od="{{ paths.offline_dir | trim }}"
+    echo "offline_dir=$od"
+    ls -l "$od"/logstash-* 2>/dev/null || echo "no logstash-* files"
+  register: ls_offline_artifact_list
+  changed_when: false
+  become: yes
+  tags: [logstash_oss, plugins, check]
+
+- name: Show Logstash plugin artifacts in offline directory
+  debug:
+    msg: "{{ ls_offline_artifact_list.stdout_lines }}"
+  tags: [logstash_oss, plugins, check]
+
+- name: Install logstash-filter-rest from offline zip or gem
+  shell: |
+    set -euo pipefail
+    OD="{{ paths.offline_dir | trim }}"
+    LS="/usr/share/logstash"
+    export LS_JAVA_OPTS="-Xmx2g -Xms1g"
+    cd "$LS"
+    if bin/logstash-plugin list 2>/dev/null | grep -Fq "logstash-filter-rest"; then
+      echo "logstash-filter-rest already installed"
+      exit 0
+    fi
+    SRC="$(find "$OD" -maxdepth 2 -type f \( -name 'logstash-filter-rest*.zip' -o -name 'logstash-filter-rest*.gem' \) ! -name '*-main.zip' 2>/dev/null | head -1)"
+    if [ -z "$SRC" ]; then
+      echo "ERROR: no logstash-filter-rest zip/gem under $OD" >&2
+      exit 1
+    fi
+    BASE="$(basename "$SRC")"
+    cp -f "$SRC" "$LS/$BASE"
+    bin/logstash-plugin install "file://$LS/$BASE"
+  args:
+    executable: /bin/bash
+  become: yes
+  when: logstash_rest_plugin_needed | bool
+  tags: [logstash_oss, plugins, install]
+
+- name: Install logstash-output-opensearch (manual file:// flow)
+  shell: |
+    set -euo pipefail
+    OD="{{ paths.offline_dir | trim }}"
+    LS="/usr/share/logstash"
+    export LS_JAVA_OPTS="-Xmx2g -Xms1g"
+    cd "$LS"
+
+    if bin/logstash-plugin list 2>/dev/null | grep -Fq "logstash-output-opensearch"; then
+      echo "logstash-output-opensearch already installed"
+      exit 0
+    fi
+
+    # Same order as the working manual install on this host.
+    SRC=""
+    while IFS= read -r cand; do
+      [ -n "$cand" ] || continue
+      SRC="$cand"
+      break
+    done < <(
+      find "$OD" -maxdepth 2 -type f -name 'logstash-output-plugins-openseach*.zip' 2>/dev/null
+      find "$OD" -maxdepth 2 -type f -name 'logstash-output-plugins-opensearch*.zip' 2>/dev/null
+      find "$OD" -maxdepth 2 -type f -name 'logstash-output-opensearch*.gem' 2>/dev/null
+    )
+
+    if [ -z "$SRC" ]; then
+      echo "ERROR: no OpenSearch plugin pack/gem under $OD" >&2
+      echo "Need logstash-output-plugins-openseach-*.zip or logstash-output-opensearch-*.gem" >&2
+      echo "logstash-offline-plugins-*.zip is the rest pack and cannot be used here." >&2
+      exit 1
+    fi
+
+    echo "Checking $SRC"
+    if [[ "$SRC" == *.zip ]]; then
+      python3 -c 'import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); m=[n for n in z.namelist() if "logstash-output-opensearch" in n]; print("\n".join(m) if m else "NOT FOUND"); raise SystemExit(0 if m else 1)' "$SRC"
+    fi
+
+    BASE="$(basename "$SRC")"
+    cp -f "$SRC" "$LS/$BASE"
+    bin/logstash-plugin install "file://$LS/$BASE"
+    bin/logstash-plugin list | grep -F "logstash-output-opensearch"
+  args:
+    executable: /bin/bash
+  become: yes
+  when: logstash_opensearch_plugin_needed | bool
+  tags: [logstash_oss, plugins, install, install_opensearch, install_offline_pack]
+
+- name: Verify rest filter plugin installation
+  shell: /usr/share/logstash/bin/logstash-plugin list | grep -F "logstash-filter-rest"
+  register: rest_plugin_verify
+  failed_when: false
+  changed_when: false
+  become: yes
+  tags: [logstash_oss, plugins, verify]
 
 - name: Verify opensearch output plugin installation
-  shell: /usr/share/logstash/bin/logstash-plugin list | grep "logstash-output-opensearch"
+  shell: /usr/share/logstash/bin/logstash-plugin list | grep -F "logstash-output-opensearch"
   register: opensearch_plugin_verify
   failed_when: false
   changed_when: false
   become: yes
+  tags: [logstash_oss, plugins, verify]
+
+- name: Require logstash-filter-rest plugin
+  assert:
+    that:
+      - rest_plugin_verify.rc == 0
+    fail_msg: >-
+      logstash-filter-rest is not installed. Place logstash-filter-rest*.zip
+      or *.gem under {{ paths.offline_dir }}.
+  tags: [logstash_oss, plugins, verify]
+
+- name: Require logstash-output-opensearch plugin (pipeline uses output opensearch)
+  assert:
+    that:
+      - opensearch_plugin_verify.rc == 0
+    fail_msg: >-
+      logstash-output-opensearch is not installed after the manual file:// flow.
+      Expected {{ paths.offline_dir }}/logstash-output-plugins-openseach-*.zip
+      (or logstash-output-opensearch-*.gem). logstash-offline-plugins-*.zip is rest-only.
   tags: [logstash_oss, plugins, verify]
 
 - name: Display rest filter plugin status
@@ -175,34 +169,14 @@
 
 - name: Display opensearch output plugin status
   debug:
-    msg: "OpenSearch output plugin installed: {{ opensearch_plugin_verify.stdout_lines if opensearch_plugin_verify.rc == 0 else 'NOT INSTALLED - See instructions below' }}"
+    msg: "OpenSearch output plugin installed: {{ opensearch_plugin_verify.stdout_lines }}"
   tags: [logstash_oss, plugins, status]
 
-- name: Warn if opensearch plugin is not installed
-  debug:
-    msg: |
-      WARNING: logstash-output-opensearch plugin is not installed.
-      
-      To install it offline, you need to prepare an offline pack on a machine with internet access:
-      
-      1. Install the plugin:
-         /usr/share/logstash/bin/logstash-plugin install logstash-output-opensearch
-      
-      2. Create offline pack:
-         /usr/share/logstash/bin/logstash-plugin prepare-offline-pack logstash-output-opensearch
-      
-      3. Copy the generated logstash-offline-plugins-*.zip to your offline directory
-      
-      4. The playbook will automatically install it on the next run
-      
-      Alternatively, you can install it manually:
-        /usr/share/logstash/bin/logstash-plugin install file:///path/to/logstash-offline-plugins-*.zip
-  when: opensearch_plugin_verify.rc != 0
-  tags: [logstash_oss, plugins, warn_missing]
-
-- name: Clean up offline plugin zips
+- name: Clean up staged offline plugin archives under Logstash
   shell: |
-    rm -f /usr/share/logstash/logstash-*.zip
+    rm -f /usr/share/logstash/logstash-*.zip \
+          /usr/share/logstash/logstash-*.gem \
+          /usr/share/logstash/logstash-output-plugins-*.zip
   become: yes
   tags: [logstash_oss, plugins, cleanup]
 

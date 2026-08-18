@@ -23,19 +23,25 @@ java_full_version: "{{ java_full_version | default('8u412') }}"
 java_build_version: "{{ java_build_version | default('8u412-b08') }}"
 java_legacy_version: "{{ java_legacy_version | default('1_8_0_92') }}"
 java_install_dir: "{{ system_paths.java_install_dir | default('/usr/j2se') }}"
+# Full JDK path derived from sicap_java.offline_package (e.g. /usr/j2se/1_8_0_92-jdk)
+dmc_sicap_jdk_home: "{{ ((sicap_java | default({})).install_dir | default(java_install_dir | default('/usr/j2se'))) }}/{{ ((sicap_java | default({})).offline_package | default('1_8_0_92-jdk.tar.gz')) | regex_replace('\\.tar\\.gz$', '') }}"
 java_home: "{{ java_install_dir }}/current"
 java_version: "{{ java_build_version }}"  # Legacy compatibility
 
 # DMC configuration - simplified to avoid circular references
-dmc_http_port: 50400
-dmc_http_host: "0.0.0.0"
-dmc_node_id: 1
+dmc_http_port: "{{ (dmc.http_port | default(50400)) if (dmc is defined) else 50400 }}"
+dmc_http_host: "{{ (dmc.http_host | default('0.0.0.0')) if (dmc is defined) else '0.0.0.0' }}"
+dmc_node_id: "{{ (dmc.node_id | default(1)) if (dmc is defined) else 1 }}"
+
+# Current DMC node IP/host as defined by inventory.
+# This ensures that when installing/configuring dmc1 vs dmc2, URLs point to THAT node.
+dmc_node_ip: "{{ hostvars[inventory_hostname].ansible_host | default(ansible_host | default(inventory_hostname)) }}"
 
 # Java memory settings (configurable from values.yaml)
-dmc_java_xms: "8192m"
-dmc_java_xmx: "8192m"
-dmc_java_perm_size: "512m"
-dmc_java_max_perm_size: "512m"
+dmc_java_xms: "{{ (dmc.java.xms | default('8192m')) if (dmc is defined and dmc.java is defined) else '8192m' }}"
+dmc_java_xmx: "{{ (dmc.java.xmx | default('8192m')) if (dmc is defined and dmc.java is defined) else '8192m' }}"
+dmc_java_perm_size: "{{ (dmc.java.perm_size | default('512m')) if (dmc is defined and dmc.java is defined) else '512m' }}"
+dmc_java_max_perm_size: "{{ (dmc.java.max_perm_size | default('512m')) if (dmc is defined and dmc.java is defined) else '512m' }}"
 
 # Database configuration
 # If using external database, set database_config.external_host in values.yaml
@@ -48,25 +54,52 @@ dmc_database_host: >-
   {%- else -%}
     localhost
   {%- endif -%}
-dmc_database_port: "{{ database_config.external_port | default(database_config.port | default(5432)) }}"
+dmc_database_port: "{{ database_config.postgres_port | default(5432) }}"
 dmc_database_name: "{{ database_config.dmc_database | default('dmc46') }}"
 dmc_database_user: "{{ database_config.dmc_user | default('dmc4') }}"
 dmc_database_password: "{{ database_config.dmc_password | default('dmc4') }}"
 dmc_database_tablespace_data: "{{ database_config.tablespace_data | default('dmc4tab') }}"
 dmc_database_tablespace_index: "{{ database_config.tablespace_index | default('dmc4idx') }}"
 dmc_database_tablespace_lob: "{{ database_config.tablespace_lob | default('dmc4tab') }}"
+# DMC schema name (many deployments expect all objects under this schema)
+dmc_database_schema: "{{ database_config.dmc_schema | default('dmc4') }}"
 
 # Provider configuration
-dmc_provider_id: 41
+dmc_provider_id: "{{ (dmc.provider.id | default(41)) if (dmc is defined and dmc.provider is defined) else 41 }}"
 dmc_provider_name: "{{ customer_config.name | default('sicap') }}"
 dmc_provider_description: "{{ customer_config.description | default('sicap test provider') }}"
-dmc_provider_extid: 1
-dmc_provider_extnumid: 1000
-dmc_provider_authenticated_mode: true
+dmc_provider_extid: "{{ (dmc.provider.extid | default(1)) if (dmc is defined and dmc.provider is defined) else 1 }}"
+dmc_provider_extnumid: "{{ (dmc.provider.extnumid | default(1000)) if (dmc is defined and dmc.provider is defined) else 1000 }}"
+dmc_provider_authenticated_mode: "{{ (dmc.provider.authenticated_mode | default(true)) if (dmc is defined and dmc.provider is defined) else true }}"
 
 # External service configuration
-dmc_mmsoap_host: "{{ service_ips.mmsoap | default('localhost') }}"
-dmc_mmsoap_port: "{{ service_ports.mmsoap | default(50434) }}"
+# MMSOAP endpoint for cm-DMCProtocolMMG.properties — sourced from inventory group `[mmsoap]` (ansible_host).
+# `service_ips.mmsoap` is derived the same way; we avoid `values.yaml` overrides here by design.
+# Note: `| default()` does not trigger on empty strings, so treat '' as missing.
+dmc_mmsoap_host: >-
+  {{
+    (
+      hostvars[groups['mmsoap'][0]]['ansible_host']
+      if groups['mmsoap'] is defined and groups['mmsoap'] | length > 0
+      else none
+    )
+    | default(
+        (
+          (service_ips | default({})).mmsoap
+          if (((service_ips | default({})).mmsoap | default('') | string) | length) > 0
+          else none
+        ),
+        true
+      )
+  }}
+dmc_mmsoap_port: >-
+  {{
+    (
+      (service_ports | default({})).mmsoap_http
+      | default((service_ports | default({})).mmsoap, true)
+      | default(50434, true)
+    )
+  }}
 dmc_mmsoap_username: "{{ database_config.dmc_user | default('dmc4') }}"
 dmc_mmsoap_password: "{{ database_config.dmc_password | default('dmc4') }}"
 dmc_mmsoap_service_id: 1
@@ -76,25 +109,41 @@ dmc_drs_port: "{{ service_ports.drs | default(8080) }}"
 
 dmc_elasticsearch_host: "{{ service_ips.elasticsearch | default('localhost') }}"
 dmc_elasticsearch_port: "{{ service_ports.elasticsearch | default(9200) }}"
-dmc_elasticsearch_username: "elastic"
-dmc_elasticsearch_password: "elastic"
+dmc_elasticsearch_username: "{{ (dmc.elasticsearch.username | default('elastic')) if (dmc is defined and dmc.elasticsearch is defined) else 'elastic' }}"
+dmc_elasticsearch_password: "{{ (dmc.elasticsearch.password | default('elastic')) if (dmc is defined and dmc.elasticsearch is defined) else 'elastic' }}"
+
+# Search engine endpoint for rest-api.properties.
+# Use stack_type: elk -> Elasticsearch, opensearch -> OpenSearch.
+dmc_search_engine_host: >-
+  {{
+    (
+      (stack_type | default('elk')) == 'opensearch'
+    )
+    | ternary((service_ips.opensearch | default('localhost', true)), (service_ips.elasticsearch | default('localhost', true)))
+    | default('localhost', true)
+  }}
+dmc_search_engine_port: >-
+  {{
+    (
+      (stack_type | default('elk')) == 'opensearch'
+    )
+    | ternary((service_ports.opensearch_http | default(9200)), (service_ports.elasticsearch | default(9200)))
+  }}
 
 # System configuration
 dmc_country: "{{ customer_config.country | default('Germany') }}"
-dmc_timezone: "GMT+1"
-dmc_hugepages: 5120  # 5GB in 2MB pages
-dmc_memlock: 10240000
+dmc_timezone: "{{ (dmc.timezone | default('GMT+1')) if (dmc is defined) else 'GMT+1' }}"
+dmc_hugepages: "{{ (dmc.hugepages | default(5120)) if (dmc is defined) else 5120 }}"  # 5GB in 2MB pages
+dmc_memlock: "{{ (dmc.memlock | default(10240000)) if (dmc is defined) else 10240000 }}"
 
 # Logging configuration
-dmc_logging_level: "INFO"
+dmc_logging_level: "{{ (dmc.logging.level | default('INFO')) if (dmc is defined and dmc.logging is defined) else 'INFO' }}"
 dmc_logging_file: "/var/opt/dmc/{{ dmc_version }}/log/dmc.log"
-dmc_logging_max_size: "100MB"
-dmc_logging_max_files: 10
+dmc_logging_max_size: "{{ (dmc.logging.max_size | default('100MB')) if (dmc is defined and dmc.logging is defined) else '100MB' }}"
+dmc_logging_max_files: "{{ (dmc.logging.max_files | default(10)) if (dmc is defined and dmc.logging is defined) else 10 }}"
 
 # Package configuration
-package_globs:
-  dmc_rpm: "SCPdmc-{{ dmc_version }}*.rpm"
-  jdk8_64bit: "1_8_0_92-jdk.tar.gz"
+# NOTE: package patterns are centralized in `sicap-ide/config/packages.yaml` under `package_globs`.
 
 # iOS Enabler configuration
 dmc_ios_enabler:
@@ -130,5 +179,3 @@ dmc_limits:
   memlock:
     soft: 10240000
     hard: 10240000
-
-

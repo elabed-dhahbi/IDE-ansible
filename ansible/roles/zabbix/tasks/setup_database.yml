@@ -27,35 +27,128 @@
     timeout: 60
   tags: [zabbix, database, wait]
 
-- name: Ensure postgres user has password set (via Unix socket with peer auth)
-  shell: "{{ psql_location.stdout }} -U postgres -d postgres -c \"ALTER USER postgres PASSWORD '{{ database_config.postgres_admin_password }}';\""
+- name: Choose postgres admin password for psql
+  set_fact:
+    postgres_admin_password_effective: "{{ system_config.service_passwords.postgres | default(database_config.postgres_admin_password, true) }}"
+  tags: [zabbix, database, postgres_password]
+
+- name: Ensure postgres user has password set (via Unix socket)
+  command:
+    argv:
+      - "{{ psql_location.stdout }}"
+      - "-X"
+      - "-v"
+      - "ON_ERROR_STOP=1"
+      - "--no-password"
+      - "-U"
+      - "postgres"
+      - "-d"
+      - "postgres"
+      - "-c"
+      - "ALTER USER postgres PASSWORD '{{ postgres_admin_password_effective | replace(\"'\", \"''\") }}';"
+  environment:
+    PGPASSWORD: "{{ postgres_admin_password_effective }}"
   become: yes
   become_user: postgres
   when: psql_location.stdout is defined and psql_location.stdout | length > 0
-  ignore_errors: true
+  async: 30
+  poll: 5
   tags: [zabbix, database, postgres_password]
 
 - name: Create Zabbix database user (via Unix socket)
-  shell: "{{ psql_location.stdout }} -U postgres -d postgres -c \"CREATE USER zabbix WITH PASSWORD 'zabbix';\""
+  command:
+    argv:
+      - "{{ psql_location.stdout }}"
+      - "-X"
+      - "-v"
+      - "ON_ERROR_STOP=1"
+      - "--no-password"
+      - "-U"
+      - "postgres"
+      - "-d"
+      - "postgres"
+      - "-c"
+      - "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{{ zabbix_db_user }}') THEN CREATE USER {{ zabbix_db_user }} WITH PASSWORD '{{ zabbix_db_password | replace(\"'\", \"''\") }}'; END IF; END $$;"
+  environment:
+    PGPASSWORD: "{{ postgres_admin_password_effective }}"
   become: yes
   become_user: postgres
   when: psql_location.stdout is defined and psql_location.stdout | length > 0
-  ignore_errors: true
+  async: 30
+  poll: 5
   tags: [zabbix, database, postgres]
 
 - name: Create Zabbix database (via Unix socket)
-  shell: "{{ psql_location.stdout }} -U postgres -d postgres -c \"CREATE DATABASE zabbix OWNER zabbix;\""
+  command:
+    argv:
+      - "{{ psql_location.stdout }}"
+      - "-X"
+      - "-v"
+      - "ON_ERROR_STOP=1"
+      - "--no-password"
+      - "-U"
+      - "postgres"
+      - "-d"
+      - "postgres"
+      - "-tAc"
+      - "SELECT 1 FROM pg_database WHERE datname = '{{ zabbix_db_name }}';"
+  environment:
+    PGPASSWORD: "{{ postgres_admin_password_effective }}"
   become: yes
   become_user: postgres
   when: psql_location.stdout is defined and psql_location.stdout | length > 0
-  ignore_errors: true
+  register: zabbix_db_exists_check
+  changed_when: false
+  async: 30
+  poll: 5
+  tags: [zabbix, database, postgres]
+
+- name: Create Zabbix database when missing (via Unix socket)
+  command:
+    argv:
+      - "{{ psql_location.stdout }}"
+      - "-X"
+      - "-v"
+      - "ON_ERROR_STOP=1"
+      - "--no-password"
+      - "-U"
+      - "postgres"
+      - "-d"
+      - "postgres"
+      - "-c"
+      - "CREATE DATABASE {{ zabbix_db_name }} OWNER {{ zabbix_db_user }};"
+  environment:
+    PGPASSWORD: "{{ postgres_admin_password_effective }}"
+  become: yes
+  become_user: postgres
+  when:
+    - psql_location.stdout is defined and psql_location.stdout | length > 0
+    - (zabbix_db_exists_check.stdout | default('') | trim) != '1'
+  async: 30
+  poll: 5
   tags: [zabbix, database, postgres]
 
 - name: Grant database permissions (via Unix socket)
-  shell: "{{ psql_location.stdout }} -U postgres -d zabbix -c \"GRANT ALL PRIVILEGES ON DATABASE zabbix TO zabbix;\""
+  command:
+    argv:
+      - "{{ psql_location.stdout }}"
+      - "-X"
+      - "-v"
+      - "ON_ERROR_STOP=1"
+      - "--no-password"
+      - "-U"
+      - "postgres"
+      - "-d"
+      - "{{ zabbix_db_name }}"
+      - "-c"
+      - "GRANT ALL PRIVILEGES ON DATABASE {{ zabbix_db_name }} TO {{ zabbix_db_user }};"
+  environment:
+    PGPASSWORD: "{{ postgres_admin_password_effective }}"
   become: yes
   become_user: postgres
   when: psql_location.stdout is defined and psql_location.stdout | length > 0
+  async: 30
+  poll: 5
   tags: [zabbix, database, postgres]
 
 - name: Check if zabbix-sql-scripts package is installed
@@ -210,9 +303,11 @@
 
 - name: Import Zabbix database schema (via Unix socket as postgres user)
   shell: |
-    zcat {{ sql_file_path }} | {{ psql_location.stdout }} -U zabbix -d zabbix
+    zcat {{ sql_file_path }} | {{ psql_location.stdout }} -d {{ zabbix_db_name }}
+  environment:
+    PGPASSWORD: "{{ zabbix_db_password }}"
   become: yes
-  become_user: postgres
+  become_user: "{{ zabbix_user }}"
   when:
     - psql_location.stdout is defined and psql_location.stdout | length > 0
     - sql_file_path is defined and sql_file_path | length > 0
@@ -240,9 +335,11 @@
   tags: [zabbix, database, schema]
 
 - name: Verify database import (via Unix socket)
-  shell: "{{ psql_location.stdout }} -U zabbix -d zabbix -c \"SELECT COUNT(*) FROM users;\""
+  shell: "{{ psql_location.stdout }} -d {{ zabbix_db_name }} -c \"SELECT COUNT(*) FROM users;\""
+  environment:
+    PGPASSWORD: "{{ zabbix_db_password }}"
   become: yes
-  become_user: postgres
+  become_user: "{{ zabbix_user }}"
   when: psql_location.stdout is defined and psql_location.stdout | length > 0
   register: db_import_check
   tags: [zabbix, database, verify]
@@ -258,3 +355,4 @@
     msg: "Database verification failed. The users table does not exist. Schema import may have failed. Error: {{ db_import_check.stderr }}"
   when: db_import_check.rc != 0
   tags: [zabbix, database, verify]
+

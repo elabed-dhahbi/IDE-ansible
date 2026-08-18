@@ -1,0 +1,37 @@
+---
+# Run on the Ansible controller. Prints which logstash_oss install_plugins.yml
+# copies exist and which strings they contain. Use this when the play shows
+# "Fail when offline pack is present" but cat of ansible/roles/... does not.
+
+- name: Log Ansible roles path and every logstash_oss install_plugins.yml
+  shell: |
+    set +e
+    echo "playbook_dir={{ playbook_dir }}"
+    echo "inventory_file={{ inventory_file | default('') }}"
+    echo "PWD=$(pwd)"
+    echo "ANSIBLE_ROLES_PATH=${ANSIBLE_ROLES_PATH:-unset}"
+    echo "--- ansible-config ROLES ---"
+    ansible-config dump 2>/dev/null | grep -E 'DEFAULT_ROLES_PATH|COLLECTIONS_PATHS' || true
+    echo "--- install_plugins.yml copies ---"
+    find "{{ playbook_dir }}" "{{ playbook_dir }}/.." /home/ansible /etc/ansible \
+      -path '*logstash_oss/tasks/install_plugins.yml' 2>/dev/null | sort -u | while read -r f; do
+      echo ""
+      echo "FILE $f"
+      ls -l "$f"
+      grep -n "Fail when offline pack is present\|manual file:// flow\|Install logstash-output-opensearch" "$f" | head -10
+    done
+    echo "--- end ---"
+  args:
+    executable: /bin/bash
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_connection: local
+  changed_when: false
+  register: ls_plugin_path_debug
+  tags: [logstash_oss, plugins, dmc1, dmc2, logstash-oss]
+
+- name: Show logstash plugin file identity log
+  debug:
+    msg: "{{ ls_plugin_path_debug.stdout_lines }}"
+  tags: [logstash_oss, plugins, dmc1, dmc2, logstash-oss]

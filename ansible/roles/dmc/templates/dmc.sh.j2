@@ -5,7 +5,7 @@
 DMC_HOME="{{ dmc_install_dir }}"
 DMC_CONFIG="{{ dmc_config_dir }}/dmc.conf"
 DMC_PID="{{ dmc_data_dir }}/dmc.pid"
-JAVA_HOME="{{ java_home }}/current"
+JAVA_HOME="{{ dmc_sicap_jdk_home }}"
 JAVA_OPTS="{{ java_opts }}"
 
 # Source configuration
@@ -76,7 +76,3 @@ case "$1" in
         exit 1
         ;;
 esac
-
-
-
-

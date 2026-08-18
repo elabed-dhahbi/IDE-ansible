@@ -40,9 +40,15 @@ opensearch_version: "3.2.0"
 opensearch_dashboards_version: "3.2.0"
 
 # Zabbix versions
-zabbix_version: "7.4.2"
+zabbix_version: "7.4.3"
 zabbix_release: "release1"  # or "release2" depending on package
 
 # Package repository versions
 pgdg_repo_version: "latest"  # pgdg-redhat-repo-latest.noarch.rpm
+
+
+
+
+
+
 
