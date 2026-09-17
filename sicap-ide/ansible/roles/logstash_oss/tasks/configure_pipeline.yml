@@ -1,6 +1,16 @@
 ---
 # Configure Logstash OSS pipeline
 
+- name: Create Logstash OSS pipeline directory
+  file:
+    path: "{{ logstash_oss_pipeline_dir }}"
+    state: directory
+    owner: "{{ logstash_oss_user }}"
+    group: "{{ logstash_oss_group }}"
+    mode: '0755'
+  become: yes
+  tags: [logstash_oss, pipeline, directory]
+
 - name: Create Logstash OSS pipeline configuration
   template:
     src: logstash_oss.conf.j2
@@ -9,7 +19,23 @@
     group: "{{ logstash_oss_group }}"
     mode: '0644'
   become: true
-  notify: restart logstash-oss
+  register: logstash_oss_pipeline_conf
+
+- name: Read deployed Logstash OSS pipeline
+  slurp:
+    src: "{{ logstash_oss_pipeline_dir }}/logstash.conf"
+  register: logstash_oss_pipeline_deployed
+  become: true
+
+- name: Fail if deployed pipeline still calls DRS on :8080
+  fail:
+    msg: >-
+      {{ logstash_oss_pipeline_dir }}/logstash.conf still calls DRS on :8080.
+      The DRS HTTP API is {{ logstash_oss_drs_port }} and the address comes from
+      the inventory, not the host alias. Sync these from Cursor:
+      roles/logstash_oss/templates/logstash_oss.conf.j2 and
+      roles/logstash_oss/defaults/main.yml.
+  when: (logstash_oss_pipeline_deployed.content | b64decode) is search(':8080/drs')
 
 - name: Create custom patterns directory
   file:
@@ -28,7 +54,11 @@
     group: "{{ logstash_oss_group }}"
     mode: '0644'
   become: true
-  notify: restart logstash-oss
+  register: logstash_oss_patterns_file
+
+- name: Remember Logstash OSS pipeline changes for service restart
+  set_fact:
+    logstash_oss_pipeline_changed: "{{ (logstash_oss_pipeline_conf.changed | default(false)) or (logstash_oss_patterns_file.changed | default(false)) }}"
 
 - name: Create CSV export log directory
   file:

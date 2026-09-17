@@ -110,20 +110,19 @@
     - package_verification.fail_on_missing
   tags: [common, packages, verification, sls]
 
-- name: Verify Elasticsearch package
-  stat:
-    path: "{{ paths.offline_dir }}/{{ package_globs.es_rpm }}"
+- name: Find Elasticsearch package
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns: "{{ package_globs.elasticsearch_rpm | default(package_globs.es_rpm) }}"
   register: es_package_check
+  delegate_to: localhost
   when: inventory_hostname in groups['elasticsearch']
   tags: [common, packages, verification, elasticsearch]
 
 - name: Fail if Elasticsearch package not found
   fail:
-    msg: "Elasticsearch package not found: {{ paths.offline_dir }}/{{ package_globs.es_rpm }}"
-  when: 
-    - inventory_hostname in groups['elasticsearch']
-    - not es_package_check.stat.exists 
-    - package_verification.fail_on_missing
+    msg: "Elasticsearch package not found: {{ paths.offline_dir }}/{{ package_globs.elasticsearch_rpm | default(package_globs.es_rpm) }}"
+  when: inventory_hostname in groups['elasticsearch'] and package_verification.fail_on_missing and (es_package_check.matched | default(0) | int) == 0
   tags: [common, packages, verification, elasticsearch]
 
 - name: Verify Kibana package

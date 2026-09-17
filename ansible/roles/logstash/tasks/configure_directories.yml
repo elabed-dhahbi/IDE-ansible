@@ -21,6 +21,18 @@
   become: yes
   tags: [logstash, directories, logs]
 
+- name: Recursively restore logstash ownership of data and logs
+  file:
+    path: "{{ item }}"
+    owner: "{{ logstash_user }}"
+    group: "{{ logstash_group }}"
+    recurse: yes
+  loop:
+    - "{{ logstash_data_dir }}"
+    - "{{ logstash_logs_dir }}"
+  become: yes
+  tags: [logstash, directories, data, logs, ownership]
+
 - name: Create logstash patterns directory
   file:
     path: "{{ logstash_patterns_dir }}"
@@ -70,9 +82,11 @@
     group: "{{ logstash_group }}"
   loop:
     - { src: "{{ logstash_install_dir }}", dest: "ls_home" }
+    - { src: "{{ logstash_install_dir }}", dest: "logstash_home" }
     - { src: "{{ logstash_install_dir }}/bin", dest: "bin" }
     - { src: "{{ logstash_logs_dir }}", dest: "logs" }
     - { src: "{{ logstash_data_dir }}", dest: "data" }
+    - { src: "{{ logstash_config_dir }}", dest: "setting" }
   become: yes
   tags: [logstash, directories, symlinks]
 
@@ -87,6 +101,16 @@
   become: yes
   tags: [logstash, directories, symlinks]
 
+- name: Create logstash conf.d directory
+  file:
+    path: "{{ logstash_config_dir }}/conf.d"
+    state: directory
+    owner: "{{ logstash_user }}"
+    group: "{{ logstash_group }}"
+    mode: '0755'
+  become: yes
+  tags: [logstash, directories, conf]
+
 - name: Remove existing conf directory if it exists
   file:
     path: "{{ logstash_home }}/conf"
@@ -96,7 +120,7 @@
 
 - name: Create conf symlink
   file:
-    src: "{{ logstash_config_dir }}"
+    src: "{{ logstash_config_dir }}/conf.d"
     dest: "{{ logstash_home }}/conf"
     state: link
     owner: "{{ logstash_user }}"

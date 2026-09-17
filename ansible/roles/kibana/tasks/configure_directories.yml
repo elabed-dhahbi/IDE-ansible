@@ -68,8 +68,9 @@
     group: "{{ kibana_group }}"
   loop:
     - { src: "{{ kibana_install_dir }}", dest: "kb_home" }
+    - { src: "{{ kibana_install_dir }}", dest: "kibana_home" }
     - { src: "{{ kibana_install_dir }}/bin", dest: "bin" }
-    - { src: "/etc/sysconfig/kibana", dest: "sys_conf" }
+    - { src: "{{ kibana_install_dir }}/plugins", dest: "plugins" }
     - { src: "{{ kibana_logs_dir }}", dest: "logs" }
     - { src: "{{ kibana_data_dir }}", dest: "data" }
   become: yes

@@ -51,7 +51,7 @@
 
 - name: Test OpenSearch connection from Dashboards host
   uri:
-    url: "https://{{ hostvars[groups['opensearch'][0]]['ansible_host'] if groups['opensearch'] is defined and groups['opensearch'] | length > 0 else 'localhost' }}:9200"
+    url: "https://{{ hostvars[groups['opensearch'][0]]['ansible_host'] if groups['opensearch'] is defined and groups['opensearch'] | length > 0 else 'localhost' }}:{{ service_ports.opensearch_http | default(9200) }}"
     method: GET
     user: "{{ dashboards_config.opensearch_username }}"
     password: "{{ dashboards_config.opensearch_password }}"
@@ -59,11 +59,10 @@
     validate_certs: no
     status_code: 200
   register: opensearch_health
-  retries: 5
+  retries: 12
   delay: 10
-  until: opensearch_health.status == 200
+  until: opensearch_health.status | default(0) == 200
   become: yes
-  ignore_errors: yes
   tags: [opensearch_dashboards, config, health]
 
 - name: Debug OpenSearch connection result

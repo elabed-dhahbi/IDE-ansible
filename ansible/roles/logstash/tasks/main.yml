@@ -1,27 +1,94 @@
 ---
 # Logstash Main Tasks
 # Installs and configures Logstash for DMC log processing
+# Plugins must run before the pipeline is deployed: logstash.conf uses filter rest.
+
+- name: Require an Elasticsearch host for the ELK stack
+  assert:
+    that:
+      - (groups['elasticsearch'] | default([])) | length > 0
+    fail_msg: >-
+      stack_type=elk but [elasticsearch] is empty in this inventory.
+      Logstash has nowhere to send logs and the ILM policy tasks would fail
+      with "Connection refused". Add the Elasticsearch host to
+      [elasticsearch] (and [kibana]) in the inventory, or install the
+      OpenSearch stack instead with 'make install-dmc-module-o'.
+  when: (stack_type | default('elk')) == 'elk'
+  tags: [logstash, install, user, directories, plugins, config, ilm, service]
 
 - name: Include Logstash installation tasks
-  include_tasks: install_logstash.yml
+  include_tasks:
+    file: install_logstash.yml
+    apply:
+      tags: [logstash, install]
   tags: [logstash, install]
 
 - name: Include Logstash user configuration tasks
-  include_tasks: configure_user.yml
+  include_tasks:
+    file: configure_user.yml
+    apply:
+      tags: [logstash, user]
   tags: [logstash, user]
 
 - name: Include Logstash directory configuration tasks
-  include_tasks: configure_directories.yml
+  include_tasks:
+    file: configure_directories.yml
+    apply:
+      tags: [logstash, directories]
   tags: [logstash, directories]
 
-- name: Include Logstash main configuration tasks
-  include_tasks: configure_logstash.yml
-  tags: [logstash, config]
-
 - name: Include Logstash plugin installation tasks
-  include_tasks: install_plugins.yml
+  include_tasks:
+    file: install_plugins.yml
+    apply:
+      tags: [logstash, plugins]
   tags: [logstash, plugins]
 
+- name: Include Logstash main configuration tasks
+  include_tasks:
+    file: configure_logstash.yml
+    apply:
+      tags: [logstash, config]
+  tags: [logstash, config]
+
+# ILM runs over HTTP against Elasticsearch. Check the port first so a missing
+# or stopped Elasticsearch reports one clear error instead of 12 retries per
+# policy against a refused connection.
+- name: Wait for Elasticsearch HTTP before applying ILM policies
+  wait_for:
+    host: "{{ logstash_config.elasticsearch_hosts[0] | regex_replace('^https?://([^:/]+).*$', '\\1') }}"
+    port: "{{ service_ports.elasticsearch | default(9200) }}"
+    timeout: 120
+    msg: >-
+      Elasticsearch is not listening on
+      {{ logstash_config.elasticsearch_hosts[0] }}.
+      Start Elasticsearch on {{ groups['elasticsearch'][0] }} (the
+      'elasticsearch' tag installs it) before the Logstash ILM policies can be
+      applied.
+  when: (stack_type | default('elk')) == 'elk'
+  tags: [logstash, ilm]
+
+- name: Include Logstash ILM policies on Elasticsearch
+  include_tasks:
+    file: "{{ playbook_dir }}/tasks/ensure_logstash_ilm_policies.yml"
+    apply:
+      tags: [logstash, ilm]
+  vars:
+    es_ilm_url_base: "{{ logstash_config.elasticsearch_hosts[0] }}"
+    es_ilm_user: "{{ logstash_config.elasticsearch_user }}"
+    es_ilm_password: "{{ logstash_config.elasticsearch_password }}"
+  when: (stack_type | default('elk')) == 'elk'
+  tags: [logstash, ilm]
+
+- name: Restart Logstash after ILM alias output is ensured
+  set_fact:
+    logstash_pipeline_changed: true
+  when: (stack_type | default('elk')) == 'elk'
+  tags: [logstash, ilm]
+
 - name: Include Logstash service configuration tasks
-  include_tasks: configure_service.yml
+  include_tasks:
+    file: configure_service.yml
+    apply:
+      tags: [logstash, service]
   tags: [logstash, service]

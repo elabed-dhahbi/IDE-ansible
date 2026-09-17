@@ -9,6 +9,7 @@
     group: "{{ kibana_group }}"
     mode: '0644'
   become: yes
+  register: kibana_yml
   tags: [kibana, config, main]
 
 - name: Create systemd override directory
@@ -28,6 +29,7 @@
     dest: /etc/systemd/system/kibana.service.d/override.conf
     mode: '0644'
   become: yes
+  register: kibana_systemd_override
   tags: [kibana, config, systemd]
 
 - name: Check if kibana systemd service file exists

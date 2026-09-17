@@ -77,6 +77,30 @@
     psql_binary: "{{ psql_final_check.stdout.strip() }}"
   tags: [dmc, database, packages]
 
+# Every SQL task below runs with failed_when: false, so a refused login used to
+# produce a string of green "ok" lines and then one confusing failure on
+# "Create DMC schema when missing". Check the login once, up front.
+- name: Check the DMC database login
+  shell: |
+    PGPASSWORD="{{ dmc_database_password }}" {{ psql_binary }} -U "{{ dmc_database_user }}" -d "{{ dmc_database_name }}" -h "{{ dmc_database_host }}" -p "{{ dmc_database_port }}" -tAc 'SELECT 1'
+  become: yes
+  register: dmc_database_login
+  failed_when: false
+  changed_when: false
+  tags: [dmc, database, ddl, qrtz, dml, migration, schema]
+
+- name: Fail when the DMC database login is refused
+  fail:
+    msg: >-
+      {{ dmc_database_user }}@{{ dmc_database_host }}:{{ dmc_database_port }}/{{ dmc_database_name }}
+      is refused: {{ dmc_database_login.stderr | default('') | trim }}.
+      This role only uses the DMC role; it never creates it. The db_postgres role
+      owns that ('postgres' tag, on {{ groups['postgres'][0] | default('the [postgres] host') }}).
+      Re-run the PostgreSQL play before the DMC play:
+      ansible-playbook -i {{ inventory_file | default('<inventory>') }} site.yml --tags postgres
+  when: dmc_database_login.rc != 0
+  tags: [dmc, database, ddl, qrtz, dml, migration, schema]
+
 - name: Copy DMC database scripts to temporary location
   copy:
     src: "{{ dmc_current_dir }}/db/install/"

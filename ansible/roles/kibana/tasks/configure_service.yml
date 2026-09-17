@@ -1,5 +1,8 @@
 ---
 # Kibana Service Configuration Tasks
+# Do not restart Kibana on every run: Node bootstrap on a box that also
+# runs PostgreSQL and Elasticsearch often exceeds 120s, and a restart
+# kills a process that was already almost listening.
 
 - name: Reload systemd daemon
   systemd:
@@ -7,27 +10,92 @@
   become: yes
   tags: [kibana, service, systemd]
 
+- name: Require Kibana Elasticsearch hosts
+  assert:
+    that:
+      - kibana_config.elasticsearch_hosts is defined
+      - kibana_config.elasticsearch_hosts | length > 0
+    fail_msg: >-
+      kibana_config.elasticsearch_hosts is empty.
+      Add a host to [elasticsearch] in the inventory used by this play.
+  tags: [kibana, service, elasticsearch]
+
+- name: Show Kibana Elasticsearch hosts
+  debug:
+    msg: "Kibana elasticsearch.hosts={{ kibana_config.elasticsearch_hosts }}"
+  tags: [kibana, service, elasticsearch]
+
+- name: Set Elasticsearch wait host for Kibana
+  set_fact:
+    kibana_es_wait_host: "{{ '127.0.0.1' if (kibana_es_ip == ansible_host or kibana_es_ip in ['127.0.0.1', 'localhost']) else kibana_es_ip }}"
+  vars:
+    kibana_es_ip: "{{ kibana_config.elasticsearch_hosts[0] | regex_replace('^https?://([^:/]+).*$', '\\1') }}"
+  tags: [kibana, service, elasticsearch]
+
+- name: Wait for Elasticsearch HTTP before starting Kibana
+  wait_for:
+    host: "{{ kibana_es_wait_host }}"
+    port: "{{ service_ports.elasticsearch | default(9200) }}"
+    timeout: 120
+  tags: [kibana, service, elasticsearch]
+
 - name: Start and enable Kibana service
   systemd:
     name: "{{ kibana_service_name }}"
     state: started
     enabled: yes
   become: yes
+  register: kibana_started
   tags: [kibana, service]
 
-- name: Restart Kibana service to apply configuration changes
+- name: Restart Kibana only when configuration changed on a running service
   systemd:
     name: "{{ kibana_service_name }}"
     state: restarted
   become: yes
+  when:
+    - (kibana_yml.changed | default(false)) or (kibana_systemd_override.changed | default(false))
+    - not (kibana_started.changed | default(false))
   tags: [kibana, service, restart]
 
-- name: Wait for Kibana to be ready after restart
-  wait_for:
-    port: "{{ service_ports.kibana }}"
-    host: "{{ ansible_host }}"
-    delay: 10
-    timeout: 120
+- name: Wait for Kibana HTTP and surface logs on timeout
+  block:
+    - name: Wait for Kibana to listen on localhost
+      wait_for:
+        port: "{{ service_ports.kibana }}"
+        host: "127.0.0.1"
+        delay: 15
+        sleep: 5
+        timeout: 360
+      tags: [kibana, service, wait]
+  rescue:
+    - name: Collect Kibana logs after listen timeout
+      shell: |
+        echo '=== systemctl kibana ==='
+        systemctl status {{ kibana_service_name }} --no-pager -l || true
+        echo '=== journalctl kibana ==='
+        journalctl -u {{ kibana_service_name }} --no-pager -n 80 || true
+        echo '=== /var/log/kibana/kibana.log ==='
+        tail -n 80 /var/log/kibana/kibana.log 2>/dev/null || echo '(missing)'
+        echo '=== {{ kibana_logs_dir }}/kibana.log ==='
+        tail -n 80 {{ kibana_logs_dir }}/kibana.log 2>/dev/null || echo '(missing)'
+        echo '=== listeners 5601/9200 ==='
+        (ss -lntp 2>/dev/null || netstat -lntp 2>/dev/null || true) | grep -E '5601|9200' || echo '(no 5601/9200 listener)'
+      register: kibana_listen_debug
+      become: yes
+      tags: [kibana, service, wait]
+
+    - name: Show Kibana listen timeout diagnostics
+      debug:
+        msg: "{{ kibana_listen_debug.stdout_lines }}"
+      tags: [kibana, service, wait]
+
+    - name: Fail after Kibana listen timeout
+      fail:
+        msg: >-
+          Kibana did not listen on 127.0.0.1:{{ service_ports.kibana }} within 360s.
+          Diagnostics are in the previous task.
+      tags: [kibana, service, wait]
   tags: [kibana, service, wait]
 
 - name: Check Kibana service status
@@ -41,15 +109,3 @@
   debug:
     msg: "Kibana service is {{ kibana_status.status.ActiveState }}"
   tags: [kibana, service, status]
-
-- name: Check Kibana logs for errors
-  shell: |
-    journalctl -u {{ kibana_service_name }} --no-pager -n 20
-  register: kibana_logs
-  become: yes
-  tags: [kibana, service, debug]
-
-- name: Display Kibana logs
-  debug:
-    msg: "{{ kibana_logs.stdout_lines }}"
-  tags: [kibana, service, debug]

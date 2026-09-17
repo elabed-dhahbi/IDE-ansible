@@ -15,13 +15,23 @@
       }}
   tags: [opensearch, user, defaults]
 
-- name: Update OpenSearch user home directory and shell in /etc/passwd
-  lineinfile:
-    path: /etc/passwd
-    regexp: '^opensearch:'
-    line: "opensearch:x:983:983:opensearch user/group:/opt/opensearch:/bin/bash"
-    backup: yes
-  become: yes
+- name: Ensure opensearch user has a unique local UID
+  include_tasks:
+    file: "{{ playbook_dir }}/tasks/ensure_unique_service_user.yml"
+    apply:
+      tags: [opensearch, user, passwd]
+  vars:
+    svc_user: "{{ opensearch_user }}"
+    svc_group: "{{ opensearch_group }}"
+    svc_home: "/opt/opensearch"
+    svc_service_name: "{{ opensearch_service_name }}"
+    svc_chown_paths:
+      - /opt/opensearch
+      - "{{ opensearch_home }}"
+      - "{{ opensearch_config_dir }}"
+      - "{{ opensearch_data_dir }}"
+      - "{{ opensearch_logs_dir }}"
+      - /var/opt/opensearch
   tags: [opensearch, user, passwd]
 
 - name: Create OpenSearch home directory

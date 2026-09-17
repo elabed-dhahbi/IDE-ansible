@@ -1,22 +1,25 @@
 ---
 # Kibana User Configuration Tasks
 
-- name: Change kibana user home directory
-  lineinfile:
-    path: /etc/passwd
-    regexp: '^kibana:.*:/sbin/nologin$'
-    line: 'kibana:x:996:993:kibana:/opt/kibana:/bin/bash'
-    backup: yes
-  become: yes
+- name: Ensure kibana user has a unique local UID
+  include_tasks:
+    file: "{{ playbook_dir }}/tasks/ensure_unique_service_user.yml"
+    apply:
+      tags: [kibana, user, home]
+  vars:
+    svc_user: "{{ kibana_user }}"
+    svc_group: "{{ kibana_group }}"
+    svc_home: "{{ kibana_home }}"
+    svc_service_name: "{{ kibana_service_name }}"
+    svc_chown_paths:
+      - "{{ kibana_home }}"
+      - "{{ kibana_install_dir }}"
+      - "{{ kibana_config_dir }}"
+      - "{{ kibana_data_dir }}"
+      - "{{ kibana_logs_dir }}"
+      - /var/lib/kibana
+      - /var/log/kibana
   tags: [kibana, user, home]
-
-- name: Add kibana user to wheel group
-  user:
-    name: "{{ kibana_user }}"
-    groups: wheel
-    append: yes
-  become: yes
-  tags: [kibana, user, groups]
 
 - name: Create kibana home directory
   file:

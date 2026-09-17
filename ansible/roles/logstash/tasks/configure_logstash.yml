@@ -1,6 +1,16 @@
 ---
 # Logstash Configuration Tasks
 
+- name: Fail if logstash.conf.j2 on the controller is still the stub
+  fail:
+    msg: >-
+      {{ role_path }}/templates/logstash.conf.j2 is the stub
+      (contains "same filter logic as before"). Sync the full template from Cursor.
+  when: lookup('file', role_path ~ '/templates/logstash.conf.j2') is search('same filter logic as before')
+  delegate_to: localhost
+  become: false
+  tags: [logstash, config, main]
+
 - name: Create logstash configuration file
   template:
     src: logstash.conf.j2
@@ -9,6 +19,24 @@
     group: "{{ logstash_group }}"
     mode: '0644'
   become: yes
+  register: logstash_conf_template
+  tags: [logstash, config, main]
+
+- name: Read deployed logstash pipeline
+  slurp:
+    src: "{{ logstash_config_dir }}/conf.d/logstash.conf"
+  register: logstash_conf_deployed
+  become: yes
+  tags: [logstash, config, main]
+
+- name: Fail if deployed pipeline is still the stub or DRS port 8080
+  fail:
+    msg: >-
+      {{ logstash_config_dir }}/conf.d/logstash.conf is not the full DMC pipeline
+      (stub comments or DRS :8080). Sync roles/logstash/templates/logstash.conf.j2 from Cursor.
+  when: >-
+    (logstash_conf_deployed.content | b64decode) is search('same filter logic as before')
+    or (logstash_conf_deployed.content | b64decode) is search(':8080/drs')
   tags: [logstash, config, main]
 
 - name: Create JVM options directory
@@ -33,6 +61,7 @@
     group: "{{ logstash_group }}"
     mode: '0644'
   become: yes
+  register: logstash_jvm_file
   tags: [logstash, config, jvm]
 
 - name: Create logstash.yml configuration
@@ -43,6 +72,7 @@
       log.level: info
       path.data: {{ logstash_data_dir }}
       path.logs: {{ logstash_logs_dir }}
+      path.config: {{ logstash_config_dir }}/conf.d
       pipeline.workers: 2
       pipeline.batch.size: 125
       pipeline.batch.delay: 50
@@ -51,6 +81,25 @@
     group: "{{ logstash_group }}"
     mode: '0644'
   become: yes
+  register: logstash_yml_file
+  tags: [logstash, config, main]
+
+- name: Create Logstash pipelines.yml
+  copy:
+    content: |
+      - pipeline.id: main
+        path.config: "{{ logstash_config_dir }}/conf.d/*.conf"
+    dest: "{{ logstash_config_dir }}/pipelines.yml"
+    owner: "{{ logstash_user }}"
+    group: "{{ logstash_group }}"
+    mode: '0644'
+  become: yes
+  register: logstash_pipelines_yml_file
+  tags: [logstash, config, main]
+
+- name: Remember Logstash config changes for service restart
+  set_fact:
+    logstash_pipeline_changed: "{{ (logstash_conf_template.changed | default(false)) or (logstash_jvm_file.changed | default(false)) or (logstash_yml_file.changed | default(false)) or (logstash_pipelines_yml_file.changed | default(false)) }}"
   tags: [logstash, config, main]
 
 - name: Create systemd override directory

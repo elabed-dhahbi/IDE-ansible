@@ -25,4 +25,12 @@
   include_tasks: configure_service.yml
   tags: [elasticsearch, service]
 
+- name: Include Elasticsearch ILM policies for Logstash
+  include_tasks: "{{ playbook_dir }}/tasks/ensure_logstash_ilm_policies.yml"
+  vars:
+    es_ilm_url_base: "http://127.0.0.1:{{ service_ports.elasticsearch }}"
+    es_ilm_user: "elastic"
+    es_ilm_password: "{{ system_config.service_passwords.elasticsearch | default('elastic') }}"
+  tags: [elasticsearch, ilm]
+
 

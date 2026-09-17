@@ -1,0 +1,10 @@
+---
+# Kept for compatibility. configure_service.yml restarts Logstash directly
+# because include_tasks cannot see these handlers (notify fails the play).
+
+- name: restart logstash
+  systemd:
+    name: "{{ logstash_service_name }}"
+    state: restarted
+  become: yes
+  listen: restart logstash

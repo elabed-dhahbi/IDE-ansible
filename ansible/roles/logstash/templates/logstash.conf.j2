@@ -1,82 +1,153 @@
-# Logstash Configuration Template
-# Supports both ELK and OpenSearch stacks
+# Logstash pipeline for DMC business logs (ELK and OpenSearch)
 
 input {
+    tcp {
+        port => {{ logstash_config.tcp_port }}
+    }
+
+    beats {
+        port => "{{ logstash_config.beats_port }}"
+    }
+
     file {
-        path => "/var/opt/dmc/current/log/DMC-BusinessLog/eir.log*"
-        start_position => "end"
+        path => "{{ logstash_config.dmc_log_base_path }}/eir.log*"
+        start_position => beginning
         type => "eir"
-        tags => "dmc-{{ stack_type }}"
+        tags => "{{ logstash_config.dmc_tag }}"
     }
 
     file {
-        path => "/var/opt/dmc/current/log/DMC-BusinessLog/activity.log"
-        start_position => "end"
+        path => "{{ logstash_config.dmc_log_base_path }}/activity.log"
+        start_position => beginning
         type => "activity"
-        tags => "dmc-{{ stack_type }}"
+        tags => "{{ logstash_config.dmc_tag }}"
     }
 
     file {
-        path => "/var/opt/dmc/current/log/DMC-BusinessLog/add_backend.log"
-        start_position => "end"
+        path => "{{ logstash_config.dmc_log_base_path }}/add_backend.log"
+        start_position => beginning
         type => "add_backend"
-        tags => "dmc-{{ stack_type }}"
+        tags => "{{ logstash_config.dmc_tag }}"
     }
 
     file {
-        path => "/var/opt/dmc/current/log/DMC-BusinessLog/delivered_content.log"
-        start_position => "end"
+        path => "{{ logstash_config.dmc_log_base_path }}/delivered_content.log"
+        start_position => beginning
         type => "delivered_content"
-        tags => "dmc-{{ stack_type }}"
+        tags => "{{ logstash_config.dmc_tag }}"
     }
 
     file {
-        path => "/var/opt/dmc/current/log/DMC-BusinessLog/gui_page_leave.log"
-        start_position => "end"
+        path => "{{ logstash_config.dmc_log_base_path }}/gui_page_leave.log"
+        start_position => beginning
         type => "gui_page_leave"
-        tags => "dmc-{{ stack_type }}"
+        tags => "{{ logstash_config.dmc_tag }}"
     }
 
     file {
-        path => "/var/opt/dmc/current/log/DMC-BusinessLog/profile_association.log"
-        start_position => "end"
+        path => "{{ logstash_config.dmc_log_base_path }}/profile_association.log"
+        start_position => beginning
         type => "profile_association"
-        tags => "dmc-{{ stack_type }}"
+        tags => "{{ logstash_config.dmc_tag }}"
     }
 
     file {
-        path => "/var/opt/dmc/current/log/DMC-BusinessLog/scenario_op_delivered.log"
-        start_position => "end"
+        path => "{{ logstash_config.dmc_log_base_path }}/scenario_op_delivered.log"
+        start_position => beginning
         type => "scenario_op_delivered"
-        tags => "dmc-{{ stack_type }}"
+        tags => "{{ logstash_config.dmc_tag }}"
     }
 
     file {
-        path => "/var/opt/dmc/current/log/DMC-BusinessLog/mobile_binding_change.log"
-        start_position => "end"
+        path => "{{ logstash_config.dmc_log_base_path }}/mobile_binding_change.log"
+        start_position => beginning
         type => "mobile_binding_change"
-        tags => "dmc-{{ stack_type }}"
+        tags => "{{ logstash_config.dmc_tag }}"
     }
 
     file {
-        path => "/var/opt/dmc-statistics/csvexport/logstash/DMC_CSV_export_*.csv"
-        mode => "read"
-        file_completed_action => "log" 
-        file_completed_log_path => "/var/opt/logstash/logs/csvexport.log"
+        path => "{{ logstash_config.csv_export_path }}/DMC_CSV_export_*.csv"
+        start_position => beginning
         type => "csvexport"
         tags => "csvexport"
     }
 }
 
 filter {
-    # ... (same filter logic as before) ...
-    
-    # DRS integration
-    if([IMEI] and !("/var/opt/elkstatistics/csvexport/" in [path]) and !([IMEI] == "")) {
-        if [IMEI] =~ /^(s_.*|S_.*|\d{14,17})$/ {
+    if [type] == "eir" {
+        grok {
+            patterns_dir => "{{ logstash_patterns_dir }}"
+            match => { "message" => '%{TIMESTAMP_DMC:timestamp},(%{DATA:author})?,(%{WORD:channel})?,(%{WORD:providerId})?,(%{WORD:entity})?,(%{WORD:action})?,(%{WORD:IMEIFROM})?,(%{WORD:IMEITO})?,(%{WORD:status})?,(%{WORD:code})?,(%{DATA:clarification})?,(%{DATA:source})?,(%{GREEDYDATA:comments})?' }
+        }
+    }
+
+    if [type] == "activity" {
+        grok {
+            patterns_dir => "{{ logstash_patterns_dir }}"
+            match => { "message" => '"%{TIMESTAMP_DMC:timestamp}",("%{DATA:author}")?,("%{WORD:channel}")?,("%{WORD:providerId}")?,("%{WORD:entity}")?,("%{WORD:user}")?,("%{IP:ip}")?,("%{WORD:site}")?,("%{WORD:action}")?,("%{WORD:MSISDN}")?,("%{DATA:scenario}")?,%{DATA:unknown},("%{DATA:status}")?' }
+        }
+        csv {
+            separator => ","
+            columns => ["timestamp", "author", "channel", "providerID", "entityName", "authorType", "ip", "screen", "action", "input1", "input2", "input3", "result"]
+        }
+    }
+
+    if [type] == "add_backend" {
+        grok {
+            patterns_dir => "{{ logstash_patterns_dir }}"
+            match => { "message" => '"%{TIMESTAMP_DMC:timestamp}",("%{DATA:author}")?,"?%{WORD:channel}?"?,("%{WORD:providerId}")?,"?%{WORD:entity}?"?,"?%{WORD:IMSI}?"?,"?%{WORD:IMEI}?"?,"?%{WORD:MSISDN}?"?,"?%{WORD:source}?"?,"?%{WORD:fename}?"?' }
+        }
+        csv {
+            separator => ","
+            columns => ["timestamp", "author", "channel", "providerID", "entityName", "IMSI", "IMEI", "MSISDN", "source", "feName", "region"]
+        }
+    }
+
+    if [type] == "delivered_content" {
+        grok {
+            patterns_dir => "{{ logstash_patterns_dir }}"
+            match => { "message" => '"%{TIMESTAMP_DMC:timestamp}","?%{DATA:author}?"?,"?%{WORD:channel}?"?,("%{WORD:providerId}")?,"?%{WORD:entity}?"?,"?%{DATA:sessionid}?"?,"?%{WORD:scenariooperationid}?"?,"?%{WORD:contentType}?"?,"?%{WORD:deliveredContentStatus}?"?,"?%{WORD:protocol}?"?,"?%{WORD:MSISDN}?"?,"?%{DATA:IMEI}?"?,"?%{WORD:region}?"?,"?%{DATA:contentname}?"?,"?%{NUMBER:executiontime}?"?,"%{TIMESTAMP_DMC:initiationtime}"' }
+        }
+        csv {
+            separator => ","
+            columns => ["timestamp", "author", "channel", "providerID", "entityName", "sessionID", "scenarioOperationID", "contentType", "deliveredContentStatus", "protocol", "MSISDN", "IMEI", "region", "contentname", "executintime", "initiationtime"]
+        }
+    }
+
+    if [type] == "gui_page_leave" {
+        grok {
+            patterns_dir => "{{ logstash_patterns_dir }}"
+            match => { "message" => '"%{TIMESTAMP_DMC:timestamp}","?%{DATA:author}?"?,"?%{WORD:channel}?"?,("%{NUMBER:providerId}")?,"?%{WORD:entity}?"?,"?%{WORD:MSISDN}?"?,"?%{NUMBER:secondSpent}?"?,"?%{NUMBER:numberHits}?"?' }
+        }
+    }
+
+    if [type] == "profile_association" {
+        grok {
+            patterns_dir => "{{ logstash_patterns_dir }}"
+            match => { "message" => '"%{TIMESTAMP_DMC:timestamp}",("%{DATA:author}")?,"?%{WORD:channel}?"?,("%{WORD:providerId}")?,"?%{WORD:entity}?"?,"?%{WORD:IMSI}?"?,"?%{DATA:IMEI}?"?,"?%{WORD:MSISDN}?"?,"?%{DATA:subscriptionOptions}?"?,"?%{DATA:profileName}?"?' }
+        }
+    }
+
+    if [type] == "scenario_op_delivered" {
+        grok {
+            patterns_dir => "{{ logstash_patterns_dir }}"
+            match => { "message" => '"%{TIMESTAMP_DMC:timestamp}","%{DATA:author}?","%{WORD:channel}?","%{WORD:providerId}","%{WORD:entity}?","%{SESSION_ID:sessionid}?","%{NUMBER:scenarioOperationId}?","%{WORD:operationType}?","%{WORD:scenarioType}?","%{DATA:scenario}","%{WORD:number}?","%{DATA:operation}?","%{WORD:status}?","%{WORD:IMSI}?","%{DATA:IMEI}?","%{WORD:MSISDN}?","%{WORD:protocolPlugin}?","%{WORD:packagesDataSize}?","%{WORD:contentType}?","%{WORD:protocol}?","%{WORD:profileID}?","%{DATA:profileName}?"' }
+        }
+        csv {
+            separator => ","
+            columns => ["timestamp", "author", "channel", "providerID", "entityName", "sessionID", "scenarioOperationID", "operationType", "scenarioType", "scenarioName", "number", "operation", "status", "IMSI", "IMEI", "MSISDN", "protocolPlugin", "packagesDataSize", "contentType", "protocol", "profileID", "profileName", "region"]
+        }
+    }
+
+    if [type] == "mobile_binding_change" {
+        grok {
+            patterns_dir => "{{ logstash_patterns_dir }}"
+            match => { "message" => '"%{TIMESTAMP_DMC:timestamp}","%{DATA:author}?","%{WORD:channel}?","%{WORD:providerid}","%{WORD:entity}?","%{DATA:operationType}?","%{DATA:providerName}?","%{DATA:IMSI}?","%{DATA:IMEI}?","%{DATA:MSISDN}?","%{DATA:previousValue}?","%{DATA:region}?"' }
+        }
+        if [IMEI] =~ /([0-9]{14,17}|S_.*)/ {
             rest {
                 request => {
-                    url => "http://{{ logstash_config.drs_host }}:{{ logstash_config.drs_port }}/drs/characteristics/1_4/Generic/RAW?imei=%{IMEI}"
+                    url => "http://{{ logstash_config.drs_host }}:9292/drs/characteristics/1_4/Generic/marketing?imei=%{IMEI}"
                     method => "get"
                     response_key => "temp"
                 }
@@ -84,42 +155,141 @@ filter {
                 sprintf => true
                 target => "rest"
             }
-            # ... (rest of DRS processing) ...
+            mutate {
+                add_field => {"drs" => "%{[rest][result][devices][0]}"}
+            }
+        }
+        csv {
+            separator => ","
+            columns => ["timestamp", "author", "channel", "providerID", "entityName", "operationType", "providerName", "IMSI", "IMEI", "MSISDN", "previousValue", "region"]
         }
     }
 
-    # Customer field
+    if [type] == "csvexport" {
+        csv {
+           separator => ";"
+           columns => ["MSISDN", "IMSI", "IMEI", "DetectionDate", "Brand", "Model", "2G", "3G", "4G", "5G", "SupportedBearer", "LTEBands", "Bluetooth", "EAPSIM", "Email", "GPS", "IMEIBands", "MMS", "multiSIM", "NFC", "OSName", "OSVendor", "OSVersion", "OTA", "DATA_GPRS", "MMS_GPRS", "WAP_GPRS", "WAP_PUSH", "DeviceType", "VoLTE", "WAPVersion", "WIFI", "providerID", "providerName", "SIMType", "STATUS", "GPRS", "HighestBand"]
+        }
+        if ([IMEI] == "IMEI") {
+        drop {}
+        }
+    }
+
+    if([IMEI] and !("{{ logstash_config.csv_export_path }}" in [path]) and !([IMEI] == "")) {
+        if [IMEI] =~ /([0-9]{14,17}|S_.*|s_.*)/ {
+            rest {
+                request => {
+                    url => "http://{{ logstash_config.drs_host }}:9292/drs/characteristics/1_4/Generic/RAW?imei=%{IMEI}"
+                    method => "get"
+                    response_key => "temp"
+                }
+                json => true
+                sprintf => true
+                target => "rest"
+            }
+            mutate {
+                add_field => {"brand" => "%{[rest][result][devices][0][brand]}"}
+                add_field => {"model" => "%{[rest][result][devices][0][model]}"}
+                add_field => {"oSName" => "%{[rest][result][devices][0][characteristics][SoftwarePlatform.oSName]}"}
+                add_field => {"deviceType" => "%{[rest][result][devices][0][characteristics][HardwareExt.deviceType]}"}
+                add_field => {"radioStack" => "%{[rest][result][devices][0][characteristics][HardwareExt.radioStack]}"}
+                add_field => {"volte" => "%{[rest][result][devices][0][characteristics][GSMA Rule Characteristics.volte]}"}
+                add_field => {"supportedBearers" => "%{[rest][result][devices][0][characteristics][NetworkCharacteristics.supportedBearers]}"}
+                add_field => {"5gBands" => "%{[rest][result][devices][0][characteristics][NetworkCharacteristics.5gBands]}"}
+                add_field => {"nfc" => "%{[rest][result][devices][0][characteristics][GSMA Rule Characteristics.nfc]}"}
+                add_field => {"bluetooth" => "%{[rest][result][devices][0][characteristics][GSMA Rule Characteristics.bluetooth]}"}
+                add_field => {"wlan" => "%{[rest][result][devices][0][characteristics][GSMA Rule Characteristics.wlan]}"}
+                add_field => {"eapSIM" => "%{[rest][result][devices][0][characteristics][NetworkExt.eapSIM]}"}
+                add_field => {"email" => "%{[rest][result][devices][0][characteristics][SoftwarePlatform.email]}"}
+                add_field => {"javaEnabled" => "%{[rest][result][devices][0][characteristics][SoftwarePlatform.javaEnabled]}"}
+                add_field => {"mms" => "%{[rest][result][devices][0][characteristics][MmsCharacteristics.mms]}"}
+                add_field => {"nfc" => "%{[rest][result][devices][0][characteristics][GSMA Rule Characteristics.nfc]}"}
+                add_field => {"wapVersion" => "%{[rest][result][devices][0][characteristics][WapCharacteristics.wapVersion]}"}
+            }
+        }
+    }
+
+    #-------------- Create indices Name --------------------------
+
+    if [type] in ["eir", "activity", "add_backend", "delivered_content", "gui_page_leave", "profile_association", "scenario_op_delivered", "mobile_binding_change", "feedback_loop"] {
+        mutate {
+           add_field => { "[@metadata][index_name]" => "{{ logstash_config.dmc_index_name }}" }
+        }
+
+    } else if [type] == "csvexport" {
+        mutate {
+           add_field => { "[@metadata][index_name]" => "{{ logstash_config.csv_index_name }}" }
+        }
+    }
+
+    mutate { add_field => { "ndate" => "%{timestamp}" } }
+
+    date {
+            match => [ "ndate", "MM/dd/yyyy HH:mm:ss.SSS" ]
+            target => "@timestamp"
+            timezone => "UTC"
+            remove_field => "ndate"
+    }
+
+    date {
+        match => [ "initiationtime" , "MM/dd/yyyy HH:mm:ss.SSS" ]
+        target => "initiationtime"
+        timezone => "UTC"
+    }
+
+    mutate {
+        remove_field => [ "[drs][imei]","[drs][characteristics][wap][version1.x]","[drs][characteristics][wap][version2.x]"]
+    }
+
     mutate {
         add_field => { "customer" => "{{ logstash_config.customer_name }}" }
+    }
+
+    mutate {
+        remove_field => ["[message]"]
+        remove_field => ["[json]"]
+        remove_field => ["[timestamp]"]
+        remove_field => ["[host]"]
+        remove_field => ["[offset]"]
+        remove_field => ["[@version]"]
+        remove_field => ["[rest]"]
+        remove_field => ["[beat]"]
+        remove_field => ["[tags]"]
+        remove_field => ["[input]"]
+        remove_field => ["[log]"]
+        remove_field => ["[ecs]"]
+        remove_field => ["[agent]"]
     }
 }
 
 output {
+    stdout { codec => rubydebug }
+
     {% if stack_type == "elk" %}
-    # ELK Stack Output
+    {# ILM lives on Elasticsearch. Logstash 7 treats 401/403 on GET /_ilm/policy/name
+       as "policy does not exist" and retries forever. Write to the rollover alias. #}
     if [type] == "csvexport" {
         elasticsearch {
             hosts => ["{{ logstash_config.elasticsearch_hosts | join('","') }}"]
-            index => "%{[@metadata][index_name]}-%{+YYYY.MM.dd}"
+            index => "{{ logstash_config.csv_ilm_alias }}"
             user => "{{ logstash_config.elasticsearch_user }}"
             password => "{{ logstash_config.elasticsearch_password }}"
-            ilm_rollover_alias => "{{ logstash_config.csv_ilm_alias }}"
-            ilm_pattern => "{{ logstash_config.csv_ilm_pattern }}"
-            ilm_policy => "{{ logstash_config.csv_ilm_policy }}"
+            sniffing => false
+            manage_template => false
+            ilm_enabled => false
         }
     } else {
         elasticsearch {
             hosts => ["{{ logstash_config.elasticsearch_hosts | join('","') }}"]
-            index => "%{[@metadata][index_name]}-%{+YYYY.MM.dd}"
+            index => "{{ logstash_config.dmc_ilm_alias }}"
             user => "{{ logstash_config.elasticsearch_user }}"
             password => "{{ logstash_config.elasticsearch_password }}"
-            ilm_rollover_alias => "{{ logstash_config.dmc_ilm_alias }}"
-            ilm_pattern => "{{ logstash_config.dmc_ilm_pattern }}"
-            ilm_policy => "{{ logstash_config.dmc_ilm_policy }}"
+            sniffing => false
+            manage_template => false
+            ilm_enabled => false
         }
     }
     {% else %}
-    # OpenSearch Stack Output
     if [type] == "csvexport" {
         opensearch {
             action => "update"

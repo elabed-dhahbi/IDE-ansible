@@ -37,11 +37,15 @@ dmc_node_id: "{{ (dmc.node_id | default(1)) if (dmc is defined) else 1 }}"
 # This ensures that when installing/configuring dmc1 vs dmc2, URLs point to THAT node.
 dmc_node_ip: "{{ hostvars[inventory_hostname].ansible_host | default(ansible_host | default(inventory_hostname)) }}"
 
-# Java memory settings (configurable from values.yaml)
-dmc_java_xms: "{{ (dmc.java.xms | default('8192m')) if (dmc is defined and dmc.java is defined) else '8192m' }}"
-dmc_java_xmx: "{{ (dmc.java.xmx | default('8192m')) if (dmc is defined and dmc.java is defined) else '8192m' }}"
-dmc_java_perm_size: "{{ (dmc.java.perm_size | default('512m')) if (dmc is defined and dmc.java is defined) else '512m' }}"
-dmc_java_max_perm_size: "{{ (dmc.java.max_perm_size | default('512m')) if (dmc is defined and dmc.java is defined) else '512m' }}"
+# Java memory settings.
+# values.yaml carries these under the top-level `dmc_java` mapping, not under
+# `dmc.java`: reading only `dmc.java` meant every value here fell back to the
+# hardcoded default and values.yaml was ignored. `dmc.java` stays as a fallback
+# for inventories that still set it.
+dmc_java_xms: "{{ (dmc_java | default({})).xms | default(((dmc | default({})).java | default({})).xms | default('8192m', true), true) }}"
+dmc_java_xmx: "{{ (dmc_java | default({})).xmx | default(((dmc | default({})).java | default({})).xmx | default('8192m', true), true) }}"
+dmc_java_perm_size: "{{ (dmc_java | default({})).perm_size | default(((dmc | default({})).java | default({})).perm_size | default('512m', true), true) }}"
+dmc_java_max_perm_size: "{{ (dmc_java | default({})).max_perm_size | default(((dmc | default({})).java | default({})).max_perm_size | default('512m', true), true) }}"
 
 # Database configuration
 # If using external database, set database_config.external_host in values.yaml
@@ -104,8 +108,21 @@ dmc_mmsoap_username: "{{ database_config.dmc_user | default('dmc4') }}"
 dmc_mmsoap_password: "{{ database_config.dmc_password | default('dmc4') }}"
 dmc_mmsoap_service_id: 1
 
-dmc_drs_host: "{{ service_ips.drs | default('localhost') }}"
-dmc_drs_port: "{{ service_ports.drs | default(8080) }}"
+# DRS runs on every DMC node, so [drs] holds lpdmc1p and lpdmc2p and each DMC
+# must address its own DRS. service_ips.drs is groups['drs'][0], which pointed
+# DMC2 at DMC1's DRS. Use this node's inventory ansible_host when it runs DRS
+# itself, and only fall back to the first [drs] host otherwise.
+dmc_drs_host: >-
+  {{
+    dmc_node_ip
+    if inventory_hostname in (groups['drs'] | default([]))
+    else (
+      hostvars[groups['drs'][0]]['ansible_host']
+      if (groups['drs'] | default([])) | length > 0
+      else ((service_ips | default({})).drs | default('localhost', true))
+    )
+  }}
+dmc_drs_port: "{{ service_ports.drs_http | default(9292) }}"
 
 dmc_elasticsearch_host: "{{ service_ips.elasticsearch | default('localhost') }}"
 dmc_elasticsearch_port: "{{ service_ports.elasticsearch | default(9200) }}"

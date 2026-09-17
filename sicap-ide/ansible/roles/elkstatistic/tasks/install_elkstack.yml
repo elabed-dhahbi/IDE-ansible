@@ -38,12 +38,16 @@
   tags: [elkstatistic, install, packages]
 
 - name: Extract ELK Statistics package
-  unarchive:
-    src: "{{ elkstack_install_dir }}/{{ elkstack_package.name }}"
-    dest: "{{ elkstack_install_dir }}"
-    owner: "{{ elkstack_user }}"
-    group: "{{ elkstack_group }}"
-    mode: '0755'
+  command:
+    argv:
+      - python3
+      - -m
+      - zipfile
+      - -e
+      - "{{ elkstack_install_dir }}/{{ elkstack_package.name }}"
+      - "{{ elkstack_install_dir }}"
+  args:
+    creates: "{{ elkstack_install_dir }}/{{ elkstack_version }}"
   become: true
   tags: [elkstatistic, install, extract]
 
@@ -58,12 +62,16 @@
   tags: [elkstatistic, install, symlink]
 
 - name: Extract CSV export archive
-  unarchive:
-    src: "{{ elkstack_install_dir }}/current/csv_export.zip"
-    dest: "{{ elkstack_install_dir }}/current/"
-    owner: "{{ elkstack_user }}"
-    group: "{{ elkstack_group }}"
-    mode: '0755'
+  command:
+    argv:
+      - python3
+      - -m
+      - zipfile
+      - -e
+      - "{{ elkstack_install_dir }}/current/csv_export.zip"
+      - "{{ elkstack_install_dir }}/current/"
+  args:
+    creates: "{{ elkstack_install_dir }}/current/csv_export"
   become: true
   tags: [elkstatistic, install, csv_export]
 

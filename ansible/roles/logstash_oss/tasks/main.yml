@@ -49,12 +49,18 @@
   tags: [logstash_oss, plugins, install, config, service, pipeline, user, directories]
 
 - name: Include Logstash OSS installation tasks
-  include_tasks: install_logstash_oss.yml
-  tags: [logstash_oss, install]
+  include_tasks:
+    file: install_logstash_oss.yml
+    apply:
+      tags: [logstash_oss, logstash-oss, install]
+  tags: [logstash_oss, logstash-oss, install]
 
 - name: Include Logstash OSS user configuration tasks
-  include_tasks: configure_user.yml
-  tags: [logstash_oss, user]
+  include_tasks:
+    file: configure_user.yml
+    apply:
+      tags: [logstash_oss, logstash-oss, user]
+  tags: [logstash_oss, logstash-oss, user]
 
 - name: Include Logstash OSS directory configuration tasks
   include_tasks: configure_directories.yml

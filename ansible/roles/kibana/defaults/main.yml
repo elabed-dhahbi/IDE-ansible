@@ -29,8 +29,8 @@ kibana_config:
   server_public_base_url: "http://{{ ansible_host }}:{{ service_ports.kibana }}/dmckibana"
   server_rewrite_base_path: true
   
-  # Elasticsearch configuration
-  elasticsearch_hosts: "{{ groups['elasticsearch'] | map('extract', hostvars, 'ansible_host') | map('regex_replace', '^(.*)$', 'http://\\1:9200') | list }}"
+  # Elasticsearch configuration (empty [elasticsearch] group falls back to this host)
+  elasticsearch_hosts: "{{ (groups['elasticsearch'] | default([]) | map('extract', hostvars, 'ansible_host') | map('regex_replace', '^(.*)$', 'http://\\1:9200') | list) | default(['http://' ~ (ansible_host | default('127.0.0.1')) ~ ':9200'], true) }}"
   elasticsearch_username: "elastic"
   elasticsearch_password: "{{ system_config.service_passwords.elasticsearch | default('elastic') }}"
   
@@ -39,8 +39,11 @@ kibana_config:
   xpack_encryption_key: "{{ kibana_encryption_key }}"
   xpack_encrypted_saved_objects_encryption_key: "{{ kibana_encryption_key }}"
   xpack_reporting_encryption_key: "{{ kibana_encryption_key }}"
+  xpack_reporting_roles_enabled: false
+  xpack_reporting_chromium_disable_sandbox: true
   xpack_security_session_idle_timeout: "1h"
   xpack_security_session_lifespan: "30d"
+  pid_file: "/run/kibana/kibana.pid"
   
   # Logging configuration
   logging_appenders:

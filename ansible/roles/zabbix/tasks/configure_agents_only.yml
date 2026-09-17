@@ -2,6 +2,25 @@
 # Zabbix Agents and Java Gateway Configuration Only
 # This file configures only agents and Java Gateway, no server components
 
+- name: Check if zabbix-agent2 is installed before writing config
+  command: rpm -q zabbix-agent2
+  register: zabbix_agent2_pkg
+  failed_when: false
+  changed_when: false
+  become: true
+  tags: [zabbix, config, agent2]
+
+- name: Ensure /etc/zabbix exists when agent2 is installed
+  file:
+    path: /etc/zabbix
+    state: directory
+    owner: zabbix
+    group: zabbix
+    mode: '0755'
+  become: true
+  when: zabbix_agent2_pkg.rc == 0
+  tags: [zabbix, config, agent2]
+
 - name: Create Zabbix agent2 configuration
   template:
     src: roles/zabbix/templates/zabbix_agent2.conf.j2
@@ -10,7 +29,7 @@
     group: "zabbix"
     mode: '0640'
   become: true
-  when: zabbix.components.agent2 | default(false)
+  when: zabbix_agent2_pkg.rc == 0
   tags: [zabbix, config, agent2]
 
 - name: Create Zabbix Java Gateway configuration

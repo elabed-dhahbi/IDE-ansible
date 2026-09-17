@@ -52,6 +52,19 @@
   become: yes
   tags: [opensearch_dashboards, directories, ownership]
 
+# A UID remap leaves existing children owned by the old UID (now sssd).
+- name: Recursively restore OpenSearch Dashboards ownership of data and logs
+  file:
+    path: "{{ item }}"
+    owner: "{{ dashboards_user }}"
+    group: "{{ dashboards_group }}"
+    recurse: yes
+  loop:
+    - "/var/opt/opensearch-dashboards/data"
+    - "/var/opt/opensearch-dashboards/logs"
+  become: yes
+  tags: [opensearch_dashboards, directories, ownership]
+
 - name: Start OpenSearch Dashboards service after ownership change
   systemd:
     name: "{{ dashboards_service_name }}"

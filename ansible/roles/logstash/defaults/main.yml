@@ -25,18 +25,22 @@ logstash_config:
   # Input configuration
   tcp_port: 5000
   beats_port: 5044
+  dmc_tag: "{{ 'dmc-elasticsearch' if (stack_type | default('elk')) == 'elk' else 'dmc-opensearch' }}"
   
   # DMC log paths
   dmc_log_base_path: "/var/opt/dmc/current/log/DMC-BusinessLog"
   csv_export_path: "/var/opt/elkstatistics/csvexport/logstash"
   
-  # DRS configuration
-  drs_host: "{{ groups['drs'] | first | default('localhost') }}"
-  drs_port: "8080"
-  drs_base_url: "http://{{ groups['drs'] | first | default('localhost') }}:8080/drs"
+  # DRS: inventory ansible_host, HTTP API is always 9292 (not 8080)
+  drs_host: "{{ ansible_host if (inventory_hostname in (groups['drs'] | default([]))) else (hostvars[groups['drs'][0]]['ansible_host'] if (groups['drs'] | default([]) | length > 0) else ansible_host) }}"
+  drs_port: "9292"
+  drs_base_url: "http://{{ ansible_host if (inventory_hostname in (groups['drs'] | default([]))) else (hostvars[groups['drs'][0]]['ansible_host'] if (groups['drs'] | default([]) | length > 0) else ansible_host) }}:9292/drs"
   
-  # Stack-specific configuration
-  elasticsearch_hosts: "{{ groups['elasticsearch'] | map('extract', hostvars, 'ansible_host') | map('regex_replace', '^(.*)$', 'http://\\1:9200') | list }}"
+  # Elasticsearch IP from inventory hosts.ini (ansible_host).
+  # No fallback to [lprep]: pointing Logstash at a host that has no
+  # Elasticsearch only produces "Connection refused" later. The logstash role
+  # asserts this group is populated when stack_type=elk.
+  elasticsearch_hosts: "{{ (groups['elasticsearch'] | default([])) | map('extract', hostvars, 'ansible_host') | map('regex_replace', '^(.*)$', 'http://\\1:' ~ (service_ports.elasticsearch | default(9200))) | list }}"
   elasticsearch_user: "elastic"
   elasticsearch_password: "{{ system_config.service_passwords.elasticsearch | default('elastic') }}"
   

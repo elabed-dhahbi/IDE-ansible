@@ -57,7 +57,7 @@ package_discovery:
   smppc_pattern: "{{ paths.offline_dir }}/{{ package_globs.smppc_rpm }}"
   sls_pattern: "{{ paths.offline_dir }}/{{ package_globs.sls_rpm }}"
   postgres_pattern: "{{ paths.offline_dir }}/{{ package_globs.pgdg_repo_rpm }}"
-  elasticsearch_pattern: "{{ paths.offline_dir }}/{{ package_globs.es_rpm }}"
+  elasticsearch_pattern: "{{ paths.offline_dir }}/{{ package_globs.elasticsearch_rpm | default(package_globs.es_rpm) }}"
   kibana_pattern: "{{ paths.offline_dir }}/{{ package_globs.kibana_rpm }}"
   logstash_pattern: "{{ paths.offline_dir }}/{{ package_globs.logstash_rpm }}"
   jdk8_pattern: "{{ paths.offline_dir }}/{{ package_globs.jdk8_tgz }}"

@@ -1,13 +1,22 @@
 ---
 # OpenSearch Dashboards User Configuration Tasks
 
-- name: Update OpenSearch Dashboards user shell in /etc/passwd
-  lineinfile:
-    path: /etc/passwd
-    regexp: '^opensearch-dashboards:'
-    line: "opensearch-dashboards:x:987:987:opensearch-dashboards user/group:/opt/opensearch-dashboards:/bin/bash"
-    backup: yes
-  become: yes
+- name: Ensure opensearch-dashboards user has a unique local UID
+  include_tasks:
+    file: "{{ playbook_dir }}/tasks/ensure_unique_service_user.yml"
+    apply:
+      tags: [opensearch_dashboards, user, passwd]
+  vars:
+    svc_user: "{{ dashboards_user }}"
+    svc_group: "{{ dashboards_group }}"
+    svc_home: "/opt/opensearch-dashboards"
+    svc_service_name: "{{ dashboards_service_name }}"
+    svc_chown_paths:
+      - /opt/opensearch-dashboards
+      - "{{ dashboards_home }}"
+      - "{{ dashboards_config_dir }}"
+      - "{{ dashboards_data_dir }}"
+      - "{{ dashboards_logs_dir }}"
   tags: [opensearch_dashboards, user, passwd]
 
 - name: Create OpenSearch Dashboards home directory

@@ -1,5 +1,36 @@
 ---
 # Logstash Service Configuration Tasks
+# Do not notify role handlers from include_tasks — Ansible cannot see them.
+# Restart here instead. Do not combine daemon-reload with restart (D-Bus timeout).
+
+- name: Ensure RPM Logstash data and log directories are writable
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ logstash_user }}"
+    group: "{{ logstash_group }}"
+    mode: '0755'
+    recurse: yes
+  loop:
+    - /var/lib/logstash
+    - /var/log/logstash
+  register: logstash_rpm_data_log_dirs
+  become: yes
+  tags: [logstash, service, directories]
+
+- name: Ensure role Logstash data and log directories are writable
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ logstash_user }}"
+    group: "{{ logstash_group }}"
+    recurse: yes
+  loop:
+    - "{{ logstash_data_dir }}"
+    - "{{ logstash_logs_dir }}"
+  register: logstash_role_data_log_dirs
+  become: yes
+  tags: [logstash, service, directories]
 
 - name: Reload systemd daemon
   systemd:
@@ -7,20 +38,43 @@
   become: yes
   tags: [logstash, service, systemd]
 
-- name: Start and enable Logstash service
+- name: Check Logstash service before ensure
   systemd:
     name: "{{ logstash_service_name }}"
-    state: started
+  register: logstash_pre_status
+  become: yes
+  tags: [logstash, service]
+
+- name: Start or restart Logstash service
+  systemd:
+    name: "{{ logstash_service_name }}"
+    state: "{{ 'restarted' if (logstash_pipeline_changed | default(false) or logstash_rpm_data_log_dirs is changed or logstash_role_data_log_dirs is changed or (logstash_pre_status.status.ActiveState | default('unknown')) != 'active') else 'started' }}"
     enabled: yes
   become: yes
   tags: [logstash, service]
 
-- name: Wait for Logstash to be ready
-  wait_for:
-    port: 9600
-    host: "{{ ansible_host }}"
-    delay: 10
-    timeout: 120
+- name: Wait for Logstash HTTP API
+  block:
+    - name: Wait until Logstash listens on the HTTP API
+      wait_for:
+        port: 9600
+        host: 127.0.0.1
+        delay: 15
+        timeout: 180
+  rescue:
+    - name: Collect Logstash journal after HTTP API wait failure
+      command: journalctl -u {{ logstash_service_name }} -n 80 --no-pager
+      register: logstash_journal_on_wait_fail
+      changed_when: false
+      become: yes
+    - name: Fail with Logstash journal excerpt
+      fail:
+        msg: |
+          Logstash did not listen on 127.0.0.1:9600.
+          Typical causes: /var/opt/logstash/data or logs still owned by sssd
+          after UID remap, missing logstash-filter-rest, or pipeline syntax.
+          journalctl -u {{ logstash_service_name }}:
+          {{ logstash_journal_on_wait_fail.stdout | default('(no journal output)') }}
   tags: [logstash, service, wait]
 
 - name: Check Logstash service status
@@ -28,6 +82,12 @@
     name: "{{ logstash_service_name }}"
   register: logstash_status
   become: yes
+  tags: [logstash, service, status]
+
+- name: Fail if Logstash is not active after wait
+  fail:
+    msg: "Logstash ActiveState is {{ logstash_status.status.ActiveState }}, expected active."
+  when: logstash_status.status.ActiveState != 'active'
   tags: [logstash, service, status]
 
 - name: Display Logstash service status

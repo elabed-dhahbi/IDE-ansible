@@ -1,90 +1,143 @@
 #!/bin/bash
 
 # Elasticsearch Password Setup Script
-# This script sets up Elasticsearch passwords using the correct idempotency check
+# This script is invoked by Ansible and must never block forever.
 
-set -e
+set -euo pipefail
 
-ELASTICSEARCH_HOST="192.168.6.131"
-ELASTICSEARCH_PORT="9200"
-NEW_PASSWORD="elastic"
+ELASTICSEARCH_HOST="${ELASTICSEARCH_HOST:-127.0.0.1}"
+ELASTICSEARCH_PORT="${ELASTICSEARCH_PORT:-9200}"
+NEW_PASSWORD="${ELASTICSEARCH_PASSWORD:-elastic}"
+EXPECT_TIMEOUT="${EXPECT_TIMEOUT:-120}"
 
-echo "Checking if Elasticsearch is running..."
+ES_URL="http://$ELASTICSEARCH_HOST:$ELASTICSEARCH_PORT"
 
-# Wait for Elasticsearch to be running first
+echo "=== Elasticsearch Password Bootstrap ==="
+echo "Host: $ELASTICSEARCH_HOST  Port: $ELASTICSEARCH_PORT  URL: $ES_URL"
+
+# --- Step 1: Wait for HTTP to be reachable ---
+echo ""
+echo "--- Step 1: Checking Elasticsearch HTTP reachability ---"
 for i in {1..30}; do
-    if curl -s "http://$ELASTICSEARCH_HOST:$ELASTICSEARCH_PORT/_cluster/health" > /dev/null 2>&1; then
-        echo "✓ Elasticsearch is running"
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" "$ES_URL/_cluster/health" 2>/dev/null || echo "000")
+    if [ "$http_code" = "200" ] || [ "$http_code" = "401" ]; then
+        echo "✓ Elasticsearch HTTP is reachable (code=$http_code)"
         break
     fi
-    echo "Waiting for Elasticsearch to start... (attempt $i/30)"
+    echo "  attempt $i/30 — last_code=$http_code"
     sleep 2
 done
 
-# Check if Elasticsearch is running
-if ! curl -s "http://$ELASTICSEARCH_HOST:$ELASTICSEARCH_PORT/_cluster/health" > /dev/null 2>&1; then
-    echo "✗ Elasticsearch is not running - cannot set passwords"
+http_code=$(curl -s -o /dev/null -w "%{http_code}" "$ES_URL/_cluster/health" 2>/dev/null || echo "000")
+if [ "$http_code" != "200" ] && [ "$http_code" != "401" ]; then
+    echo "✗ Elasticsearch HTTP is not reachable (code=$http_code) — cannot set passwords"
     exit 1
 fi
 
-echo "Checking if Elasticsearch passwords are already set correctly..."
-
-# Use _security/_authenticate to check if elastic:elastic works (proper idempotency check)
-auth_response=$(curl -s -u "elastic:$NEW_PASSWORD" "http://$ELASTICSEARCH_HOST:$ELASTICSEARCH_PORT/_security/_authenticate" 2>/dev/null || echo "")
+# --- Step 2: Check if passwords are already set ---
+echo ""
+echo "--- Step 2: Checking if elastic user can already authenticate ---"
+auth_response=$(curl -sS -u "elastic:$NEW_PASSWORD" "$ES_URL/_security/_authenticate" 2>/dev/null || echo "")
 auth_username=$(echo "$auth_response" | grep -o '"username":"[^"]*"' | cut -d'"' -f4 || echo "")
+echo "  auth response username='$auth_username'"
 
 if [ "$auth_username" = "elastic" ]; then
-    echo "✓ Elasticsearch passwords are already set correctly!"
-    echo "✓ User 'elastic' authenticated successfully"
-    echo "✓ All users already have password: $NEW_PASSWORD"
-    echo ""
-    echo "Test the connection:"
-    echo "curl -u elastic:$NEW_PASSWORD http://$ELASTICSEARCH_HOST:$ELASTICSEARCH_PORT/_cluster/health?pretty"
+    echo "✓ Passwords already set — nothing to do"
     exit 0
 fi
 
-echo "✗ Authentication failed - passwords not set correctly"
-echo "Response: $auth_response"
+echo "  Passwords not set yet, proceeding to bootstrap..."
 
-# If we get here, passwords are not set, so we need to set them up
-echo "Setting up initial passwords using elasticsearch-setup-passwords..."
+# --- Step 3: Run elasticsearch-setup-passwords via expect ---
+echo ""
+echo "--- Step 3: Running elasticsearch-setup-passwords interactive ---"
+echo "  expect timeout=${EXPECT_TIMEOUT}s"
 
 cd /usr/share/elasticsearch
 
-# Use expect to automate the setup-passwords interactive mode
-expect << 'EOF'
-spawn bin/elasticsearch-setup-passwords interactive
-expect "Please confirm that you would like to continue \\\[y/N\\\]"
-send "y\r"
-expect "Enter password for \\\[elastic\\\]:"
-send "elastic\r"
-expect "Reenter password for \\\[elastic\\\]:"
-send "elastic\r"
-expect "Enter password for \\\[apm_system\\\]:"
-send "elastic\r"
-expect "Reenter password for \\\[apm_system\\\]:"
-send "elastic\r"
-expect "Enter password for \\\[kibana_system\\\]:"
-send "elastic\r"
-expect "Reenter password for \\\[kibana_system\\\]:"
-send "elastic\r"
-expect "Enter password for \\\[logstash_system\\\]:"
-send "elastic\r"
-expect "Reenter password for \\\[logstash_system\\\]:"
-send "elastic\r"
-expect "Enter password for \\\[beats_system\\\]:"
-send "elastic\r"
-expect "Reenter password for \\\[beats_system\\\]:"
-send "elastic\r"
-expect "Enter password for \\\[remote_monitoring_user\\\]:"
-send "elastic\r"
-expect "Reenter password for \\\[remote_monitoring_user\\\]:"
-send "elastic\r"
-expect eof
-EOF
+EXPECT_SCRIPT=$(mktemp /tmp/es_pw_expect.XXXXXX)
+cat > "$EXPECT_SCRIPT" <<'EXPECT_END'
+log_user 1
+set timeout [lindex $argv 0]
+set pw      [lindex $argv 1]
 
-echo "Initial password setup completed!"
-echo "All Elasticsearch users now have password: $NEW_PASSWORD"
+puts ">>> spawning elasticsearch-setup-passwords interactive"
+spawn bin/elasticsearch-setup-passwords interactive
+
+puts ">>> waiting for y/N confirmation prompt"
+expect {
+    "Please confirm that you would like to continue*y/N*" {
+        puts ">>> got confirmation prompt, sending y"
+        send "y\r"
+    }
+    timeout {
+        puts ">>> TIMEOUT waiting for confirmation prompt"
+        exit 1
+    }
+    eof {
+        puts ">>> EOF before confirmation prompt"
+        exit 1
+    }
+}
+
+foreach user {elastic apm_system kibana_system logstash_system beats_system remote_monitoring_user} {
+    puts ">>> waiting for Enter password for \[$user\]"
+    expect {
+        "Enter password for*$user*:" {
+            puts ">>> sending password for $user"
+            send "$pw\r"
+        }
+        timeout {
+            puts ">>> TIMEOUT waiting for Enter password for $user"
+            exit 1
+        }
+        eof {
+            puts ">>> EOF waiting for Enter password for $user"
+            exit 1
+        }
+    }
+
+    puts ">>> waiting for Reenter password for \[$user\]"
+    expect {
+        "Reenter password for*$user*:" {
+            puts ">>> sending reenter password for $user"
+            send "$pw\r"
+        }
+        timeout {
+            puts ">>> TIMEOUT waiting for Reenter password for $user"
+            exit 1
+        }
+        eof {
+            puts ">>> EOF waiting for Reenter password for $user"
+            exit 1
+        }
+    }
+}
+
+puts ">>> waiting for eof"
+expect eof
+puts ">>> done"
+EXPECT_END
+
+echo "  Running expect script: $EXPECT_SCRIPT"
+expect "$EXPECT_SCRIPT" "$EXPECT_TIMEOUT" "$NEW_PASSWORD"
+rc=$?
+rm -f "$EXPECT_SCRIPT"
+
 echo ""
-echo "Test the connection:"
-echo "curl -u elastic:$NEW_PASSWORD http://$ELASTICSEARCH_HOST:$ELASTICSEARCH_PORT/_cluster/health?pretty"
+if [ $rc -ne 0 ]; then
+    echo "✗ expect exited with code $rc"
+    exit $rc
+fi
+
+# --- Step 4: Verify ---
+echo "--- Step 4: Verifying passwords were set ---"
+auth_response=$(curl -sS -u "elastic:$NEW_PASSWORD" "$ES_URL/_security/_authenticate" 2>/dev/null || echo "")
+auth_username=$(echo "$auth_response" | grep -o '"username":"[^"]*"' | cut -d'"' -f4 || echo "")
+
+if [ "$auth_username" = "elastic" ]; then
+    echo "✓ Password bootstrap successful — elastic user authenticated"
+else
+    echo "✗ Password bootstrap may have failed — auth check returned: $auth_response"
+    exit 1
+fi

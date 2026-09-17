@@ -123,12 +123,15 @@
   when: createrepo_packages_local.files | length > 0
   tags: [zabbix, install, createrepo]
 
+# Last-resort fallback only. These hosts are offline, so this cannot succeed
+# there; a hard failure here used to abort the host for the rest of the run.
 - name: Install createrepo_c from system repositories (fallback if not in offline dir)
   yum:
     name: createrepo_c
     state: present
   become: yes
   when: createrepo_packages_local.files | length == 0
+  ignore_errors: yes
   tags: [zabbix, install, createrepo]
 
 - name: Find fping package
@@ -179,7 +182,26 @@
   tags: [zabbix, install, final]
 
 - name: Create local YUM repository with all packages (Zabbix + dependencies)
-  command: createrepo {{ paths.offline_dir }}
+  shell: |
+    set -e
+    if command -v createrepo_c >/dev/null 2>&1; then
+      createrepo_c "{{ paths.offline_dir }}"
+    elif command -v createrepo >/dev/null 2>&1; then
+      createrepo "{{ paths.offline_dir }}"
+    else
+      echo "no createrepo_c/createrepo available" >&2
+      exit 1
+    fi
+  args:
+    executable: /bin/bash
+  become: yes
+  failed_when: false
+  tags: [zabbix, install, final]
+
+- name: Check offline repository metadata
+  stat:
+    path: "{{ paths.offline_dir }}/repodata/repomd.xml"
+  register: zabbix_offline_repo_metadata
   become: yes
   tags: [zabbix, install, final]
 
@@ -194,11 +216,23 @@
     dest: /etc/yum.repos.d/offline.repo
     mode: '0644'
   become: yes
+  when: zabbix_offline_repo_metadata.stat.exists
+  tags: [zabbix, install, final]
+
+# Without repodata/repomd.xml this file breaks every later dnf/yum call on the
+# host, including the DMC, MMG and SLS installs.
+- name: Remove offline-repo definition when it has no metadata
+  file:
+    path: /etc/yum.repos.d/offline.repo
+    state: absent
+  become: yes
+  when: not zabbix_offline_repo_metadata.stat.exists
   tags: [zabbix, install, final]
 
 - name: Clean YUM cache
   command: yum clean all
   become: yes
+  failed_when: false
   tags: [zabbix, install, final]
 
 - name: Install nginx-filesystem first (required by php-fpm)

@@ -6,6 +6,9 @@ ENVIRONMENT ?= TT
 INVENTORY ?= ansible/inventories/$(ENVIRONMENT)/hosts.ini
 PLAYBOOK ?= ansible/site.yml
 
+# Host pattern for connectivity checks
+PATTERN ?= all
+
 # Skip phases (set to 1 to skip)
 SKIP_POSTGRES ?= 0
 SKIP_POSTGRES_INSTALL ?= false
@@ -17,7 +20,7 @@ YELLOW :=
 BLUE := 
 NC := 
 
-.PHONY: help prepare install check-inventory clean
+.PHONY: help prepare install ping check-inventory clean
 
 # Default target
 help:
@@ -35,12 +38,16 @@ help:
 	@echo "  $(GREEN)mmg, mmsoap, smppc, zabbix, zabbix-agents, haproxy$(NC)"
 	@echo ""
 	@echo "$(YELLOW)Module Targets:$(NC)"
+	@echo "  $(GREEN)install-elk-stack$(NC)               - Elasticsearch + Logstash + Kibana only"
+	@echo "  $(GREEN)install-opensearch-stack$(NC)        - OpenSearch + Logstash-OSS + Dashboards only"
 	@echo "  $(GREEN)install-dmc-module-e$(NC)            - DMC module with ELK stack"
 	@echo "  $(GREEN)install-dmc-module-o$(NC)            - DMC module with OpenSearch stack"
 	@echo "  $(GREEN)install-sls$(NC)                     - SLS (core service)"
 	@echo "  $(GREEN)install-mmg-module$(NC)             - MMG module (MMG, MMSOAP, SMPPC)"
 	@echo ""
 	@echo "$(YELLOW)Utilities:$(NC)"
+	@echo "  $(GREEN)ping$(NC)                            - Ping all inventory hosts (clean report)"
+	@echo "  $(GREEN)ping PATTERN=dmc1$(NC)               - Ping only one group or host"
 	@echo "  $(GREEN)check-inventory$(NC)                 - Validate inventory and connectivity"
 	@echo "  $(GREEN)list-packages$(NC)                   - List files in offline directory"
 	@echo "  $(GREEN)status$(NC)                          - Show current environment status"
@@ -86,6 +93,12 @@ prepare: sync-packages
 	@echo "$(GREEN)Γ£ô System is ready for installation$(NC)"
 
 # Run the complete DMC installation playbook (removed - merged with tag-based install below)
+
+# Ping every host in the inventory and print a one-line-per-host report
+ping:
+	@echo "$(BLUE)=== Host Connectivity Check ($(ENVIRONMENT)) ===$(NC)"
+	@echo "$(YELLOW)Inventory: $(INVENTORY)  Pattern: $(PATTERN)$(NC)"
+	@INVENTORY="$(INVENTORY)" PATTERN="$(PATTERN)" bash scripts/ping_hosts.sh
 
 # Validate inventory file and host connectivity
 check-inventory:
@@ -239,14 +252,97 @@ install-dmc-module:
 install-dmc-module-e:
 	@echo "$(BLUE)=== DMC Module Installation (ELK Stack) ===$(NC)"
 	@echo "$(YELLOW)Installing DMC + DRS + Logstash on each DMC machine with ELK stack$(NC)"
+	@if ! ansible-inventory -i "$(INVENTORY)" --list 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("elasticsearch",{}).get("hosts") else 1)'; then \
+		echo "$(RED)ERROR: [elasticsearch] is empty in $(INVENTORY).$(NC)"; \
+		echo "The ELK stack needs an Elasticsearch host. Logstash would install,"; \
+		echo "then its ILM tasks would fail with 'Connection refused' on :9200."; \
+		echo "Uncomment a host under [elasticsearch] (and [kibana]), or run:"; \
+		echo "  make install-dmc-module-o    # OpenSearch stack"; \
+		exit 1; \
+	fi
+	@if ! ansible-inventory -i "$(INVENTORY)" --list 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("kibana",{}).get("hosts") else 1)'; then \
+		echo "$(RED)ERROR: [kibana] is empty in $(INVENTORY).$(NC)"; \
+		echo "Add the Kibana host under [kibana] in the inventory, then re-run."; \
+		exit 1; \
+	fi
+	@if grep -q 'Create DMC user (normal mode - using Ansible module)' ansible/roles/db_postgres/tasks/dmc_sql_setup.yml; then \
+		echo "ERROR: ansible/roles/db_postgres/tasks/dmc_sql_setup.yml is STALE."; \
+		echo "That file still has: Create DMC user (normal mode - using Ansible module)"; \
+		echo "That task uses login_host None and fails with: could not translate host name None."; \
+		echo "Copy ansible/roles/db_postgres/tasks/dmc_sql_setup.yml from Cursor."; \
+		echo "It must contain: Create DMC user on inventory postgres host via local psql"; \
+		exit 1; \
+	fi
+	@if ! grep -q 'Create DMC user on inventory postgres host via local psql' ansible/roles/db_postgres/tasks/dmc_sql_setup.yml; then \
+		echo "ERROR: ansible/roles/db_postgres/tasks/dmc_sql_setup.yml is missing the local psql DMC user task."; \
+		echo "Copy that file from Cursor, then re-run make."; \
+		exit 1; \
+	fi
+	@if ! grep -q 'Verify application roles can log in over TCP' ansible/roles/db_postgres/tasks/dmc_sql_setup.yml; then \
+		echo "ERROR: ansible/roles/db_postgres/tasks/dmc_sql_setup.yml has no login verification."; \
+		echo "Without it a missing dmc4 role is only reported later on the DMC node as"; \
+		echo "'password authentication failed for user dmc4'."; \
+		echo "Copy that file from Cursor, then re-run make."; \
+		exit 1; \
+	fi
+	@if grep -q 'Wait for Kibana to be ready after restart' ansible/roles/kibana/tasks/configure_service.yml; then \
+		echo "ERROR: ansible/roles/kibana/tasks/configure_service.yml is STALE."; \
+		echo "That file still waits 120s on ansible_host:5601 after an unconditional restart."; \
+		echo "Copy ansible/roles/kibana/tasks/configure_service.yml from Cursor."; \
+		echo "It must contain: Wait for Kibana to listen on localhost"; \
+		exit 1; \
+	fi
+	@if ! grep -q 'Wait for Kibana to listen on localhost' ansible/roles/kibana/tasks/configure_service.yml; then \
+		echo "ERROR: ansible/roles/kibana/tasks/configure_service.yml is missing the localhost Kibana wait."; \
+		echo "Copy that file from Cursor, then re-run make."; \
+		exit 1; \
+	fi
+	@if grep -q 'setup_passwords.sh' ansible/roles/elasticsearch/tasks/configure_service.yml; then \
+		echo "ERROR: ansible/roles/elasticsearch/tasks/configure_service.yml is STALE."; \
+		echo "It still drives 'elasticsearch-setup-passwords interactive' through expect,"; \
+		echo "which times out on the JLine y/N prompt."; \
+		echo "Copy ansible/roles/elasticsearch/tasks/configure_service.yml from Cursor."; \
+		echo "It must seed bootstrap.password into the Elasticsearch keystore instead."; \
+		exit 1; \
+	fi
+	@if ! grep -q 'bootstrap.password' ansible/roles/elasticsearch/tasks/configure_service.yml; then \
+		echo "ERROR: ansible/roles/elasticsearch/tasks/configure_service.yml has no keystore bootstrap."; \
+		echo "Copy that file from Cursor, then re-run make."; \
+		exit 1; \
+	fi
+	@if ! grep -q 'python3' ansible/roles/elkstatistic/tasks/install_elkstack.yml || ! grep -q 'zipfile' ansible/roles/elkstatistic/tasks/install_elkstack.yml; then \
+		echo "ERROR: ansible/roles/elkstatistic/tasks/install_elkstack.yml is STALE."; \
+		echo "That file still uses unarchive, which needs unzip (not present on lpdmc1p)."; \
+		echo "Copy ansible/roles/elkstatistic/tasks/install_elkstack.yml from Cursor."; \
+		echo "It must extract with: python3 -m zipfile"; \
+		exit 1; \
+	fi
+	@if grep -q "line: 'logstash:x:996:993" ansible/roles/logstash/tasks/configure_user.yml; then \
+		echo "ERROR: ansible/roles/logstash/tasks/configure_user.yml on THIS host is STALE."; \
+		echo "It still has: line: 'logstash:x:996:993:logstash:/opt/logstash:/bin/bash'"; \
+		echo "That file was already fixed in Cursor. Sync these two files onto this machine, then re-run:"; \
+		echo "  ansible/roles/logstash/tasks/configure_user.yml"; \
+		echo "  ansible/tasks/ensure_unique_service_user.yml"; \
+		exit 1; \
+	fi
+	@if ! grep -q 'Ensure logstash user has a unique local UID' ansible/roles/logstash/tasks/configure_user.yml; then \
+		echo "ERROR: ansible/roles/logstash/tasks/configure_user.yml is missing the unique-UID include."; \
+		echo "Sync ansible/roles/logstash/tasks/configure_user.yml from Cursor."; \
+		exit 1; \
+	fi
+	@if [ ! -f ansible/tasks/ensure_unique_service_user.yml ] || ! grep -q 'sed home and shell' ansible/tasks/ensure_unique_service_user.yml; then \
+		echo "ERROR: ansible/tasks/ensure_unique_service_user.yml is missing on THIS host."; \
+		echo "Sync ansible/tasks/ensure_unique_service_user.yml from Cursor, then re-run make."; \
+		exit 1; \
+	fi
 ifeq ($(SKIP_POSTGRES),1)
 	@echo "$(YELLOW)Note: Skipping PostgreSQL installation play (using external database)$(NC)"
-	@ansible-playbook -i "$(INVENTORY)" "$(PLAYBOOK)" --tags "preflight,elasticsearch,kibana,zabbix,zabbix-agents,haproxy,dmc1,dmc2,elkstatistic" --skip-tags "postgres" --extra-vars "stack_type=elk skip_postgres_install=true" --verbose
+	@ansible-playbook -i "$(INVENTORY)" "$(PLAYBOOK)" --tags "preflight,elasticsearch,logstash,kibana,zabbix,zabbix-agents,haproxy,dmc1,dmc2,elkstatistic" --skip-tags "postgres" --extra-vars "stack_type=elk skip_postgres_install=true" --verbose
 else ifeq ($(SKIP_POSTGRES_INSTALL),true)
 	@echo "$(YELLOW)Note: Skipping PostgreSQL installation tasks (using external database)$(NC)"
-	@ansible-playbook -i "$(INVENTORY)" "$(PLAYBOOK)" --tags "preflight,postgres,elasticsearch,kibana,zabbix,zabbix-agents,haproxy,dmc1,dmc2,elkstatistic" --skip-tags "postgres_install" --extra-vars "stack_type=elk skip_postgres_install=true" --verbose
+	@ansible-playbook -i "$(INVENTORY)" "$(PLAYBOOK)" --tags "preflight,postgres,elasticsearch,logstash,kibana,zabbix,zabbix-agents,haproxy,dmc1,dmc2,elkstatistic" --skip-tags "postgres_install" --extra-vars "stack_type=elk skip_postgres_install=true" --verbose
 else
-	@ansible-playbook -i "$(INVENTORY)" "$(PLAYBOOK)" --tags "preflight,postgres,elasticsearch,kibana,zabbix,zabbix-agents,haproxy,dmc1,dmc2,elkstatistic" --extra-vars "stack_type=elk" --verbose
+	@ansible-playbook -i "$(INVENTORY)" "$(PLAYBOOK)" --tags "preflight,postgres,elasticsearch,logstash,kibana,zabbix,zabbix-agents,haproxy,dmc1,dmc2,elkstatistic" --extra-vars "stack_type=elk" --verbose
 endif
 	@echo ""
 	@echo "$(GREEN)Γ£ô DMC + DRS + Logstash installation completed on all DMC machines$(NC)"
@@ -335,16 +431,107 @@ install-mmg-module:
 install-elk-stack:
 	@echo "$(BLUE)=== ELK Stack Installation ===$(NC)"
 	@echo "$(YELLOW)Installing Elasticsearch, Logstash, Kibana$(NC)"
+	@if grep -q "line: 'logstash:x:996:993" ansible/roles/logstash/tasks/configure_user.yml; then \
+		echo "ERROR: ansible/roles/logstash/tasks/configure_user.yml on THIS host is STALE."; \
+		echo "It still has: line: 'logstash:x:996:993:logstash:/opt/logstash:/bin/bash'"; \
+		echo "That file was already fixed in Cursor. Sync these two files onto this machine, then re-run:"; \
+		echo "  ansible/roles/logstash/tasks/configure_user.yml"; \
+		echo "  ansible/tasks/ensure_unique_service_user.yml"; \
+		exit 1; \
+	fi
+	@if ! grep -q 'Ensure logstash user has a unique local UID' ansible/roles/logstash/tasks/configure_user.yml; then \
+		echo "ERROR: ansible/roles/logstash/tasks/configure_user.yml is missing the unique-UID include."; \
+		echo "Sync ansible/roles/logstash/tasks/configure_user.yml from Cursor."; \
+		exit 1; \
+	fi
+	@if [ ! -f ansible/tasks/ensure_unique_service_user.yml ] || ! grep -q 'sed home and shell' ansible/tasks/ensure_unique_service_user.yml; then \
+		echo "ERROR: ansible/tasks/ensure_unique_service_user.yml is missing on THIS host."; \
+		echo "Sync ansible/tasks/ensure_unique_service_user.yml from Cursor, then re-run make."; \
+		exit 1; \
+	fi
+	@if grep -q 'same filter logic as before' ansible/roles/logstash/templates/logstash.conf.j2; then \
+		echo "ERROR: ansible/roles/logstash/templates/logstash.conf.j2 is STALE (stub pipeline)."; \
+		echo "Sync ansible/roles/logstash/templates/logstash.conf.j2 from Cursor."; \
+		exit 1; \
+	fi
+	@if ! grep -q 'tcp {' ansible/roles/logstash/templates/logstash.conf.j2 || ! grep -q ':9292/drs' ansible/roles/logstash/templates/logstash.conf.j2; then \
+		echo "ERROR: logstash.conf.j2 is missing tcp input or DRS port 9292."; \
+		echo "Sync ansible/roles/logstash/templates/logstash.conf.j2 from Cursor."; \
+		exit 1; \
+	fi
+	@if grep -q 'notify: restart logstash' ansible/roles/logstash/tasks/configure_logstash.yml; then \
+		echo "ERROR: ansible/roles/logstash/tasks/configure_logstash.yml still notifies 'restart logstash'."; \
+		echo "include_tasks cannot see role handlers, so the play fails. Sync that file from Cursor."; \
+		exit 1; \
+	fi
+	@if ! grep -q 'files still owned by sssd' ansible/tasks/ensure_unique_service_user.yml; then \
+		echo "ERROR: ansible/tasks/ensure_unique_service_user.yml is missing sssd leftover reclaim."; \
+		echo "After UID remap, /var/opt/logstash/data/queue stays owned by sssd. Sync that file from Cursor."; \
+		exit 1; \
+	fi
+	@if [ ! -f ansible/tasks/ensure_logstash_ilm_policies.yml ] || ! grep -q 'dmc-logs_history' ansible/tasks/ensure_logstash_ilm_policies.yml; then \
+		echo "ERROR: ansible/tasks/ensure_logstash_ilm_policies.yml is missing."; \
+		echo "Logstash requires ILM policies dmc-logs_history and csvexport_history. Sync that file from Cursor."; \
+		exit 1; \
+	fi
+	@if ! grep -q 'ilm_enabled => false' ansible/roles/logstash/templates/logstash.conf.j2; then \
+		echo "ERROR: logstash.conf.j2 still lets Logstash manage ILM (custom ilm_policy)."; \
+		echo "That reports 'policy does not exist' even when Elasticsearch has the policy. Sync the template from Cursor."; \
+		exit 1; \
+	fi
 	@ansible-playbook -i "$(INVENTORY)" "$(PLAYBOOK)" --tags "elasticsearch,logstash,kibana" --extra-vars "stack_type=elk" --verbose
 	@echo ""
-	@echo "$(GREEN)Γ£ô ELK stack installation completed$(NC)"
+	@echo "$(GREEN)ELK stack installation completed$(NC)"
 
 install-opensearch-stack:
 	@echo "$(BLUE)=== OpenSearch Stack Installation ===$(NC)"
 	@echo "$(YELLOW)Installing OpenSearch, Logstash-OSS, OpenSearch-Dashboards$(NC)"
-	@ansible-playbook -i "$(INVENTORY)" "$(PLAYBOOK)" --tags "opensearch,logstash-oss,opensearch_dashboards" --extra-vars "stack_type=opensearch" --verbose
+	@if grep -q "opensearch:x:983:983" ansible/roles/opensearch/tasks/configure_user.yml; then \
+		echo "ERROR: ansible/roles/opensearch/tasks/configure_user.yml is STALE (hardcoded UID 983:983)."; \
+		echo "Copy configure_user.yml from Cursor."; \
+		exit 1; \
+	fi
+	@if grep -q "logstash:x:982:982" ansible/roles/logstash_oss/tasks/configure_user.yml; then \
+		echo "ERROR: ansible/roles/logstash_oss/tasks/configure_user.yml is STALE (hardcoded UID 982:982)."; \
+		echo "Copy configure_user.yml from Cursor."; \
+		exit 1; \
+	fi
+	@if ! grep -q 'sed home and shell' ansible/tasks/ensure_unique_service_user.yml; then \
+		echo "ERROR: ansible/tasks/ensure_unique_service_user.yml is missing the sed home/shell task."; \
+		echo "Copy that file from Cursor, then re-run make."; \
+		exit 1; \
+	fi
+	@if ! grep -q 'files still owned by sssd' ansible/tasks/ensure_unique_service_user.yml; then \
+		echo "ERROR: ansible/tasks/ensure_unique_service_user.yml is missing sssd leftover reclaim."; \
+		echo "After UID remap, data/log children stay owned by sssd. Sync that file from Cursor."; \
+		exit 1; \
+	fi
+	@if grep -q 'Fail when offline pack is present but lacks' ansible/roles/logstash_oss/tasks/install_plugins.yml; then \
+		echo "ERROR: ansible/roles/logstash_oss/tasks/install_plugins.yml is STALE."; \
+		echo "Copy that file from Cursor (must contain: manual file:// flow)."; \
+		exit 1; \
+	fi
+	@if grep -q 'notify: restart logstash-oss' ansible/roles/logstash_oss/tasks/configure_pipeline.yml; then \
+		echo "ERROR: ansible/roles/logstash_oss/tasks/configure_pipeline.yml still notifies 'restart logstash-oss'."; \
+		echo "include_tasks cannot see role handlers, so the play fails. Sync that file from Cursor."; \
+		exit 1; \
+	fi
+	@if ! grep -q 'Remove leftover x-pack directory' ansible/roles/logstash_oss/tasks/install_logstash_oss.yml; then \
+		echo "ERROR: ansible/roles/logstash_oss/tasks/install_logstash_oss.yml is missing the x-pack cleanup."; \
+		echo "A leftover /usr/share/logstash/x-pack makes logstash-oss fail with:"; \
+		echo "  (LoadError) no such file to load -- x-pack/logstash_registry"; \
+		echo "Sync that file from Cursor, then re-run make."; \
+		exit 1; \
+	fi
+	@if ! grep -q 'Environment=OSS=true' ansible/roles/logstash_oss/tasks/configure_logstash_oss.yml; then \
+		echo "ERROR: ansible/roles/logstash_oss/tasks/configure_logstash_oss.yml is missing Environment=OSS=true."; \
+		echo "Without it logstash-core loads x-pack whenever that directory exists."; \
+		echo "Sync that file from Cursor, then re-run make."; \
+		exit 1; \
+	fi
+	@ansible-playbook -i "$(INVENTORY)" "$(PLAYBOOK)" --tags "opensearch,logstash-oss,logstash_oss,opensearch_dashboards" --extra-vars "stack_type=opensearch" --verbose
 	@echo ""
-	@echo "$(GREEN)Γ£ô OpenSearch stack installation completed$(NC)"
+	@echo "$(GREEN)OpenSearch stack installation completed$(NC)"
 
 # Complete installation workflows
 install-complete-elk: install-dmc-module-e install-sls install-mmg-module

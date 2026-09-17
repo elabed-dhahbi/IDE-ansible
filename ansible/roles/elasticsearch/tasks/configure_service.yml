@@ -24,81 +24,134 @@
 - name: Wait for Elasticsearch to be ready
   wait_for:
     port: "{{ service_ports.elasticsearch }}"
-    host: "{{ ansible_host }}"
+    host: "127.0.0.1"
     delay: 10
     timeout: 300
   ignore_errors: yes
-  when: elasticsearch_status.status.ActiveState != "active"
   tags: [elasticsearch, service, wait]
 
-- name: Copy password setup script
-  copy:
-    src: setup_passwords.sh
-    dest: /tmp/setup_passwords.sh
-    mode: '0755'
-  become: yes
+- name: Check whether Elasticsearch password bootstrap is already complete
+  uri:
+    url: "http://127.0.0.1:{{ service_ports.elasticsearch }}/_security/_authenticate"
+    method: GET
+    user: "elastic"
+    password: "{{ system_config.service_passwords.elasticsearch | default('elastic') }}"
+    force_basic_auth: yes
+    status_code: [200, 401]
+  register: elasticsearch_password_auth
+  failed_when: false
   tags: [elasticsearch, service, passwords]
 
-- name: Install expect package
-  yum:
-    name: expect
-    state: present
-  become: yes
-  tags: [elasticsearch, service, passwords]
-
-- name: Set up Elasticsearch passwords using custom script
-  shell: |
-    /tmp/setup_passwords.sh
-  become: yes
-  register: password_setup
-  tags: [elasticsearch, service, passwords]
-
-- name: Display password setup output
+- name: Show Elasticsearch password bootstrap state
   debug:
-    msg: "{{ password_setup.stdout_lines }}"
+    msg: >-
+      Elasticsearch password bootstrap already complete={{ elasticsearch_password_auth.status == 200 }}
   tags: [elasticsearch, service, passwords]
 
-- name: Check if passwords were actually changed (restart needed)
-  set_fact:
-    passwords_changed: "{{ password_setup.rc == 0 and 'Setting up initial passwords' in password_setup.stdout }}"
+# `elasticsearch-setup-passwords interactive` drives a JLine terminal: under a
+# pty its prompts arrive as terminal control sequences, so driving it with
+# expect times out waiting for text that never appears literally. Bootstrap
+# without a terminal instead - seed bootstrap.password in the keystore, restart
+# once, then set the remaining reserved users over the REST API.
+- name: Seed the elastic bootstrap password in the Elasticsearch keystore
+  shell: |
+    set -euo pipefail
+    if [ ! -f "${ES_PATH_CONF}/elasticsearch.keystore" ]; then
+      bin/elasticsearch-keystore create
+    fi
+    printf '%s' "{{ system_config.service_passwords.elasticsearch | default('elastic') }}" \
+      | bin/elasticsearch-keystore add -x -f bootstrap.password
+  args:
+    chdir: /usr/share/elasticsearch
+    executable: /bin/bash
+  environment:
+    ES_PATH_CONF: "{{ elasticsearch_config_dir }}"
+  become: yes
+  when: elasticsearch_password_auth.status != 200
   tags: [elasticsearch, service, passwords]
 
-- name: Restart Elasticsearch only if passwords were changed
+- name: Restore Elasticsearch keystore ownership
+  file:
+    path: "{{ elasticsearch_config_dir }}/elasticsearch.keystore"
+    owner: root
+    group: "{{ elasticsearch_group }}"
+    mode: '0660'
+  become: yes
+  when: elasticsearch_password_auth.status != 200
+  tags: [elasticsearch, service, passwords]
+
+# bootstrap.password is only read at startup, and only applies while the
+# reserved users have no password stored in the security index.
+- name: Restart Elasticsearch to apply the bootstrap password
   systemd:
     name: "{{ elasticsearch_service_name }}"
     state: restarted
   become: yes
-  when: passwords_changed
-  tags: [elasticsearch, service, restart]
+  when: elasticsearch_password_auth.status != 200
+  tags: [elasticsearch, service, passwords, restart]
 
-- name: Wait for Elasticsearch to be ready after restart
+- name: Wait for Elasticsearch to listen after the bootstrap restart
   wait_for:
     port: "{{ service_ports.elasticsearch }}"
-    host: "{{ ansible_host }}"
+    host: "127.0.0.1"
     delay: 10
-    timeout: 120
-  when: passwords_changed
-  tags: [elasticsearch, service, wait]
+    timeout: 300
+  when: elasticsearch_password_auth.status != 200
+  tags: [elasticsearch, service, passwords, wait]
 
-- name: Clean up password setup script
-  file:
-    path: /tmp/setup_passwords.sh
-    state: absent
-  become: yes
+- name: Wait until the elastic user authenticates
+  uri:
+    url: "http://127.0.0.1:{{ service_ports.elasticsearch }}/_security/_authenticate"
+    method: GET
+    user: "elastic"
+    password: "{{ system_config.service_passwords.elasticsearch | default('elastic') }}"
+    force_basic_auth: yes
+    status_code: 200
+  register: elasticsearch_elastic_auth
+  retries: 30
+  delay: 5
+  until: elasticsearch_elastic_auth.status | default(0) == 200
+  when: elasticsearch_password_auth.status != 200
+  tags: [elasticsearch, service, passwords]
+
+- name: Set passwords for the remaining reserved users
+  uri:
+    url: "http://127.0.0.1:{{ service_ports.elasticsearch }}/_security/user/{{ item }}/_password"
+    method: PUT
+    user: "elastic"
+    password: "{{ system_config.service_passwords.elasticsearch | default('elastic') }}"
+    force_basic_auth: yes
+    body_format: json
+    body:
+      password: "{{ system_config.service_passwords.elasticsearch | default('elastic') }}"
+    status_code: 200
+  loop:
+    - kibana_system
+    - logstash_system
+    - beats_system
+    - apm_system
+    - remote_monitoring_user
+  when: elasticsearch_password_auth.status != 200
+  tags: [elasticsearch, service, passwords]
+
+- name: Mark Elasticsearch passwords as bootstrapped
+  set_fact:
+    passwords_changed: "{{ elasticsearch_password_auth.status != 200 }}"
   tags: [elasticsearch, service, passwords]
 
 - name: Check Elasticsearch cluster health
   uri:
-    url: "http://{{ ansible_host }}:{{ service_ports.elasticsearch }}/_cluster/health"
+    url: "http://127.0.0.1:{{ service_ports.elasticsearch }}/_cluster/health"
     method: GET
     user: "elastic"
-    password: "elastic"
+    password: "{{ system_config.service_passwords.elasticsearch | default('elastic') }}"
+    force_basic_auth: yes
   register: elasticsearch_health
   tags: [elasticsearch, service, health]
 
 - name: Display Elasticsearch status
   debug:
     msg:
-      - "Elasticsearch is running on {{ ansible_host }}:{{ service_ports.elasticsearch }}"
+      - "Elasticsearch is running on 127.0.0.1:{{ service_ports.elasticsearch }}"
       - "Cluster status: {{ elasticsearch_health.json.status | default('unknown') }}"
   tags: [elasticsearch, service, status]

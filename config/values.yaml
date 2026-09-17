@@ -221,7 +221,8 @@ service_ports:
   # SICAP Application Ports
   dmc_http: 8080
   dmc_https: 8443
-  drs_http: 50453
+  # DRS serves its HTTP API on 9292 (roles/drs writes server.port from drs_http_port).
+  drs_http: 9292
   drs_https: 50454
   mmg_http: 50434
   mmg_https: 50435

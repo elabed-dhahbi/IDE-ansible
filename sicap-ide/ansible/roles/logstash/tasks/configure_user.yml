@@ -1,22 +1,26 @@
 ---
 # Logstash User Configuration Tasks
 
-- name: Change logstash user home directory
-  lineinfile:
-    path: /etc/passwd
-    regexp: '^logstash:.*:/sbin/nologin$'
-    line: 'logstash:x:996:993:logstash:/opt/logstash:/bin/bash'
-    backup: yes
-  become: yes
+- name: Ensure logstash user has a unique local UID
+  include_tasks:
+    file: "{{ playbook_dir }}/tasks/ensure_unique_service_user.yml"
+    apply:
+      tags: [logstash, user, home]
+  vars:
+    svc_user: "{{ logstash_user }}"
+    svc_group: "{{ logstash_group }}"
+    svc_home: "{{ logstash_home }}"
+    svc_service_name: "{{ logstash_service_name }}"
+    svc_chown_paths:
+      - "{{ logstash_home }}"
+      - "{{ logstash_install_dir }}"
+      - "{{ logstash_config_dir }}"
+      - "{{ logstash_data_dir }}"
+      - "{{ logstash_logs_dir }}"
+      - "{{ logstash_patterns_dir }}"
+      - /var/lib/logstash
+      - /var/log/logstash
   tags: [logstash, user, home]
-
-- name: Add logstash user to wheel group
-  user:
-    name: "{{ logstash_user }}"
-    groups: wheel
-    append: yes
-  become: yes
-  tags: [logstash, user, groups]
 
 - name: Create logstash home directory
   file:

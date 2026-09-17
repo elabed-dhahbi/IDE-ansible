@@ -1,0 +1,115 @@
+---
+# ILM is managed on Elasticsearch. Logstash only writes to the rollover aliases.
+# Required vars: es_ilm_url_base, es_ilm_user, es_ilm_password
+
+- name: Put Logstash ILM policies on Elasticsearch
+  uri:
+    url: "{{ es_ilm_url_base }}/_ilm/policy/{{ item.name }}"
+    method: PUT
+    user: "{{ es_ilm_user }}"
+    password: "{{ es_ilm_password }}"
+    force_basic_auth: yes
+    status_code: [200, 201]
+    body_format: json
+    headers:
+      Content-Type: application/json
+    body:
+      policy:
+        phases:
+          hot:
+            min_age: "0ms"
+            actions:
+              rollover:
+                max_age: "{{ item.rollover_max_age }}"
+                max_size: "{{ item.rollover_max_size }}"
+          delete:
+            min_age: "{{ item.delete_min_age }}"
+            actions:
+              delete: {}
+  loop:
+    - name: dmc-logs_history
+      rollover_max_age: "1d"
+      rollover_max_size: "50gb"
+      delete_min_age: "30d"
+    - name: csvexport_history
+      rollover_max_age: "1d"
+      rollover_max_size: "50gb"
+      delete_min_age: "90d"
+  register: es_ilm_put
+  retries: 12
+  delay: 5
+  until: es_ilm_put.status | default(0) in [200, 201]
+
+- name: Verify Logstash ILM policies exist
+  uri:
+    url: "{{ es_ilm_url_base }}/_ilm/policy/{{ item }}"
+    method: GET
+    user: "{{ es_ilm_user }}"
+    password: "{{ es_ilm_password }}"
+    force_basic_auth: yes
+    status_code: 200
+  loop:
+    - dmc-logs_history
+    - csvexport_history
+
+- name: Put index templates that attach ILM on rollover
+  uri:
+    url: "{{ es_ilm_url_base }}/_template/{{ item.template }}"
+    method: PUT
+    user: "{{ es_ilm_user }}"
+    password: "{{ es_ilm_password }}"
+    force_basic_auth: yes
+    status_code: [200, 201]
+    body_format: json
+    headers:
+      Content-Type: application/json
+    body:
+      index_patterns: ["{{ item.pattern }}"]
+      order: 200
+      settings:
+        number_of_shards: 1
+        number_of_replicas: 0
+        index.lifecycle.name: "{{ item.policy }}"
+        index.lifecycle.rollover_alias: "{{ item.alias }}"
+  loop:
+    - template: dmc-logs_template
+      pattern: "dmc-logs-*"
+      policy: dmc-logs_history
+      alias: dmc-logs
+    - template: csvexport_template
+      pattern: "csvexport-*"
+      policy: csvexport_history
+      alias: csvexport
+
+- name: Check Logstash rollover aliases
+  uri:
+    url: "{{ es_ilm_url_base }}/_alias/{{ item }}"
+    method: GET
+    user: "{{ es_ilm_user }}"
+    password: "{{ es_ilm_password }}"
+    force_basic_auth: yes
+    status_code: [200, 404]
+  loop:
+    - dmc-logs
+    - csvexport
+  register: es_ilm_alias_check
+
+- name: Create bootstrap write indices when rollover alias is missing
+  uri:
+    url: "{{ es_ilm_url_base }}/%3C{{ item.item }}-%7Bnow%2Fd%7D-000001%3E"
+    method: PUT
+    user: "{{ es_ilm_user }}"
+    password: "{{ es_ilm_password }}"
+    force_basic_auth: yes
+    status_code: [200, 201]
+    body_format: json
+    headers:
+      Content-Type: application/json
+    # Ansible does not template dictionary keys, so the alias name has to come
+    # from one expression that builds the whole body. Written as a mapping key
+    # it reaches Elasticsearch as the literal string "{{ item.item }}".
+    body: "{{ {'aliases': {item.item: {'is_write_index': true}}} }}"
+  loop: "{{ es_ilm_alias_check.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.status | default(0) == 404

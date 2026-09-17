@@ -65,6 +65,7 @@
     group: "{{ logstash_oss_group }}"
     mode: '0644'
   become: yes
+  register: logstash_oss_yml_file
   tags: [logstash_oss, config, main]
 
 # RPM pipelines.yml wins over path.config when it defines a pipeline.
@@ -92,6 +93,9 @@
   copy:
     content: |
       [Service]
+      # Keeps logstash-core on the OSS code path even if an x-pack directory
+      # reappears under {{ logstash_oss_install_dir }} (ELK stack RPM).
+      Environment=OSS=true
       LimitMEMLOCK={{ logstash_oss_system.memlock_limit }}
       LimitNOFILE={{ logstash_oss_system.nofile_limit }}
       TimeoutStartSec={{ logstash_oss_systemd_timeout_start_sec }}
@@ -99,4 +103,12 @@
     dest: "/etc/systemd/system/{{ logstash_oss_service_name }}.service.d/override.conf"
     mode: '0644'
   become: yes
+  register: logstash_oss_override_file
   tags: [logstash_oss, config, systemd]
+
+- name: Remember Logstash OSS settings changes for service restart
+  set_fact:
+    logstash_oss_config_changed: >-
+      {{ (logstash_oss_yml_file.changed | default(false))
+         or (logstash_oss_override_file.changed | default(false)) }}
+  tags: [logstash_oss, config, main, systemd]

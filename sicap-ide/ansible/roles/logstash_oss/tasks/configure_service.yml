@@ -1,26 +1,90 @@
 ---
 # Logstash OSS Service Configuration Tasks
 
+# RPM defaults are /var/lib/logstash and /var/log/logstash (log4j2.properties).
+# Role path.data/path.logs may be /var/opt/logstash/{data,logs}. Both must be
+# writable by User=logstash or the process exits before the HTTP API binds.
+- name: Ensure RPM Logstash data and log directories are writable
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ logstash_oss_user }}"
+    group: "{{ logstash_oss_group }}"
+    mode: '0755'
+    recurse: yes
+  loop:
+    - /var/lib/logstash
+    - /var/log/logstash
+  register: logstash_oss_rpm_data_log_dirs
+  become: yes
+  tags: [logstash_oss, service, directories]
+
+- name: Ensure role Logstash data and log directories are writable
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ logstash_oss_user }}"
+    group: "{{ logstash_oss_group }}"
+    recurse: yes
+  loop:
+    - "{{ logstash_oss_data_dir }}"
+    - "{{ logstash_oss_logs_dir }}"
+  register: logstash_oss_role_data_log_dirs
+  become: yes
+  tags: [logstash_oss, service, directories]
+
 - name: Reload systemd daemon
   systemd:
     daemon_reload: yes
   become: yes
   tags: [logstash_oss, service, systemd]
 
+- name: Check Logstash OSS service before ensure
+  systemd:
+    name: "{{ logstash_oss_service_name }}"
+  register: logstash_oss_pre_status
+  become: yes
+  tags: [logstash_oss, service]
+
+# A crash loop trips StartLimitBurst, after which systemd refuses to start the unit
+# ("start request repeated too quickly") even once the cause is fixed.
+- name: Clear failed state before starting Logstash OSS
+  command: systemctl reset-failed {{ logstash_oss_service_name }}
+  failed_when: false
+  changed_when: false
+  become: yes
+  tags: [logstash_oss, service]
+
+# Crash-looping units already look "started"; restart when config or ownership changed.
 - name: Start and enable Logstash OSS service
   systemd:
     name: "{{ logstash_oss_service_name }}"
-    state: started
+    state: "{{ 'restarted' if (logstash_oss_pipeline_changed | default(false) or logstash_oss_config_changed | default(false) or logstash_oss_rpm_data_log_dirs is changed or logstash_oss_role_data_log_dirs is changed or (logstash_oss_pre_status.status.ActiveState | default('unknown')) != 'active') else 'started' }}"
     enabled: yes
   become: yes
   tags: [logstash_oss, service]
 
-- name: Wait for Logstash OSS to be ready
-  wait_for:
-    port: 9600
-    host: "{{ ansible_host }}"
-    delay: 10
-    timeout: 120
+- name: Wait for Logstash OSS HTTP API
+  block:
+    - name: Wait until Logstash OSS listens on the HTTP API
+      wait_for:
+        port: "{{ logstash_oss_config.http_port | default(9600) }}"
+        host: 127.0.0.1
+        delay: 15
+        timeout: 180
+  rescue:
+    - name: Collect Logstash journal after HTTP API wait failure
+      command: journalctl -u {{ logstash_oss_service_name }} -n 80 --no-pager
+      register: logstash_oss_journal_on_wait_fail
+      changed_when: false
+      become: yes
+    - name: Fail with Logstash journal excerpt
+      fail:
+        msg: |
+          Logstash did not listen on 127.0.0.1:{{ logstash_oss_config.http_port | default(9600) }}.
+          Typical causes: /var/lib/logstash or /var/log/logstash not writable by {{ logstash_oss_user }}.
+          journalctl -u {{ logstash_oss_service_name }}:
+          {{ logstash_oss_journal_on_wait_fail.stdout | default('(no journal output)') }}
   tags: [logstash_oss, service, wait]
 
 - name: Check Logstash OSS service status

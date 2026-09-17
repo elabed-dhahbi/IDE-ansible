@@ -1,13 +1,37 @@
 ---
 # OpenSearch User Configuration Tasks
 
-- name: Update OpenSearch user home directory and shell in /etc/passwd
-  lineinfile:
-    path: /etc/passwd
-    regexp: '^opensearch:'
-    line: "opensearch:x:983:983:opensearch user/group:/opt/opensearch:/bin/bash"
-    backup: yes
-  become: yes
+- name: Set default OpenSearch connection settings for user profile helpers
+  set_fact:
+    opensearch_config: >-
+      {{
+        opensearch_config | default({}) | combine(
+          {
+            'http_port': (opensearch_config.http_port | default(9200)),
+            'admin_password': (opensearch_config.admin_password | default(service_passwords.opensearch | default('')))
+          },
+          recursive=True
+        )
+      }}
+  tags: [opensearch, user, defaults]
+
+- name: Ensure opensearch user has a unique local UID
+  include_tasks:
+    file: "{{ playbook_dir }}/tasks/ensure_unique_service_user.yml"
+    apply:
+      tags: [opensearch, user, passwd]
+  vars:
+    svc_user: "{{ opensearch_user }}"
+    svc_group: "{{ opensearch_group }}"
+    svc_home: "/opt/opensearch"
+    svc_service_name: "{{ opensearch_service_name }}"
+    svc_chown_paths:
+      - /opt/opensearch
+      - "{{ opensearch_home }}"
+      - "{{ opensearch_config_dir }}"
+      - "{{ opensearch_data_dir }}"
+      - "{{ opensearch_logs_dir }}"
+      - /var/opt/opensearch
   tags: [opensearch, user, passwd]
 
 - name: Create OpenSearch home directory
@@ -127,7 +151,3 @@
     append: yes
   become: yes
   tags: [opensearch, user, groups]
-
-
-
-

@@ -12,6 +12,37 @@
       - "Available Disk: {{ ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_available') | first | int / 1024 / 1024 / 1024 | round(1) }}GB"
   tags: [common, preflight, info]
 
+# A file:// repo definition whose repodata is missing makes every dnf/yum call
+# on the host fail with "Failed to download metadata for repo 'offline-repo'".
+# Left behind by an earlier run, it breaks preflight, Zabbix, DMC and MMG.
+- name: Remove local file:// repositories that have no metadata
+  shell: |
+    set -u
+    changed=0
+    for repo in $(ls /etc/yum.repos.d/*.repo 2>/dev/null); do
+      base="$(sed -n 's|^baseurl[[:space:]]*=[[:space:]]*file://||p' "$repo" | head -1)"
+      [ -n "$base" ] || continue
+      if [ ! -f "${base}/repodata/repomd.xml" ]; then
+        echo "removing $repo (no ${base}/repodata/repomd.xml)"
+        rm -f "$repo"
+        changed=1
+      fi
+    done
+    exit $changed
+  args:
+    executable: /bin/bash
+  register: stale_local_repos
+  become: yes
+  changed_when: stale_local_repos.rc == 1
+  failed_when: false
+  tags: [common, preflight, repository]
+
+- name: Report removed local repositories
+  debug:
+    msg: "{{ stale_local_repos.stdout_lines | default([]) }}"
+  when: stale_local_repos.stdout_lines | default([]) | length > 0
+  tags: [common, preflight, repository]
+
 - name: Check if firewalld package is installed
   package_facts:
     manager: auto

@@ -1,22 +1,25 @@
 ---
 # Elasticsearch User Configuration Tasks
 
-- name: Change elasticsearch user home directory
-  lineinfile:
-    path: /etc/passwd
-    regexp: '^elasticsearch:.*:/sbin/nologin$'
-    line: 'elasticsearch:x:996:993:elasticsearch:/opt/elasticsearch:/bin/bash'
-    backup: yes
-  become: yes
+- name: Ensure elasticsearch user has a unique local UID
+  include_tasks:
+    file: "{{ playbook_dir }}/tasks/ensure_unique_service_user.yml"
+    apply:
+      tags: [elasticsearch, user, home]
+  vars:
+    svc_user: "{{ elasticsearch_user }}"
+    svc_group: "{{ elasticsearch_group }}"
+    svc_home: "{{ elasticsearch_home }}"
+    svc_service_name: "{{ elasticsearch_service_name }}"
+    svc_chown_paths:
+      - "{{ elasticsearch_home }}"
+      - "{{ elasticsearch_install_dir }}"
+      - "{{ elasticsearch_config_dir }}"
+      - "{{ elasticsearch_data_dir }}"
+      - "{{ elasticsearch_logs_dir }}"
+      - /var/lib/elasticsearch
+      - /var/log/elasticsearch
   tags: [elasticsearch, user, home]
-
-- name: Add elasticsearch user to wheel group
-  user:
-    name: "{{ elasticsearch_user }}"
-    groups: wheel
-    append: yes
-  become: yes
-  tags: [elasticsearch, user, groups]
 
 - name: Create elasticsearch home directory
   file:

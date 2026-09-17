@@ -1,0 +1,199 @@
+---
+# Same method as the manual ELK runbook:
+#   sed -i 's|:/usr/share/logstash:/sbin/nologin|:/opt/logstash:/bin/bash|' /etc/passwd
+# That sed only changes home + shell. It must NEVER rewrite UID/GID (996:993
+# collides with sssd and makes `su - logstash` show [sssd@host]).
+# If UID is already shared, usermod -u assigns a free system UID.
+# Required vars: svc_user, svc_group, svc_home, svc_service_name, svc_chown_paths
+
+- name: "Read local /etc/passwd entry for {{ svc_user }}"
+  shell: |
+    awk -F: -v u="{{ svc_user }}" '$1==u {print $1,$3,$4,$6,$7}' /etc/passwd
+  args:
+    executable: /bin/bash
+  register: svc_passwd_entry
+  changed_when: false
+  failed_when: svc_passwd_entry.stdout | length == 0
+  become: yes
+
+- name: "Detect UID collision for {{ svc_user }}"
+  shell: |
+    uid=$(awk -F: -v u="{{ svc_user }}" '$1==u {print $3}' /etc/passwd)
+    awk -F: -v uid="$uid" -v name="{{ svc_user }}" '$3==uid && $1!=name {print $1}' /etc/passwd
+  args:
+    executable: /bin/bash
+  register: svc_uid_collision
+  changed_when: false
+  become: yes
+
+- name: "Show UID collision for {{ svc_user }}"
+  debug:
+    msg: >-
+      {{ svc_user }} UID collides with: {{ svc_uid_collision.stdout_lines | join(', ') }}.
+      su - {{ svc_user }} currently resolves to the first passwd entry for that UID (sssd).
+  when: svc_uid_collision.stdout_lines | length > 0
+
+- name: "Allocate a free system UID for {{ svc_user }}"
+  shell: |
+    set -euo pipefail
+    min=$(awk '/^SYS_UID_MIN/ {print $2}' /etc/login.defs)
+    max=$(awk '/^SYS_UID_MAX/ {print $2}' /etc/login.defs)
+    min=${min:-201}
+    max=${max:-999}
+    uid=$max
+    while [ "$uid" -ge "$min" ]; do
+      if ! awk -F: -v id="$uid" '$3 == id { found=1 } END { exit found ? 0 : 1 }' /etc/passwd; then
+        printf '%s\n' "$uid"
+        exit 0
+      fi
+      uid=$((uid - 1))
+    done
+    echo "No free system UID in ${min}-${max}" >&2
+    exit 1
+  args:
+    executable: /bin/bash
+  register: svc_free_uid
+  changed_when: false
+  when: svc_uid_collision.stdout_lines | length > 0
+  become: yes
+
+- name: "Stop {{ svc_service_name }} unit before remapping colliding UID"
+  systemd:
+    name: "{{ svc_service_name }}"
+    state: stopped
+  failed_when: false
+  when:
+    - svc_service_name | length > 0
+    - svc_uid_collision.stdout_lines | length > 0
+  become: yes
+
+- name: "SIGTERM/SIGKILL only the {{ svc_service_name }} cgroup (never pkill by shared UID)"
+  shell: |
+    set +e
+    systemctl kill -s SIGTERM "{{ svc_service_name }}" 2>/dev/null
+    sleep 2
+    systemctl kill -s SIGKILL "{{ svc_service_name }}" 2>/dev/null
+    exit 0
+  args:
+    executable: /bin/bash
+  when:
+    - svc_service_name | length > 0
+    - svc_uid_collision.stdout_lines | length > 0
+  become: yes
+
+- name: "sed unique UID/GID for {{ svc_user }} (usermod -u fails while sssd still holds 996)"
+  shell: |
+    set -euo pipefail
+    gid=$(awk -F: -v g="{{ svc_group }}" '$1==g {print $3}' /etc/group)
+    if [ -z "${gid}" ]; then
+      echo "group {{ svc_group }} not in /etc/group" >&2
+      exit 1
+    fi
+    newuid="{{ svc_free_uid.stdout }}"
+    cp -a /etc/passwd "/etc/passwd.bak.uid.{{ svc_user }}"
+    # name:password:uid:gid:gecos:home:shell — rewrite uid+gid only for this user
+    sed -i -E "s|^({{ svc_user }}:[^:]+:)[0-9]+:[0-9]+:|\1${newuid}:${gid}:|" /etc/passwd
+    awk -F: -v u="{{ svc_user }}" '$1==u {print $0}' /etc/passwd
+  args:
+    executable: /bin/bash
+  register: svc_sed_uid
+  when: svc_uid_collision.stdout_lines | length > 0
+  become: yes
+
+- name: "sed home and shell for {{ svc_user }} (same as manual, UID/GID untouched)"
+  shell: |
+    set -euo pipefail
+    before=$(awk -F: -v u="{{ svc_user }}" '$1==u {print $0}' /etc/passwd)
+    cp -a /etc/passwd "/etc/passwd.bak.{{ svc_user }}"
+    # Equivalent to:
+    #   sed -i 's|:/usr/share/{{ svc_user }}:/sbin/nologin|:{{ svc_home }}:/bin/bash|'
+    # scoped to this user so UID/GID (fields 3-4) are never rewritten.
+    sed -i -E 's|^({{ svc_user }}:[^:]+:[^:]+:[^:]+:[^:]+):[^:]*:[^:]*$|\1:{{ svc_home }}:/bin/bash|' /etc/passwd
+    after=$(awk -F: -v u="{{ svc_user }}" '$1==u {print $0}' /etc/passwd)
+    printf '%s\n' "${after}"
+    if [ "${before}" = "${after}" ]; then
+      echo "UNCHANGED"
+    else
+      echo "CHANGED"
+    fi
+  args:
+    executable: /bin/bash
+  register: svc_sed_home
+  changed_when: "'CHANGED' in svc_sed_home.stdout"
+  become: yes
+
+- name: "usermod -aG wheel {{ svc_user }}"
+  shell: |
+    set -euo pipefail
+    usermod -aG wheel "{{ svc_user }}"
+  args:
+    executable: /bin/bash
+  become: yes
+
+- name: "Create {{ svc_user }} home directory"
+  file:
+    path: "{{ svc_home }}"
+    state: directory
+    owner: "{{ svc_user }}"
+    group: "{{ svc_group }}"
+    mode: '0755'
+  become: yes
+
+- name: "Check paths before restoring {{ svc_user }} ownership"
+  stat:
+    path: "{{ item }}"
+  loop: "{{ svc_chown_paths }}"
+  register: svc_chown_stats
+  become: yes
+
+- name: "chown -R {{ svc_user }}:{{ svc_group }} after UID remap"
+  file:
+    path: "{{ item.item }}"
+    owner: "{{ svc_user }}"
+    group: "{{ svc_group }}"
+    recurse: yes
+  loop: "{{ svc_chown_stats.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item | default('') }}"
+  when:
+    - svc_uid_collision.stdout_lines | length > 0
+    - item.stat.exists | default(false)
+  become: yes
+
+# After a previous remap, files keep UID 996 and now display as sssd.
+# Collision is gone so the recurse above is skipped; reclaim those inodes.
+- name: "Reclaim {{ svc_user }} files still owned by sssd"
+  shell: |
+    set -euo pipefail
+    changed=0
+    while IFS= read -r p; do
+      [ -n "$p" ] || continue
+      [ -e "$p" ] || continue
+      if find "$p" -user sssd -print -quit | grep -q .; then
+        find "$p" -user sssd -exec chown "{{ svc_user }}:{{ svc_group }}" {} +
+        changed=1
+      fi
+    done <<'PATHS'
+    {{ svc_chown_paths | join('\n') }}
+    PATHS
+    echo "CHANGED=${changed}"
+  args:
+    executable: /bin/bash
+  register: svc_reclaim_sssd
+  changed_when: "'CHANGED=1' in svc_reclaim_sssd.stdout"
+  become: yes
+
+- name: "Fail if {{ svc_user }} UID still collides"
+  shell: |
+    uid=$(awk -F: -v u="{{ svc_user }}" '$1==u {print $3}' /etc/passwd)
+    others=$(awk -F: -v uid="$uid" -v name="{{ svc_user }}" '$3==uid && $1!=name {print $1}' /etc/passwd)
+    if [ -n "${others}" ]; then
+      echo "{{ svc_user }} UID ${uid} still shared with: ${others}" >&2
+      grep -E '^({{ svc_user }}|sssd):' /etc/passwd >&2 || true
+      exit 1
+    fi
+    echo "{{ svc_user }} uid=${uid} unique"
+  args:
+    executable: /bin/bash
+  changed_when: false
+  become: yes

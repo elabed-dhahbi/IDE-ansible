@@ -9,21 +9,40 @@
   become: yes
   tags: [elasticsearch, install, packages]
 
+- name: Find Elasticsearch packages on controller
+  find:
+    paths: "{{ paths.offline_dir }}"
+    patterns: "{{ elasticsearch_package }}"
+  register: elasticsearch_rpm_files
+  delegate_to: localhost
+  become: no
+  tags: [elasticsearch, install, packages]
+
+- name: Fail if Elasticsearch package is not available
+  fail:
+    msg: "Elasticsearch package not found: {{ paths.offline_dir }}/{{ elasticsearch_package }}"
+  when: elasticsearch_rpm_files.files | length == 0
+  tags: [elasticsearch, install, packages]
+
 - name: Copy Elasticsearch packages to target
   copy:
-    src: "{{ item }}"
+    src: "{{ item.path }}"
     dest: "{{ paths.offline_dir }}/"
     mode: '0644'
-  loop: "{{ lookup('fileglob', paths.offline_dir + '/' + package_globs.es_rpm, wantlist=True, errors='ignore') }}"
+  loop: "{{ elasticsearch_rpm_files.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
   become: yes
   tags: [elasticsearch, install, packages]
 
 - name: Install Elasticsearch package
   yum:
-    name: "{{ item }}"
+    name: "{{ paths.offline_dir }}/{{ item.path | basename }}"
     state: present
     disable_gpg_check: yes
-  loop: "{{ lookup('fileglob', paths.offline_dir + '/' + package_globs.es_rpm, wantlist=True, errors='ignore') }}"
+  loop: "{{ elasticsearch_rpm_files.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
   become: yes
   tags: [elasticsearch, install, packages]
 
@@ -32,4 +51,3 @@
     path: "{{ elasticsearch_install_dir }}"
   register: elasticsearch_installed
   tags: [elasticsearch, install, check]
-

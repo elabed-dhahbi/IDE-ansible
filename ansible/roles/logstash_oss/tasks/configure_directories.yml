@@ -23,6 +23,18 @@
   become: yes
   tags: [logstash_oss, directories, logs]
 
+- name: Recursively restore logstash ownership of data and logs
+  file:
+    path: "{{ item }}"
+    owner: "{{ logstash_oss_user }}"
+    group: "{{ logstash_oss_group }}"
+    recurse: yes
+  loop:
+    - "{{ logstash_oss_data_dir }}"
+    - "{{ logstash_oss_logs_dir }}"
+  become: yes
+  tags: [logstash_oss, directories, data, logs, ownership]
+
 # RPM / log4j2 still use these even when path.data/path.logs are /var/opt/logstash.
 - name: Ensure RPM Logstash data and log directories exist
   file:

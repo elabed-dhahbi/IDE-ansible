@@ -48,6 +48,20 @@
   become: yes
   tags: [opensearch, directories, ownership]
 
+# A UID remap leaves existing children owned by the old UID (now sssd),
+# which makes OpenSearch fail to write data/logs even though the parents look right.
+- name: Recursively restore OpenSearch ownership of data and logs
+  file:
+    path: "{{ item }}"
+    owner: "{{ opensearch_user }}"
+    group: "{{ opensearch_group }}"
+    recurse: yes
+  loop:
+    - "/var/opt/opensearch/data"
+    - "/var/opt/opensearch/logs"
+  become: yes
+  tags: [opensearch, directories, ownership]
+
 
 
 

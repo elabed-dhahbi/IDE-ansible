@@ -47,6 +47,6 @@ elasticsearch_system:
   nofile_limit: 65535
   memlock_limit: "infinity"
 
-# Package configuration
-elasticsearch_package: "{{ package_globs.es_rpm }}"
+# Package configuration (packages.yaml key is elasticsearch_rpm; es_rpm is an alias)
+elasticsearch_package: "{{ package_globs['elasticsearch_rpm'] | default(package_globs['es_rpm'] | default('elasticsearch-' ~ versions.elasticsearch ~ '*.rpm')) }}"
 

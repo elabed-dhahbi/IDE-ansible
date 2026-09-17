@@ -5,17 +5,40 @@
 # In skip mode: uses psql commands from localhost (Ansible control node)
 # In normal mode: uses Ansible PostgreSQL modules
 
-- name: Set database connection parameters (raw)
+# Postgres IP always comes from inventory [postgres] ansible_host
+# (TT: lprep1p ansible_host=192.168.251.188). Do not use values.yaml
+# external_host: null — that becomes the hostname "None".
+- name: Set database connection parameters from inventory
   set_fact:
-    db_host: "{{ database_config.external_host | default(ansible_host) }}"
-    db_port_raw: "{{ database_config.external_port | default(service_ports.postgres | default(5432)) }}"
-    db_user: "{{ 'postgres' }}"
+    db_host: "{{ hostvars[groups['postgres'][0]]['ansible_host'] }}"
+    db_port_raw: "{{ service_ports.postgres | default(5432) }}"
+    db_user: postgres
     db_password: "{{ system_config.service_passwords.postgres }}"
   tags: [postgres, databases, config]
 
 - name: Normalize database port (fallback to 5432 when unset/invalid)
   set_fact:
     db_port: "{{ (db_port_raw | int) if (db_port_raw | int) > 0 else 5432 }}"
+  tags: [postgres, databases, config]
+
+- name: Show which dmc_sql_setup.yml Ansible loaded
+  debug:
+    msg: >-
+      Creating DMC/MMG/MDBA roles with local psql as OS user postgres on
+      {{ inventory_hostname }} (inventory ansible_host={{ ansible_host }}).
+      This file must contain: Create DMC user on inventory postgres host via local psql
+  tags: [postgres, databases, config]
+
+- name: Require inventory [postgres] ansible_host
+  assert:
+    that:
+      - groups['postgres'] is defined
+      - groups['postgres'] | length > 0
+      - db_host | default('') | trim | length > 0
+      - (db_host | trim | lower) not in ['none', 'null']
+    fail_msg: >-
+      Need [postgres] with ansible_host in the inventory
+      (example: lprep1p ansible_host=192.168.251.188). db_host={{ db_host | default('') | quote }}.
   tags: [postgres, databases, config]
 
 - name: Check if we're in skip mode
@@ -183,27 +206,46 @@
 # When in skip mode, use psql commands from localhost
 # When in normal mode, use Ansible PostgreSQL modules
 
+# CREATE USER alone fails on a re-run ("role already exists"), which is why this
+# used to carry failed_when: false. That also hid a wrong postgres password, and
+# the run then reached DMC with no dmc4 role at all. Upsert instead, and let real
+# errors fail the play here.
 - name: Create DMC user (skip mode - using psql)
   shell: |
+    set -euo pipefail
     export PGPASSWORD='{{ db_password }}'
-    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d postgres -c "CREATE USER {{ postgresql_config.users.dmc4.name | default('dmc4') }} WITH PASSWORD '{{ postgresql_config.users.dmc4.password }}';"
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d postgres -v ON_ERROR_STOP=1 -c "
+    DO \$\$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{{ postgresql_config.users.dmc4.name | default('dmc4') }}') THEN
+        CREATE USER {{ postgresql_config.users.dmc4.name | default('dmc4') }} WITH PASSWORD '{{ postgresql_config.users.dmc4.password }}';
+      ELSE
+        ALTER USER {{ postgresql_config.users.dmc4.name | default('dmc4') }} WITH PASSWORD '{{ postgresql_config.users.dmc4.password }}';
+      END IF;
+    END
+    \$\$;"
   delegate_to: localhost
   when:
     - use_psql_commands | default(false)
     - postgresql_config.users.dmc4 is defined
-  failed_when: false  # Ignore if user already exists
   changed_when: false
   tags: [postgres, databases, users, dmc]
 
-- name: Create DMC user (normal mode - using Ansible module)
-  postgresql_user:
-    name: "{{ postgresql_config.users.dmc4.name | default('dmc4') }}"
-    password: "{{ postgresql_config.users.dmc4.password }}"
-    state: present
-    login_host: "{{ db_host }}"
-    login_port: "{{ db_port }}"
-    login_user: "{{ db_user }}"
-    login_password: "{{ db_password }}"
+- name: Create DMC user on inventory postgres host via local psql
+  shell: |
+    set -euo pipefail
+    psql -d postgres -v ON_ERROR_STOP=1 -c "
+    DO \$\$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{{ postgresql_config.users.dmc4.name | default('dmc4') }}') THEN
+        CREATE USER {{ postgresql_config.users.dmc4.name | default('dmc4') }} WITH PASSWORD '{{ postgresql_config.users.dmc4.password }}';
+      ELSE
+        ALTER USER {{ postgresql_config.users.dmc4.name | default('dmc4') }} WITH PASSWORD '{{ postgresql_config.users.dmc4.password }}';
+      END IF;
+    END
+    \$\$;"
+  become: yes
+  become_user: postgres
   when:
     - not (use_psql_commands | default(false))
     - postgresql_config.users.dmc4 is defined
@@ -211,25 +253,40 @@
 
 - name: Create MMG user (skip mode - using psql)
   shell: |
+    set -euo pipefail
     export PGPASSWORD='{{ db_password }}'
-    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d postgres -c "CREATE USER {{ postgresql_config.users.mmg.name | default('mmg') }} WITH PASSWORD '{{ postgresql_config.users.mmg.password }}';"
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d postgres -v ON_ERROR_STOP=1 -c "
+    DO \$\$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{{ postgresql_config.users.mmg.name | default('mmg') }}') THEN
+        CREATE USER {{ postgresql_config.users.mmg.name | default('mmg') }} WITH PASSWORD '{{ postgresql_config.users.mmg.password }}';
+      ELSE
+        ALTER USER {{ postgresql_config.users.mmg.name | default('mmg') }} WITH PASSWORD '{{ postgresql_config.users.mmg.password }}';
+      END IF;
+    END
+    \$\$;"
   delegate_to: localhost
   when:
     - use_psql_commands | default(false)
     - postgresql_config.users.mmg is defined
-  failed_when: false  # Ignore if user already exists
   changed_when: false
   tags: [postgres, databases, users, mmg]
 
-- name: Create MMG user (normal mode - using Ansible module)
-  postgresql_user:
-    name: "{{ postgresql_config.users.mmg.name | default('mmg') }}"
-    password: "{{ postgresql_config.users.mmg.password }}"
-    state: present
-    login_host: "{{ db_host }}"
-    login_port: "{{ db_port }}"
-    login_user: "{{ db_user }}"
-    login_password: "{{ db_password }}"
+- name: Create MMG user on inventory postgres host via local psql
+  shell: |
+    set -euo pipefail
+    psql -d postgres -v ON_ERROR_STOP=1 -c "
+    DO \$\$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{{ postgresql_config.users.mmg.name | default('mmg') }}') THEN
+        CREATE USER {{ postgresql_config.users.mmg.name | default('mmg') }} WITH PASSWORD '{{ postgresql_config.users.mmg.password }}';
+      ELSE
+        ALTER USER {{ postgresql_config.users.mmg.name | default('mmg') }} WITH PASSWORD '{{ postgresql_config.users.mmg.password }}';
+      END IF;
+    END
+    \$\$;"
+  become: yes
+  become_user: postgres
   when:
     - not (use_psql_commands | default(false))
     - postgresql_config.users.mmg is defined
@@ -237,25 +294,40 @@
 
 - name: Create MDBA user (skip mode - using psql)
   shell: |
+    set -euo pipefail
     export PGPASSWORD='{{ db_password }}'
-    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d postgres -c "CREATE USER {{ postgresql_config.users.mdba.name | default('mdba') }} WITH PASSWORD '{{ postgresql_config.users.mdba.password }}';"
+    {{ psql_binary }} -h {{ db_host }} -p {{ db_port }} -U {{ db_user }} -d postgres -v ON_ERROR_STOP=1 -c "
+    DO \$\$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{{ postgresql_config.users.mdba.name | default('mdba') }}') THEN
+        CREATE USER {{ postgresql_config.users.mdba.name | default('mdba') }} WITH PASSWORD '{{ postgresql_config.users.mdba.password }}';
+      ELSE
+        ALTER USER {{ postgresql_config.users.mdba.name | default('mdba') }} WITH PASSWORD '{{ postgresql_config.users.mdba.password }}';
+      END IF;
+    END
+    \$\$;"
   delegate_to: localhost
   when:
     - use_psql_commands | default(false)
     - postgresql_config.users.mdba is defined
-  failed_when: false  # Ignore if user already exists
   changed_when: false
   tags: [postgres, databases, users, mdba]
 
-- name: Create MDBA user (normal mode - using Ansible module)
-  postgresql_user:
-    name: "{{ postgresql_config.users.mdba.name | default('mdba') }}"
-    password: "{{ postgresql_config.users.mdba.password }}"
-    state: present
-    login_host: "{{ db_host }}"
-    login_port: "{{ db_port }}"
-    login_user: "{{ db_user }}"
-    login_password: "{{ db_password }}"
+- name: Create MDBA user on inventory postgres host via local psql
+  shell: |
+    set -euo pipefail
+    psql -d postgres -v ON_ERROR_STOP=1 -c "
+    DO \$\$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{{ postgresql_config.users.mdba.name | default('mdba') }}') THEN
+        CREATE USER {{ postgresql_config.users.mdba.name | default('mdba') }} WITH PASSWORD '{{ postgresql_config.users.mdba.password }}';
+      ELSE
+        ALTER USER {{ postgresql_config.users.mdba.name | default('mdba') }} WITH PASSWORD '{{ postgresql_config.users.mdba.password }}';
+      END IF;
+    END
+    \$\$;"
+  become: yes
+  become_user: postgres
   when:
     - not (use_psql_commands | default(false))
     - postgresql_config.users.mdba is defined
@@ -296,7 +368,7 @@
     name: "{{ postgresql_config.databases.dmc46.name }}"
     owner: "{{ postgresql_config.databases.dmc46.owner }}"
     state: present
-    login_host: "{{ db_host }}"
+    login_host: "{{ ansible_host }}"
     login_port: "{{ db_port }}"
     login_user: "{{ db_user }}"
     login_password: "{{ db_password }}"
@@ -322,7 +394,7 @@
     name: "{{ postgresql_config.databases.mmg.name }}"
     owner: "{{ postgresql_config.databases.mmg.owner }}"
     state: present
-    login_host: "{{ db_host }}"
+    login_host: "{{ ansible_host }}"
     login_port: "{{ db_port }}"
     login_user: "{{ db_user }}"
     login_password: "{{ db_password }}"
@@ -345,7 +417,7 @@
   postgresql_query:
     query: "CREATE SCHEMA IF NOT EXISTS {{ postgresql_config.databases.dmc46.schema }} AUTHORIZATION {{ postgresql_config.databases.dmc46.owner }}"
     db: "{{ postgresql_config.databases.dmc46.name }}"
-    login_host: "{{ db_host }}"
+    login_host: "{{ ansible_host }}"
     login_port: "{{ db_port }}"
     login_user: "{{ db_user }}"
     login_password: "{{ db_password }}"
@@ -368,7 +440,7 @@
   postgresql_query:
     query: "ALTER ROLE {{ postgresql_config.databases.dmc46.owner }} IN DATABASE {{ postgresql_config.databases.dmc46.name }} SET search_path = {{ postgresql_config.databases.dmc46.schema }}"
     db: "{{ postgresql_config.databases.dmc46.name }}"
-    login_host: "{{ db_host }}"
+    login_host: "{{ ansible_host }}"
     login_port: "{{ db_port }}"
     login_user: "{{ db_user }}"
     login_password: "{{ db_password }}"
@@ -391,7 +463,7 @@
   postgresql_query:
     query: "GRANT CONNECT ON DATABASE {{ postgresql_config.databases.dmc46.name }} TO {{ postgresql_config.databases.dmc46.owner }}"
     db: "{{ postgresql_config.databases.dmc46.name }}"
-    login_host: "{{ db_host }}"
+    login_host: "{{ ansible_host }}"
     login_port: "{{ db_port }}"
     login_user: "{{ db_user }}"
     login_password: "{{ db_password }}"
@@ -414,7 +486,7 @@
   postgresql_query:
     query: "GRANT USAGE ON SCHEMA {{ postgresql_config.databases.dmc46.schema }} TO {{ postgresql_config.databases.dmc46.owner }}"
     db: "{{ postgresql_config.databases.dmc46.name }}"
-    login_host: "{{ db_host }}"
+    login_host: "{{ ansible_host }}"
     login_port: "{{ db_port }}"
     login_user: "{{ db_user }}"
     login_password: "{{ db_password }}"
@@ -437,7 +509,7 @@
   postgresql_query:
     query: "GRANT ALL PRIVILEGES ON SCHEMA {{ postgresql_config.databases.dmc46.schema }} TO {{ postgresql_config.databases.dmc46.owner }}"
     db: "{{ postgresql_config.databases.dmc46.name }}"
-    login_host: "{{ db_host }}"
+    login_host: "{{ ansible_host }}"
     login_port: "{{ db_port }}"
     login_user: "{{ db_user }}"
     login_password: "{{ db_password }}"
@@ -460,7 +532,7 @@
   postgresql_query:
     query: "CREATE SCHEMA IF NOT EXISTS {{ postgresql_config.databases.mmg.schema }} AUTHORIZATION {{ postgresql_config.databases.mmg.owner }}"
     db: "{{ postgresql_config.databases.mmg.name }}"
-    login_host: "{{ db_host }}"
+    login_host: "{{ ansible_host }}"
     login_port: "{{ db_port }}"
     login_user: "{{ db_user }}"
     login_password: "{{ db_password }}"
@@ -483,7 +555,7 @@
   postgresql_query:
     query: "ALTER ROLE {{ postgresql_config.databases.mmg.owner }} IN DATABASE {{ postgresql_config.databases.mmg.name }} SET search_path = {{ postgresql_config.databases.mmg.schema }}"
     db: "{{ postgresql_config.databases.mmg.name }}"
-    login_host: "{{ db_host }}"
+    login_host: "{{ ansible_host }}"
     login_port: "{{ db_port }}"
     login_user: "{{ db_user }}"
     login_password: "{{ db_password }}"
@@ -506,7 +578,7 @@
   postgresql_query:
     query: "GRANT CONNECT ON DATABASE {{ postgresql_config.databases.mmg.name }} TO {{ postgresql_config.databases.mmg.owner }}"
     db: "{{ postgresql_config.databases.mmg.name }}"
-    login_host: "{{ db_host }}"
+    login_host: "{{ ansible_host }}"
     login_port: "{{ db_port }}"
     login_user: "{{ db_user }}"
     login_password: "{{ db_password }}"
@@ -529,7 +601,7 @@
   postgresql_query:
     query: "GRANT USAGE ON SCHEMA {{ postgresql_config.databases.mmg.schema }} TO {{ postgresql_config.databases.mmg.owner }}"
     db: "{{ postgresql_config.databases.mmg.name }}"
-    login_host: "{{ db_host }}"
+    login_host: "{{ ansible_host }}"
     login_port: "{{ db_port }}"
     login_user: "{{ db_user }}"
     login_password: "{{ db_password }}"
@@ -552,7 +624,7 @@
   postgresql_query:
     query: "GRANT ALL PRIVILEGES ON SCHEMA {{ postgresql_config.databases.mmg.schema }} TO {{ postgresql_config.databases.mmg.owner }}"
     db: "{{ postgresql_config.databases.mmg.name }}"
-    login_host: "{{ db_host }}"
+    login_host: "{{ ansible_host }}"
     login_port: "{{ db_port }}"
     login_user: "{{ db_user }}"
     login_password: "{{ db_password }}"
@@ -575,7 +647,7 @@
   postgresql_query:
     query: "CREATE SCHEMA IF NOT EXISTS {{ postgresql_config.users.mdba.schema }} AUTHORIZATION {{ postgresql_config.users.mdba.name | default('mdba') }}"
     db: "{{ postgresql_config.databases.dmc46.name }}"
-    login_host: "{{ db_host }}"
+    login_host: "{{ ansible_host }}"
     login_port: "{{ db_port }}"
     login_user: "{{ db_user }}"
     login_password: "{{ db_password }}"
@@ -598,7 +670,7 @@
   postgresql_query:
     query: "ALTER ROLE {{ postgresql_config.users.mdba.name | default('mdba') }} IN DATABASE {{ postgresql_config.databases.dmc46.name }} SET search_path = {{ postgresql_config.users.mdba.schema }}"
     db: "{{ postgresql_config.databases.dmc46.name }}"
-    login_host: "{{ db_host }}"
+    login_host: "{{ ansible_host }}"
     login_port: "{{ db_port }}"
     login_user: "{{ db_user }}"
     login_password: "{{ db_password }}"
@@ -621,7 +693,7 @@
   postgresql_query:
     query: "GRANT USAGE ON SCHEMA {{ postgresql_config.databases.dmc46.schema }} TO {{ postgresql_config.users.mdba.name | default('mdba') }}"
     db: "{{ postgresql_config.databases.dmc46.name }}"
-    login_host: "{{ db_host }}"
+    login_host: "{{ ansible_host }}"
     login_port: "{{ db_port }}"
     login_user: "{{ db_user }}"
     login_password: "{{ db_password }}"
@@ -644,7 +716,7 @@
   postgresql_query:
     query: "GRANT ALL PRIVILEGES ON SCHEMA {{ postgresql_config.users.mdba.schema }} TO {{ postgresql_config.users.mdba.name | default('mdba') }}"
     db: "{{ postgresql_config.databases.dmc46.name }}"
-    login_host: "{{ db_host }}"
+    login_host: "{{ ansible_host }}"
     login_port: "{{ db_port }}"
     login_user: "{{ db_user }}"
     login_password: "{{ db_password }}"
@@ -656,3 +728,72 @@
 # Note: Tablespace creation is skipped in skip mode because it requires directory creation
 # Tablespaces can be created manually by the database administrator if needed
 # The tablespace directories must exist on the PostgreSQL server before creating tablespaces
+
+# DMC, MMG and the ELK statistics jobs all connect over TCP with these roles. A
+# role that was never created, or whose password is still SCRAM-hashed while
+# pg_hba says md5, surfaces much later as
+# "FATAL: password authentication failed for user dmc4" on a DMC node, after
+# several ignored psql tasks. Prove the logins work here, where the fix lives.
+- name: Verify application roles can log in over TCP
+  shell: |
+    PGPASSWORD='{{ item.password }}' {{ psql_binary | default('psql') }} \
+      -h {{ db_host }} -p {{ db_port }} -U {{ item.name }} -d {{ item.db }} -tAc 'SELECT 1'
+  delegate_to: "{{ 'localhost' if (use_psql_commands | default(false)) else inventory_hostname }}"
+  loop:
+    - name: "{{ postgresql_config.users.dmc4.name | default('dmc4') }}"
+      password: "{{ postgresql_config.users.dmc4.password }}"
+      db: "{{ postgresql_config.databases.dmc46.name }}"
+    - name: "{{ postgresql_config.users.mmg.name | default('mmg') }}"
+      password: "{{ postgresql_config.users.mmg.password }}"
+      db: "{{ postgresql_config.databases.mmg.name }}"
+    - name: "{{ postgresql_config.users.mdba.name | default('mdba') }}"
+      password: "{{ postgresql_config.users.mdba.password }}"
+      db: "{{ postgresql_config.databases.dmc46.name }}"
+  loop_control:
+    label: "{{ item.name }}@{{ item.db }}"
+  register: db_role_login_checks
+  failed_when: false
+  changed_when: false
+  tags: [postgres, databases, users, verify]
+
+- name: Collect role and encryption state when a login failed
+  shell: |
+    psql -d postgres -tAc "SHOW password_encryption;"
+    psql -d postgres -tAc "
+      SELECT rolname || ' password=' || CASE
+               WHEN rolpassword IS NULL THEN 'NONE'
+               WHEN rolpassword LIKE 'SCRAM%' THEN 'SCRAM (md5 auth cannot verify it)'
+               ELSE 'md5' END
+      FROM pg_authid
+      WHERE rolname IN ('{{ postgresql_config.users.dmc4.name | default('dmc4') }}',
+                        '{{ postgresql_config.users.mmg.name | default('mmg') }}',
+                        '{{ postgresql_config.users.mdba.name | default('mdba') }}');"
+  become: yes
+  become_user: postgres
+  register: db_role_diagnostics
+  failed_when: false
+  changed_when: false
+  when:
+    - not (use_psql_commands | default(false))
+    - db_role_login_checks.results | selectattr('rc', 'defined') | selectattr('rc', 'ne', 0) | list | length > 0
+  tags: [postgres, databases, users, verify]
+
+- name: Fail when an application role cannot log in
+  fail:
+    msg: |
+      These database logins were refused on {{ db_host }}:{{ db_port }}:
+      {% for result in db_role_login_checks.results | selectattr('rc', 'defined') | selectattr('rc', 'ne', 0) %}
+        - {{ result.item.name }}@{{ result.item.db }}: {{ result.stderr | default('') | trim }}
+      {% endfor %}
+      Role state reported by the cluster:
+      {{ db_role_diagnostics.stdout_lines | default(['(not collected)']) | join(', ') }}
+
+      An empty role list means the role creation tasks in this file never ran
+      against this cluster. Check that the run included the 'postgres' tag and
+      that SKIP_POSTGRES / SKIP_POSTGRES_INSTALL were not set, then re-run:
+        ansible-playbook -i {{ inventory_file | default('<inventory>') }} site.yml --tags postgres
+      A SCRAM password means the role was created before password_encryption
+      became md5; ensure_md5_auth.yml plus the re-hash task in this file fix that
+      on the next run.
+  when: db_role_login_checks.results | selectattr('rc', 'defined') | selectattr('rc', 'ne', 0) | list | length > 0
+  tags: [postgres, databases, users, verify]

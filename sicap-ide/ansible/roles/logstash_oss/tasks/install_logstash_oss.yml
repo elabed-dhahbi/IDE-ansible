@@ -1,5 +1,32 @@
 ---
 # Install Logstash OSS
+#
+# The OSS build ships no x-pack. logstash-core decides at boot with:
+#   LogStash::OSS = ENV["OSS"] == "true" || !File.exists?("/usr/share/logstash/x-pack")
+# A leftover x-pack directory from the non-OSS logstash RPM (ELK stack) makes the
+# OSS build require x-pack/logstash_registry, which it cannot load:
+#   (LoadError) no such file to load -- x-pack/logstash_registry
+# The unit then exits 1 and systemd restart-loops, so 9600 never binds.
+
+- name: Check for the non-OSS Logstash package
+  command: rpm -q logstash
+  register: logstash_non_oss_installed
+  failed_when: false
+  changed_when: false
+
+- name: Remove the non-OSS Logstash package (owns x-pack, conflicts with logstash-oss)
+  yum:
+    name: logstash
+    state: absent
+  become: true
+  when: logstash_non_oss_installed.rc == 0
+
+# rpm leaves directories behind when plugin installs added unowned files under them.
+- name: Remove leftover x-pack directory from the non-OSS distribution
+  file:
+    path: "{{ logstash_oss_install_dir }}/x-pack"
+    state: absent
+  become: true
 
 - name: Check if Logstash OSS is already installed
   command: rpm -q logstash-oss

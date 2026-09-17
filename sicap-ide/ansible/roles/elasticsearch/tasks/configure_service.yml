@@ -25,11 +25,10 @@
 - name: Wait for Elasticsearch to be ready
   wait_for:
     port: "{{ service_ports.elasticsearch }}"
-    host: "{{ ansible_host }}"
+    host: "127.0.0.1"
     delay: 10
     timeout: 300
   ignore_errors: yes
-  when: elasticsearch_status.status.ActiveState != "active"
   tags: [elasticsearch, service, wait]
 
 - name: Copy password setup script
@@ -52,6 +51,10 @@
     /tmp/setup_passwords.sh
   become: yes
   register: password_setup
+  environment:
+    ELASTICSEARCH_HOST: "127.0.0.1"
+    ELASTICSEARCH_PORT: "{{ service_ports.elasticsearch | string }}"
+    ELASTICSEARCH_PASSWORD: "{{ system_config.service_passwords.elasticsearch | default('elastic') }}"
   tags: [elasticsearch, service, passwords]
 
 - name: Display password setup output
@@ -75,7 +78,7 @@
 - name: Wait for Elasticsearch to be ready after restart
   wait_for:
     port: "{{ service_ports.elasticsearch }}"
-    host: "{{ ansible_host }}"
+    host: "127.0.0.1"
     delay: 10
     timeout: 120
   when: passwords_changed
@@ -90,16 +93,17 @@
 
 - name: Check Elasticsearch cluster health
   uri:
-    url: "http://{{ ansible_host }}:{{ service_ports.elasticsearch }}/_cluster/health"
+    url: "http://127.0.0.1:{{ service_ports.elasticsearch }}/_cluster/health"
     method: GET
     user: "elastic"
-    password: "elastic"
+    password: "{{ system_config.service_passwords.elasticsearch | default('elastic') }}"
+    force_basic_auth: yes
   register: elasticsearch_health
   tags: [elasticsearch, service, health]
 
 - name: Display Elasticsearch status
   debug:
     msg:
-      - "Elasticsearch is running on {{ ansible_host }}:{{ service_ports.elasticsearch }}"
+      - "Elasticsearch is running on 127.0.0.1:{{ service_ports.elasticsearch }}"
       - "Cluster status: {{ elasticsearch_health.json.status | default('unknown') }}"
   tags: [elasticsearch, service, status]

@@ -194,7 +194,8 @@
 
 - name: Set PostgreSQL password for postgres user (socket, no host)
   shell: |
-    psql -U postgres -d postgres -c "ALTER USER postgres PASSWORD '{{ system_config.service_passwords.postgres }}';"
+    psql -d postgres -c "ALTER USER postgres PASSWORD '{{ system_config.service_passwords.postgres }}';"
+  become: yes
   become_user: postgres
   when: postgres_initialized_check.stat.exists
   tags: [postgres, postgres_install, service, config, auth]

@@ -25,8 +25,9 @@ package_globs:
   pgdg_repo_rpm: "pgdg-redhat-repo-latest.noarch.rpm"
   
   # Elasticsearch/Kibana packages
-  elasticsearch_rpm: "elasticsearch-{{ versions.elasticsearch }}-x86_64.rpm"
-  kibana_rpm: "kibana-{{ versions.kibana }}-x86_64.rpm"
+  elasticsearch_rpm: "elasticsearch-{{ versions.elasticsearch }}*.rpm"
+  es_rpm: "elasticsearch-{{ versions.elasticsearch }}*.rpm"
+  kibana_rpm: "kibana-{{ versions.kibana }}*.rpm"
   
   # Logstash packages
   logstash_rpm: "logstash-{{ versions.logstash }}-x86_64.rpm"

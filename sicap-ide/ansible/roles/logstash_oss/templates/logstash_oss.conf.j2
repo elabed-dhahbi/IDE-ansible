@@ -295,6 +295,7 @@ output {
             user => "{{ logstash_oss_config.opensearch_user }}"
             password => "{{ logstash_oss_config.opensearch_password }}"
             index => "%{[@metadata][index_name]}-%{+YYYY.MM}"
+            manage_template => false
         }
     } else {
         opensearch {
@@ -303,33 +304,10 @@ output {
             user => "{{ logstash_oss_config.opensearch_user }}"
             password => "{{ logstash_oss_config.opensearch_password }}"
             index => "%{[@metadata][index_name]}-%{+YYYY.MM}"
+            manage_template => false
         }
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

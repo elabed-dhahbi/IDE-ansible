@@ -71,7 +71,7 @@
   lineinfile:
     path: "{{ dmc_current_dir }}/bin/dmcenv"
     regexp: '^export JAVA_OPTS=.*'
-    line: 'export JAVA_OPTS="-DLOG_BL_BASE=$LOG_BASE/DMC-BusinessLog -DLOG_TH_BASE=$LOG_BASE/DMC-TechnicalLog -DLOG_BL_FBLL_BASE=$LOG_BASE/DMC-BusinessLogLoader -Djmx.export.kpi.dir=/tmp -Djboss.server.log.dir=$LOG_BASE -Xms{{ dmc_java.xms }} -Xmx{{ dmc_java.xmx }} -XX:PermSize={{ dmc_java.perm_size }} -XX:MaxPermSize={{ dmc_java.max_perm_size }} -agentlib:jdwp=transport=dt_socket,address=8787,server=y,suspend=n -Dlog4j.configurationFile=/opt/dmc/current/conf/log4j2.xml -Djava.awt.headless=true -Dorg.jboss.resolver.warning=true -Dsun.rmi.dgc.client.gcInterval=3600000 -Dsun.rmi.dgc.server.gcInterval=3600000 -XX:+UseParNewGC -XX:+AggressiveOpts -XX:+DoEscapeAnalysis -XX:+UseLargePages -XX:+UseTLAB -XX:TLABSize=64k -Duser.timezone=GMT+1"'
+    line: 'export JAVA_OPTS="-DLOG_BL_BASE=$LOG_BASE/DMC-BusinessLog -DLOG_TH_BASE=$LOG_BASE/DMC-TechnicalLog -DLOG_BL_FBLL_BASE=$LOG_BASE/DMC-BusinessLogLoader -Djmx.export.kpi.dir=/tmp -Djboss.server.log.dir=$LOG_BASE -Xms{{ dmc_java_xms }} -Xmx{{ dmc_java_xmx }} -XX:PermSize={{ dmc_java_perm_size }} -XX:MaxPermSize={{ dmc_java_max_perm_size }} -agentlib:jdwp=transport=dt_socket,address=8787,server=y,suspend=n -Dlog4j.configurationFile=/opt/dmc/current/conf/log4j2.xml -Djava.awt.headless=true -Dorg.jboss.resolver.warning=true -Dsun.rmi.dgc.client.gcInterval=3600000 -Dsun.rmi.dgc.server.gcInterval=3600000 -XX:+UseParNewGC -XX:+AggressiveOpts -XX:+DoEscapeAnalysis -XX:+UseLargePages -XX:+UseTLAB -XX:TLABSize=64k -Duser.timezone=GMT+1"'
     backup: yes
   become: yes
   tags: [dmc, config, java, memory]
@@ -88,12 +88,32 @@
     msg: "DMC dmcenv Java configuration: {{ dmcenv_java_config.stdout_lines }}"
   tags: [dmc, config, java, debug]
 
-- name: Update DMC Java memory settings in standalone.conf
+# The shipped JAVA_OPTS assignment sits indented inside
+# `if [ "x$JAVA_OPTS" = "x" ]; then`, so an ^JAVA_OPTS= anchored regexp never
+# matched it: lineinfile appended a second assignment at the end of the file and
+# the shipped -Xms64m -Xmx512m line stayed. Drop that appended line and rewrite
+# the memory values where they actually are, keeping the JBoss options intact.
+- name: Remove the JAVA_OPTS line appended to standalone.conf by earlier runs
   lineinfile:
     path: "{{ dmc_current_dir }}/bin/standalone.conf"
-    regexp: '^JAVA_OPTS=.*'
-    line: 'JAVA_OPTS="-DLOG_BL_BASE=$LOG_BASE/DMC-BusinessLog -DLOG_TH_BASE=$LOG_BASE/DMC-TechnicalLog -DLOG_BL_FBLL_BASE=$LOG_BASE/DMC-BusinessLogLoader -Djmx.export.kpi.dir=/tmp -Djboss.server.log.dir=$LOG_BASE -Xms{{ dmc_java.xms }} -Xmx{{ dmc_java.xmx }} -XX:PermSize={{ dmc_java.perm_size }} -XX:MaxPermSize={{ dmc_java.max_perm_size }} -agentlib:jdwp=transport=dt_socket,address=8787,server=y,suspend=n -Dlog4j.configurationFile=/opt/dmc/current/conf/log4j2.xml -Djava.awt.headless=true -Dorg.jboss.resolver.warning=true -Dsun.rmi.dgc.client.gcInterval=3600000 -Dsun.rmi.dgc.server.gcInterval=3600000 -XX:+UseParNewGC -XX:+AggressiveOpts -XX:+DoEscapeAnalysis -XX:+UseLargePages -XX:+UseTLAB -XX:TLABSize=64k -Duser.timezone=GMT+1"'
+    regexp: '^JAVA_OPTS="-DLOG_BL_BASE='
+    state: absent
     backup: yes
+  become: yes
+  tags: [dmc, config, java, memory, standalone]
+
+- name: Align standalone.conf memory settings with values.yaml
+  replace:
+    path: "{{ dmc_current_dir }}/bin/standalone.conf"
+    regexp: '{{ item.flag }}[0-9]+[kKmMgG]?'
+    replace: "{{ item.flag }}{{ item.value }}"
+  loop:
+    - { flag: '-Xms', value: "{{ dmc_java_xms }}" }
+    - { flag: '-Xmx', value: "{{ dmc_java_xmx }}" }
+    - { flag: '-XX:PermSize=', value: "{{ dmc_java_perm_size }}" }
+    - { flag: '-XX:MaxPermSize=', value: "{{ dmc_java_max_perm_size }}" }
+  loop_control:
+    label: "{{ item.flag }}{{ item.value }}"
   become: yes
   tags: [dmc, config, java, memory, standalone]
 
@@ -102,12 +122,24 @@
     grep "JAVA_OPTS=" {{ dmc_current_dir }}/bin/standalone.conf
   become: yes
   register: standalone_java_config
+  changed_when: false
   tags: [dmc, config, java, debug]
 
 - name: Display standalone.conf Java configuration
   debug:
     msg: "DMC standalone.conf Java configuration: {{ standalone_java_config.stdout_lines }}"
   tags: [dmc, config, java, debug]
+
+- name: Require the configured heap size in standalone.conf
+  assert:
+    that:
+      - standalone_java_config.stdout is search('-Xms' ~ (dmc_java_xms | regex_escape))
+      - standalone_java_config.stdout is search('-Xmx' ~ (dmc_java_xmx | regex_escape))
+    fail_msg: >-
+      {{ dmc_current_dir }}/bin/standalone.conf still does not carry
+      -Xms{{ dmc_java_xms }} -Xmx{{ dmc_java_xmx }} from values.yaml dmc_java.
+      Current JAVA_OPTS lines: {{ standalone_java_config.stdout_lines }}
+  tags: [dmc, config, java, memory, standalone]
 
 - name: Create DRB file directory
   file:
@@ -779,6 +811,38 @@
     backup: yes
   become: yes
   tags: [dmc, config, properties]
+
+# force: no above means the task does nothing when the RPM already shipped the
+# file, so it kept the packaged http://192.168.254.116:4466/drs/ address. These
+# two endpoints are derived from the inventory and the port from values.yaml, so
+# enforce them on the existing file while leaving the rest of it alone.
+- name: Point cm-customer-care.properties at this node's DRS and REST API
+  lineinfile:
+    path: "{{ dmc_conf_dir }}/cm-customer-care.properties"
+    regexp: '^\s*{{ item.key | regex_escape }}\s*='
+    line: "{{ item.key }}={{ item.value }}"
+    backup: yes
+  loop:
+    - key: customer-care.cc.drs.address
+      value: "http://{{ dmc_drs_host }}:{{ dmc_drs_port }}/drs/"
+    - key: customer-care.cc.restapi.address
+      value: "http://{{ dmc_node_ip }}:{{ dmc_http_port }}"
+  loop_control:
+    label: "{{ item.key }}={{ item.value }}"
+  become: yes
+  tags: [dmc, config, properties, drs]
+
+- name: Verify the DRS address in cm-customer-care.properties
+  command: grep -E '^customer-care\.cc\.(drs|restapi)\.address=' {{ dmc_conf_dir }}/cm-customer-care.properties
+  register: dmc_customer_care_endpoints
+  changed_when: false
+  become: yes
+  tags: [dmc, config, properties, drs]
+
+- name: Display the DRS address in cm-customer-care.properties
+  debug:
+    msg: "{{ dmc_customer_care_endpoints.stdout_lines }}"
+  tags: [dmc, config, properties, drs]
 
 - name: Create cm-Scenario.properties
   copy:

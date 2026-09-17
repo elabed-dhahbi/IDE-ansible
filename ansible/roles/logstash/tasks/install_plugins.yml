@@ -1,53 +1,59 @@
 ---
 # Logstash Plugin Installation Tasks
+# The DMC pipeline uses filter rest; Logstash exits 1 if this plugin is missing.
 
 - name: Check if rest filter plugin is already installed
-  shell: /usr/share/logstash/bin/logstash-plugin list | grep -q "logstash-filter-rest"
+  shell: /usr/share/logstash/bin/logstash-plugin list | grep -F "logstash-filter-rest"
   register: rest_plugin_check
   failed_when: false
+  changed_when: false
   become: yes
   tags: [logstash, plugins, rest]
 
-- name: Copy rest filter plugin package to target
-  copy:
-    src: "{{ item }}"
-    dest: "{{ paths.offline_dir }}/"
-    mode: '0644'
-  loop: "{{ lookup('fileglob', paths.offline_dir + '/' + package_globs.logstash_filter_rest, wantlist=True, errors='ignore') }}"
-  when: not rest_plugin_check.rc == 0
-  become: yes
-  tags: [logstash, plugins, rest]
-
-- name: Find rest filter plugin package
-  find:
-    paths: "{{ paths.offline_dir }}"
-    patterns: "{{ package_globs.logstash_filter_rest }}"
-  register: rest_plugin_files
-  when: not rest_plugin_check.rc == 0
-  tags: [logstash, plugins, rest]
-
-- name: Install rest filter plugin from offline package
+- name: Install rest filter plugin from offline zip or gem
   shell: |
-    cd /usr/share/logstash
-    bin/logstash-plugin install file://{{ item.path }}
-  loop: "{{ rest_plugin_files.files }}"
+    set -euo pipefail
+    OD="{{ paths.offline_dir | trim }}"
+    LS="/usr/share/logstash"
+    export LS_JAVA_OPTS="-Xmx2g -Xms1g"
+    cd "$LS"
+    if bin/logstash-plugin list 2>/dev/null | grep -Fq "logstash-filter-rest"; then
+      echo "logstash-filter-rest already installed"
+      exit 0
+    fi
+    SRC="$(find "$OD" -maxdepth 2 -type f \( -name 'logstash-filter-rest*.zip' -o -name 'logstash-filter-rest*.gem' \) ! -name '*-main.zip' 2>/dev/null | head -1)"
+    if [ -z "$SRC" ]; then
+      echo "ERROR: no logstash-filter-rest zip/gem under $OD" >&2
+      exit 1
+    fi
+    BASE="$(basename "$SRC")"
+    cp -f "$SRC" "$LS/$BASE"
+    bin/logstash-plugin install "file://$LS/$BASE"
+  args:
+    executable: /bin/bash
   become: yes
-  when: not rest_plugin_check.rc == 0
+  when: (rest_plugin_check.rc | default(1)) != 0
   tags: [logstash, plugins, rest]
 
 - name: Verify rest filter plugin installation
-  shell: /usr/share/logstash/bin/logstash-plugin list | grep "logstash-filter-rest"
+  shell: /usr/share/logstash/bin/logstash-plugin list | grep -F "logstash-filter-rest"
   register: rest_plugin_verify
+  failed_when: false
+  changed_when: false
   become: yes
+  tags: [logstash, plugins, rest]
+
+- name: Require logstash-filter-rest plugin
+  assert:
+    that:
+      - rest_plugin_verify.rc == 0
+    fail_msg: >-
+      logstash-filter-rest is not installed. Place logstash-filter-rest*.zip
+      or *.gem under {{ paths.offline_dir }}. The DMC pipeline uses filter rest
+      and Logstash will exit 1 without it.
   tags: [logstash, plugins, rest]
 
 - name: Display rest filter plugin status
   debug:
     msg: "Rest filter plugin installed: {{ rest_plugin_verify.stdout_lines }}"
   tags: [logstash, plugins, rest]
-
-- name: Clear logstash cache
-  shell: |
-    rm -f /var/lib/logstash/plugins/inputs/file/.sincedb*
-  become: yes
-  tags: [logstash, plugins, cache]

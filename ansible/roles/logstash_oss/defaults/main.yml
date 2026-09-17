@@ -16,6 +16,20 @@ logstash_oss_service_name: "logstash"
 logstash_oss_user: "logstash"
 logstash_oss_group: "logstash"
 
+# DRS lookup for the filter rest calls. The address comes from the inventory
+# (ansible_host), never the inventory alias. DRS runs on every DMC node, so a
+# node must call its own instance instead of the first host in the drs group.
+logstash_oss_drs_host: >-
+  {{ ansible_host
+     if (inventory_hostname in (groups['drs'] | default([])))
+     else (hostvars[groups['drs'][0]]['ansible_host']
+           if ((groups['drs'] | default([]) | length) > 0)
+           else ansible_host) }}
+# The DRS HTTP API listens on 9292, same as roles/drs drs_http_port. Pinned here
+# rather than read from service_ports so a values.yaml drift cannot break the
+# pipeline again; :8080 is the DMC port, not DRS.
+logstash_oss_drs_port: "9292"
+
 # systemd service timeouts (seconds). Logstash can take a while to compile pipelines/plugins.
 logstash_oss_systemd_timeout_start_sec: 300
 logstash_oss_systemd_timeout_stop_sec: 300
@@ -49,10 +63,10 @@ logstash_oss_config:
   dmc_log_base_path: "/var/opt/dmc/current/log/DMC-BusinessLog"
   csv_export_path: "/var/opt/dmc-statistics/csvexport/logstash"
   
-  # DRS configuration
-  drs_host: "{{ groups['drs'] | first | default('192.168.249.241') }}"
-  drs_port: "8080"
-  drs_base_url: "http://{{ groups['drs'] | first | default('192.168.249.241') }}:8080/drs"
+  # DRS configuration (see logstash_oss_drs_host / logstash_oss_drs_port above)
+  drs_host: "{{ logstash_oss_drs_host }}"
+  drs_port: "{{ logstash_oss_drs_port }}"
+  drs_base_url: "http://{{ logstash_oss_drs_host }}:{{ logstash_oss_drs_port }}/drs"
   
   # OpenSearch configuration
   opensearch_hosts: "{{ groups['opensearch'] | map('extract', hostvars, 'ansible_host') | map('regex_replace', '^(.*)$', 'https://\\1:9200') | list }}"
