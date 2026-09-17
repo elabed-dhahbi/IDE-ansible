@@ -15,21 +15,17 @@ sls_home: "/opt/sls/home"
 sls_current_dir: "/opt/sls/current"
 sls_logs_dir: "/var/opt/sls/{{ sls_version }}/log"
 
-# Java configuration
-java_home: "/usr/j2se/openlogic-openjdk-8u412-b08-linux-x32"
+# Directory name of the 32-bit OpenJDK tarball after extract. versions.jdk8 is
+# "8u412"; the folder is "openlogic-openjdk-8u412-b08-linux-x32".
+sls_java_home: "/usr/j2se/openlogic-openjdk-8u412-b08-linux-x32"
 java_version: "8u412-b08"
 
 # SLS configuration
 sls_config:
-  # HTTP port
-  http_port: 50420
-  
-  # Log paths
+  http_port: "{{ service_ports.sls_http | default(50420) }}"
   application_log: "/var/opt/sls/{{ versions.sls }}/log/application.log"
   alert_log: "/var/opt/sls/{{ versions.sls }}/log/alert.log"
-  
-  # Platform configuration
-  context_url: "http://{{ ansible_host }}:50420/"
+  context_url: "http://{{ ansible_host }}:{{ service_ports.sls_http | default(50420) }}/"
 
 # System packages required for SLS
 sls_system_packages:
@@ -40,7 +36,5 @@ sls_system_packages:
   - libdl.so.2
   - ld-linux.so.2
 
-# Package configuration
-package_globs:
-  sls_rpm: "SCPsls-{{ versions.sls }}*.tar.gz"
-  jdk8_32bit: "openlogic-openjdk-{{ java_version }}*linux*.tar.gz"
+# Package globs come from config/packages.yaml (play vars_files). Do not
+# redefine package_globs here: a role default would hide the play values.

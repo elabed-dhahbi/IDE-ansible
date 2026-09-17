@@ -18,7 +18,7 @@
   lineinfile:
     path: "{{ sls_home }}/.profile.sicap"
     regexp: "^JAVA_HOME=\\${JAVA_HOME:-.*}"
-    line: "JAVA_HOME=\\${JAVA_HOME:-{{ java_home }}}"
+    line: "JAVA_HOME=\\${JAVA_HOME:-{{ sls_java_home }}}"
     backup: yes
   become: yes
   when: profile_sicap_exists.stat.exists
@@ -59,8 +59,8 @@
 
       # JAVA configuration
       # SLS requires a very special java version
-      if [ -d "{{ java_home }}" ]; then
-              JAVA_HOME="{{ java_home }}"
+      if [ -d "{{ sls_java_home }}" ]; then
+              JAVA_HOME="{{ sls_java_home }}"
               export JAVA_HOME
               PATH="$JAVA_HOME/bin:$PATH"
               export PATH

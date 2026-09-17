@@ -5,6 +5,9 @@
 ENVIRONMENT ?= TT
 INVENTORY ?= ansible/inventories/$(ENVIRONMENT)/hosts.ini
 PLAYBOOK ?= ansible/site.yml
+# Used when a tagged run still parses every play in site.yml. DMC plays pick
+# logstash vs logstash_oss from this. MMG/SLS do not use it themselves.
+STACK_TYPE ?= elk
 
 # Host pattern for connectivity checks
 PATTERN ?= all
@@ -411,7 +414,7 @@ endif
 install-sls:
 	@echo "$(BLUE)=== SLS Installation (Core Service) ===$(NC)"
 	@echo "$(YELLOW)Installing SLS - the core SICAP service$(NC)"
-	@ansible-playbook -i "$(INVENTORY)" "$(PLAYBOOK)" --tags "sls" --verbose
+	@ansible-playbook -i "$(INVENTORY)" "$(PLAYBOOK)" --tags "sls" --extra-vars "stack_type=$(STACK_TYPE)" --verbose
 	@echo ""
 	@echo "$(GREEN)Γ£ô SLS installation completed$(NC)"
 	@echo "$(YELLOW)Next steps:$(NC)"
@@ -423,7 +426,7 @@ install-sls:
 install-mmg-module:
 	@echo "$(BLUE)=== MMG Module Installation ===$(NC)"
 	@echo "$(YELLOW)Installing MMG, MMSOAP, SMPPC (requires SLS to be licensed)$(NC)"
-	@ansible-playbook -i "$(INVENTORY)" "$(PLAYBOOK)" --tags "mmg,mmsoap,smppc" --verbose
+	@ansible-playbook -i "$(INVENTORY)" "$(PLAYBOOK)" --tags "mmg,mmsoap,smppc" --extra-vars "stack_type=$(STACK_TYPE)" --verbose
 	@echo ""
 	@echo "$(GREEN)Γ£ô MMG module installation completed$(NC)"
 
@@ -603,7 +606,7 @@ resume-from-dmc-o:
 resume-from-sls:
 	@echo "$(BLUE)=== Resume Installation from SLS ===$(NC)"
 	@echo "$(YELLOW)Resuming installation starting from SLS (core service)$(NC)"
-	@ansible-playbook -i "$(INVENTORY)" "$(PLAYBOOK)" --tags "sls" --verbose
+	@ansible-playbook -i "$(INVENTORY)" "$(PLAYBOOK)" --tags "sls" --extra-vars "stack_type=$(STACK_TYPE)" --verbose
 	@echo ""
 	@echo "$(GREEN)Γ£ô SLS installation resumed$(NC)"
 	@echo "$(YELLOW)Next: Run 'make install-mmg-module'$(NC)"
@@ -612,7 +615,7 @@ resume-from-sls:
 resume-from-mmg:
 	@echo "$(BLUE)=== Resume Installation from MMG Module ===$(NC)"
 	@echo "$(YELLOW)Resuming installation starting from MMG module$(NC)"
-	@ansible-playbook -i "$(INVENTORY)" "$(PLAYBOOK)" --tags "mmg,mmsoap,smppc" --verbose
+	@ansible-playbook -i "$(INVENTORY)" "$(PLAYBOOK)" --tags "mmg,mmsoap,smppc" --extra-vars "stack_type=$(STACK_TYPE)" --verbose
 	@echo ""
 	@echo "$(GREEN)Γ£ô MMG module installation resumed and completed$(NC)"
 

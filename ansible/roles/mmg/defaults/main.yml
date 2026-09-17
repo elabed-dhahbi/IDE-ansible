@@ -18,6 +18,13 @@ mmg_config_dir: "/opt/mmg/current/conf"
 mmg_logs_dir: "/var/log/mmg"
 mmg_data_dir: "/var/lib/mmg"
 
+# Heap for mmgenv JAVA_HEAP_SIZE (megabytes, no unit suffix).
+mmg_java_heap_size: "{{ (mmg_java | default({})).heap_size | default(2048) }}"
+
+# 32-bit OpenJDK path used by SLS on the same VM. MMG's service profile must
+# match whatever install_java.yml / SLS actually extracted under /usr/j2se.
+mmg_java_home: "{{ (mmg_java | default({})).home | default('/usr/j2se/openlogic-openjdk-8u412-b08-linux-x32') }}"
+
 # MMG configuration
 mmg_config:
   http_port: "{{ service_ports.mmg_http }}"

@@ -254,6 +254,10 @@ dmc_java:
   perm_size: "512m"
   max_perm_size: "512m"
 
+# MMG Java heap in megabytes (mmgenv JAVA_HEAP_SIZE, no unit suffix)
+mmg_java:
+  heap_size: 2048
+
 # OpenSearch Java Memory (search engine - heavy load)
 opensearch_jvm:
   heap_size: "1g"

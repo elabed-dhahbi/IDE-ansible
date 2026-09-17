@@ -313,13 +313,13 @@
   roles:
     - dmc
     - drs
-    - "{{ 'logstash_oss' if stack_type == 'opensearch' else 'logstash' }}"
+    - "{{ 'logstash_oss' if (stack_type | default('elk')) == 'opensearch' else 'logstash' }}"
     - elkstatistic
   tags:
     - dmc1
   pre_tasks:
     - import_tasks: tasks/install_logstash_opensearch_plugin.yml
-      when: stack_type | default('') == 'opensearch'
+      when: (stack_type | default('elk')) == 'opensearch'
 
 # g) DMC installation on second node (with DRS, Logstash, and DMC Statistics)
 - name: Install and configure DMC (Node 2)
@@ -333,13 +333,13 @@
   roles:
     - dmc
     - drs
-    - "{{ 'logstash_oss' if stack_type == 'opensearch' else 'logstash' }}"
+    - "{{ 'logstash_oss' if (stack_type | default('elk')) == 'opensearch' else 'logstash' }}"
     - elkstatistic
   tags:
     - dmc2
   pre_tasks:
     - import_tasks: tasks/install_logstash_opensearch_plugin.yml
-      when: stack_type | default('') == 'opensearch'
+      when: (stack_type | default('elk')) == 'opensearch'
 
 # h) MMG installation
 - name: Install and configure MMG
@@ -416,12 +416,12 @@
           ================================================
 
           Next steps:
-          1. Open browser and go to: http://{{ ansible_host }}:50420
+          1. Open browser and go to: http://{{ ansible_host }}:{{ service_ports.sls_http | default(50420) }}
           2. Upload all required licenses via the web interface
           3. Verify SLS is working properly
           4. Run the remaining services installation:
 
-             make install-tag TAG=sicap-services
+             make install-mmg-module
 
           Press ENTER when licenses are uploaded and SLS is verified...
       when: inventory_hostname in groups['sls']

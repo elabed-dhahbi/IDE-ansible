@@ -51,7 +51,7 @@
   tags: [sls, install, java, permissions]
 
 - name: Verify Java installation
-  command: "/usr/j2se/openlogic-openjdk-8u412-b08-linux-x32/bin/java -version"
+  command: "{{ sls_java_home }}/bin/java -version"
   register: java_version_check
   become: yes
   tags: [sls, install, java, verify]

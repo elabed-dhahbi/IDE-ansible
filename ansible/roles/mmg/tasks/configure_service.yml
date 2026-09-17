@@ -31,7 +31,7 @@
     line: "{{ item.line }}"
     backup: yes
   loop:
-    - { regexp: "^export JAVA_HOME=.*", line: "export JAVA_HOME=/usr/j2se/openlogic-openjdk-8u412-b08-linux-x32" }
+    - { regexp: "^export JAVA_HOME=.*", line: "export JAVA_HOME={{ mmg_java_home }}" }
     - { regexp: "^export PATH=.*JAVA_HOME.*", line: "export PATH=$JAVA_HOME/bin:$PATH" }
   become: yes
   when: java8_check.stat.exists
@@ -50,7 +50,7 @@
   tags: [mmg, service, java]
 
 - name: Check Java 8 version directly
-  shell: "/usr/j2se/openlogic-openjdk-8u412-b08-linux-x32/bin/java -version"
+  shell: "{{ mmg_java_home }}/bin/java -version"
   become_user: "{{ mmg_user }}"
   become: yes
   register: java8_direct_version
@@ -82,7 +82,7 @@
     line: "{{ item.line }}"
     backup: yes
   loop:
-    - { regexp: "^JAVA_HEAP_SIZE=.*", line: "JAVA_HEAP_SIZE=2048" }
+    - { regexp: "^JAVA_HEAP_SIZE=.*", line: "JAVA_HEAP_SIZE={{ mmg_java_heap_size }}" }
     - { regexp: "^STARTED_TIMEOUT=.*", line: "STARTED_TIMEOUT=300" }
   become: yes
   tags: [mmg, service, env]
@@ -122,28 +122,28 @@
 
 - name: Display all ctl scripts found
   debug:
-    msg: "All ctl scripts found: {{ ctl_script_full.matched | map(attribute='path') | list }}"
+    msg: "All ctl scripts found: {{ ctl_script_full.files | default([]) | map(attribute='path') | list }}"
   tags: [mmg, service, find]
 
 - name: Start MMG service using SICAP ctl
-  shell: "{{ item }}/ctl start all"
+  shell: "{{ item }} start all"
   become_user: "{{ mmg_user }}"
   become: yes
   args:
-    chdir: "{{ item }}"
-  loop: "{{ ctl_script_full.matched | map(attribute='path') | list }}"
-  when: ctl_script_full.matched | length > 0
+    chdir: "{{ item | dirname }}"
+  loop: "{{ ctl_script_full.files | default([]) | map(attribute='path') | list }}"
+  when: (ctl_script_full.matched | default(0) | int) > 0
   tags: [mmg, service, start]
 
 - name: Check MMG service status
-  shell: "{{ item }}/ctl status all"
+  shell: "{{ item }} status all"
   become_user: "{{ mmg_user }}"
   become: yes
   args:
-    chdir: "{{ item }}"
-  loop: "{{ ctl_script_full.matched | map(attribute='path') | list }}"
+    chdir: "{{ item | dirname }}"
+  loop: "{{ ctl_script_full.files | default([]) | map(attribute='path') | list }}"
   register: mmg_status
-  when: ctl_script_full.matched | length > 0
+  when: (ctl_script_full.matched | default(0) | int) > 0
   tags: [mmg, service, status]
 
 - name: Display MMG service status
@@ -155,24 +155,28 @@
   shell: "cd {{ mmg_current_dir }} && ./bin/mmg start"
   become_user: "{{ mmg_user }}"
   become: yes
-  when: ctl_script_full.matched is defined and ctl_script_full.matched | length == 0
+  when: (ctl_script_full.matched | default(0) | int) == 0
   register: manual_start_result
   tags: [mmg, service, manual_start]
 
 - name: Display manual start result
   debug:
     msg: "Manual start result: {{ manual_start_result.stdout_lines if manual_start_result.stdout_lines is defined else manual_start_result }}"
-  when: ctl_script_full.matched | length == 0
+  when: (ctl_script_full.matched | default(0) | int) == 0
   tags: [mmg, service, manual_start]
 
-- name: Recreate MMG user with plain text password
-  postgresql_user:
-    name: "{{ mmg_config.database.user }}"
-    password: "{{ mmg_config.database.password }}"
-    encrypted: no
-    state: present
-  become_user: postgres
-  become: yes
+# The MMG database role is created by db_postgres on [postgres], not on this
+# host. postgresql_user with become_user: postgres used to run here and fail
+# because lpmmg1p has no local cluster. Prove the login over TCP instead.
+- name: Wait for PostgreSQL before MMG starts
+  wait_for:
+    host: "{{ mmg_config.database.host }}"
+    port: "{{ mmg_config.database.port }}"
+    timeout: 60
+    msg: >-
+      PostgreSQL is not listening on {{ mmg_config.database.host }}:{{ mmg_config.database.port }}.
+      The mmg role is created by the postgres play. Run that first
+      (make install-dmc-module-e already did if it reached DMC).
   tags: [mmg, service, postgres]
 
 - name: Wait for MMG to be ready
